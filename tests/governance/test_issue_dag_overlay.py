@@ -9,6 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).parents[2]
 BASELINE = ROOT / "docs" / "baseline"
 OVERLAY = ROOT / "docs" / "governance" / "errata" / "0001.json"
+OVERLAY_2 = ROOT / "docs" / "governance" / "errata" / "0002.json"
+OVERLAYS = (OVERLAY, OVERLAY_2)
 REGISTRY = ROOT / "docs" / "governance" / "issue-dag-overlays.jsonl"
 
 BASELINE_DIGESTS = {
@@ -17,7 +19,27 @@ BASELINE_DIGESTS = {
     "issue_dag": "b12d22906422da41a69e98b16e93f81c86fe570dc81fb5c8e17b5999920d4be4",
 }
 OVERLAY_DIGEST = "bcc4c53aa397f1352ed0196dd091fc49fe0835f410addb3a0ecc799ca911b662"
+OVERLAY_DIGESTS = (
+    OVERLAY_DIGEST,
+    "2ba62da46e29b1c6cde8dad35c00dca793540df15ae7404366a464f35371a7b2",
+)
+OVERLAY_SEMANTIC_DIGESTS = (
+    "c6f1279f8f0c458c62da8ceb08bd8bf3b692313aad5be81424ded5cf2a9af934",
+    "eb33970821c5c24c7b4b13ad7d1ab048be424ad1755c434d6428e35c847b3ca0",
+)
 APPROVAL_ID = "chat-2026-07-17-gov-001-issue-dag-erratum-0001"
+APPROVAL_IDS = (
+    APPROVAL_ID,
+    "chat-2026-07-18-gov-002-issue-dag-erratum-0002",
+)
+RECORD_LINE_DIGESTS = (
+    "e95dbb1776e97f00da2a3d2f93d17df15858874668fdf90540891a9266729ba8",
+    "ec0ad09daa8895a52602b457fa00e68e82d9be989bcc87346abfda5b4db4b013",
+)
+RECORD_DIGESTS = (
+    "watari-overlay-record-v1:5312664adbce460a64e5f54fdcedbc0d84c0b7fb666339a45665b235b0302747",
+    "watari-overlay-record-v1:607dc1957d76fc1dcc4c535858f0b1c76dee3f57b57aa4fe24e764a1670a2a8f",
+)
 RECORD_TOKEN = re.compile(r"^watari-overlay-record-v1:[0-9a-f]{64}$")
 AGENTS_SHA256 = "7b52c4d016b538fb8eff472da4b17ce0499400a393e68ddc9132273273e6c19b"
 
@@ -95,6 +117,12 @@ TEST_CONTRACT_KEYS = {
 
 def sha256_bytes(value):
     return hashlib.sha256(value).hexdigest()
+
+
+def canonical_json(value):
+    return json.dumps(
+        value, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
 
 
 def strict_json(text):
@@ -346,16 +374,114 @@ def validate(overlay, record):
     return errors
 
 
+def validate_chain(overlays, records):
+    """Validate the exact approved cumulative overlays and their registry chain."""
+    errors = set()
+    if type(overlays) is not list or len(overlays) != 2:
+        return {"chain.overlay_count"}
+    if type(records) is not list or len(records) != 2:
+        return {"chain.record_count"}
+    if not all(type(value) is dict for value in overlays):
+        return {"chain.overlay_type"}
+    if not all(type(value) is dict for value in records):
+        return {"chain.record_type"}
+
+    errors.update("0001:" + error for error in validate(overlays[0], records[0]))
+    expected_ids = ("issue-dag-erratum-0001", "issue-dag-erratum-0002")
+    expected_paths = (
+        "docs/governance/errata/0001.json",
+        "docs/governance/errata/0002.json",
+    )
+    expected_baseline = {
+        key + "_sha256": value for key, value in BASELINE_DIGESTS.items()
+    }
+    for index, (overlay, record) in enumerate(zip(overlays, records)):
+        sequence = index + 1
+        if type(overlay.get("schema_version")) is not int:
+            errors.add(f"overlay{sequence}.schema_version_type")
+        if type(overlay.get("sequence")) is not int:
+            errors.add(f"overlay{sequence}.sequence_type")
+        if type(record.get("schema_version")) is not int:
+            errors.add(f"record{sequence}.schema_version_type")
+        if type(record.get("sequence")) is not int:
+            errors.add(f"record{sequence}.sequence_type")
+        if sha256_bytes(canonical_json(overlay)) != OVERLAY_SEMANTIC_DIGESTS[index]:
+            errors.add(f"overlay{sequence}.closed_semantics")
+        if set(record) != REGISTRY_KEYS:
+            errors.add(f"record{sequence}.schema")
+            continue
+        if sha256_bytes(canonical_json(record)) != RECORD_LINE_DIGESTS[index]:
+            errors.add(f"record{sequence}.closed_semantics")
+        expected_record = {
+            "schema_version": 1,
+            "sequence": sequence,
+            "overlay_id": expected_ids[index],
+            "overlay_path": expected_paths[index],
+            "overlay_sha256": OVERLAY_DIGESTS[index],
+            "baseline_sha256": BASELINE_DIGESTS,
+            "previous_record_digest": None if index == 0 else RECORD_DIGESTS[0],
+            "owner": "BINGE-japan",
+            "approval_id": APPROVAL_IDS[index],
+            "approval_evidence_locator": (
+                "current-thread:user-message:" + APPROVAL_IDS[index]
+            ),
+            "record_digest": RECORD_DIGESTS[index],
+        }
+        if record != expected_record:
+            errors.add(f"record{sequence}.exact")
+        token = record.get("record_digest")
+        if type(token) is not str or not RECORD_TOKEN.fullmatch(token):
+            errors.add(f"record{sequence}.digest_type")
+        elif token != record_digest(record):
+            errors.add(f"record{sequence}.digest_frame")
+        if overlay.get("schema_version") != 1:
+            errors.add(f"overlay{sequence}.schema_version")
+        if overlay.get("sequence") != sequence:
+            errors.add(f"overlay{sequence}.sequence")
+        if overlay.get("overlay_id") != expected_ids[index]:
+            errors.add(f"overlay{sequence}.id")
+        if overlay.get("baseline") != expected_baseline:
+            errors.add(f"overlay{sequence}.baseline")
+        if record.get("overlay_id") != overlay.get("overlay_id"):
+            errors.add(f"record{sequence}.overlay_id_binding")
+
+    for field in ("overlay_id", "overlay_path", "overlay_sha256", "approval_id"):
+        values = [record.get(field) for record in records]
+        if not all(type(value) is str and value for value in values):
+            errors.add("chain.nonempty:" + field)
+        elif len(set(values)) != 2:
+            errors.add("chain.unique:" + field)
+    if [overlay.get("sequence") for overlay in overlays] != [1, 2]:
+        errors.add("chain.overlay_sequence")
+    if [record.get("sequence") for record in records] != [1, 2]:
+        errors.add("chain.record_sequence")
+    if records[0].get("previous_record_digest") is not None:
+        errors.add("chain.first_previous")
+    if records[1].get("previous_record_digest") != records[0].get("record_digest"):
+        errors.add("chain.previous")
+    if records[0].get("approval_id") == records[1].get("approval_id"):
+        errors.add("chain.approval_reuse")
+    return errors
+
+
 class IssueDagOverlayTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.overlay_raw = OVERLAY.read_bytes()
-        cls.overlay = strict_json(cls.overlay_raw.decode("utf-8"))
-        lines = REGISTRY.read_text(encoding="utf-8").splitlines()
-        if len(lines) != 1 or not lines[0]:
-            raise AssertionError("registry must contain exactly one record")
-        cls.registry_line = lines[0]
-        cls.record = strict_json(lines[0])
+        actual_errata = tuple(sorted(OVERLAY.parent.glob("*.json")))
+        if actual_errata != OVERLAYS:
+            raise AssertionError("errata directory must contain exactly 0001 and 0002")
+        cls.overlay_raws = [path.read_bytes() for path in OVERLAYS]
+        cls.overlays = [strict_json(raw.decode("utf-8")) for raw in cls.overlay_raws]
+        registry_raw = REGISTRY.read_bytes()
+        if not registry_raw.endswith(b"\n") or registry_raw.endswith(b"\n\n"):
+            raise AssertionError("registry must have exactly one terminal LF")
+        raw_lines = registry_raw[:-1].split(b"\n")
+        if len(raw_lines) != 2 or any(not line for line in raw_lines):
+            raise AssertionError("registry must contain exactly two non-empty records")
+        cls.registry_lines = [line.decode("utf-8") for line in raw_lines]
+        cls.records = [strict_json(line) for line in cls.registry_lines]
+        cls.overlay_raw, cls.overlay = cls.overlay_raws[0], cls.overlays[0]
+        cls.registry_line, cls.record = cls.registry_lines[0], cls.records[0]
 
     def test_t_gov_baseline_digest(self):
         paths = {
@@ -376,21 +502,24 @@ class IssueDagOverlayTests(unittest.TestCase):
         )
 
     def test_t_gov_overlay_closed(self):
-        self.assertEqual(sha256_bytes(self.overlay_raw), OVERLAY_DIGEST)
-        self.assertEqual(validate(self.overlay, self.record), set())
+        for raw, expected in zip(self.overlay_raws, OVERLAY_DIGESTS):
+            self.assertTrue(raw.endswith(b"\n"))
+            self.assertFalse(raw.endswith(b"\n\n"))
+            self.assertEqual(sha256_bytes(raw), expected)
+        self.assertEqual(validate_chain(self.overlays, self.records), set())
 
     def test_t_gov_approval_binding(self):
-        self.assertEqual(self.record["approval_id"], APPROVAL_ID)
-        self.assertEqual(self.record["owner"], "BINGE-japan")
-        self.assertEqual(self.record["record_digest"], record_digest(self.record))
+        for index, (line, record) in enumerate(
+            zip(self.registry_lines, self.records)
+        ):
+            self.assertEqual(record["approval_id"], APPROVAL_IDS[index])
+            self.assertEqual(record["owner"], "BINGE-japan")
+            self.assertEqual(record["record_digest"], record_digest(record))
+            self.assertEqual(line.encode("utf-8"), canonical_json(record))
+            self.assertEqual(sha256_bytes(line.encode("utf-8")), RECORD_LINE_DIGESTS[index])
         self.assertEqual(
-            self.registry_line,
-            json.dumps(
-                self.record,
-                ensure_ascii=True,
-                separators=(",", ":"),
-                sort_keys=True,
-            ),
+            self.records[1]["previous_record_digest"],
+            self.records[0]["record_digest"],
         )
 
     def test_t_gov_design_test_scope(self):
@@ -415,6 +544,20 @@ class IssueDagOverlayTests(unittest.TestCase):
             patches["D001-R1"]["changed_paths"],
             ["tests/contracts/test_requirements_trace.py"],
         )
+        repairs = {
+            patch["ticket_id"]: patch for patch in self.overlays[1]["patches"]
+        }
+        self.assertEqual(set(repairs), {"GOV-002", "D001-R2", "D002-R1"})
+        self.assertEqual(
+            repairs["GOV-002"]["changed_paths"],
+            [
+                "docs/governance/errata/0002.json",
+                "docs/governance/issue-dag-overlays.jsonl",
+                "tests/governance/test_issue_dag_overlay.py",
+            ],
+        )
+        self.assertEqual(repairs["D001-R2"]["test_contract"]["expected_test_count"], 8)
+        self.assertEqual(repairs["D002-R1"]["test_contract"]["expected_test_count"], 7)
 
     def test_t_gov_mutation_corpus(self):
         mutations = []
@@ -453,6 +596,49 @@ class IssueDagOverlayTests(unittest.TestCase):
 
         for overlay, record in mutations:
             self.assertTrue(validate(overlay, record))
+
+        def overlay_case(path, value):
+            overlays = copy.deepcopy(self.overlays)
+            target = overlays[1]
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = value
+            return overlays, copy.deepcopy(self.records)
+
+        def record_case(index, field, value):
+            records = copy.deepcopy(self.records)
+            records[index][field] = value
+            return copy.deepcopy(self.overlays), records
+
+        chain_mutations = [
+            overlay_case(("sequence",), True),
+            overlay_case(("patches",), list(reversed(self.overlays[1]["patches"]))),
+            overlay_case(("patches", 0, "changed_paths"), ["src/**"]),
+            overlay_case(("patches", 0, "review_class"), "H"),
+            overlay_case(("patches", 0, "network"), "allowed"),
+            overlay_case(
+                ("patches", 0, "diff_guideline_exception", "maximum_added_lines"),
+                651,
+            ),
+            overlay_case(
+                ("patches", 1, "mapping_contract", "sha256"), "0" * 64
+            ),
+            record_case(1, "approval_id", APPROVAL_IDS[0]),
+            record_case(1, "previous_record_digest", RECORD_DIGESTS[1]),
+            record_case(1, "overlay_path", self.records[0]["overlay_path"]),
+            record_case(1, "sequence", 2.0),
+            record_case(1, "overlay_sha256", "0" * 64),
+        ]
+        missing = copy.deepcopy(self.overlays)
+        del missing[1]["activation"]
+        chain_mutations.append((missing, copy.deepcopy(self.records)))
+        extra = copy.deepcopy(self.overlays)
+        extra[1]["unknown"] = True
+        chain_mutations.append((extra, copy.deepcopy(self.records)))
+        chain_mutations.append((list(reversed(self.overlays)), self.records))
+        chain_mutations.append((self.overlays, list(reversed(self.records))))
+        for overlays, records in chain_mutations:
+            self.assertTrue(validate_chain(overlays, records))
 
         with self.assertRaises(ValueError):
             strict_json('{"sequence":1,"sequence":2}')
