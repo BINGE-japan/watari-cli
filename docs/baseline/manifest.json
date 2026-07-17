@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "approval": {
+    "approval_id": "chat-2026-07-17-watari-cli-implementation-start",
+    "owner": "BINGE-japan",
+    "repository": "watari-cli",
+    "visibility": "private",
+    "default_branch": "main"
+  },
+  "created_at": "2026-07-17T07:47:53Z",
+  "source": {
+    "repository": "BINGE-japan/new-watari",
+    "commit": "a435ea35e98a84ec5e4f04bcff0fdd1e560dc8f8"
+  },
+  "files": {
+    "implementation-plan.md": "sha256:3cc65da6a333271d6efed00cdf13f419249d40692126c87ae02096f6bfb6d4de",
+    "issue-dag.md": "sha256:b12d22906422da41a69e98b16e93f81c86fe570dc81fb5c8e17b5999920d4be4"
+  }
+}
