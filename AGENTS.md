@@ -3,6 +3,24 @@
 This repository contains the installable Watari CLI product. Work follows the
 frozen baseline in `docs/baseline/` and its issue DAG.
 
+## Execution governance
+
+The baseline files remain immutable. Narrow execution-metadata corrections are
+active only when listed in `docs/governance/issue-dag-overlays.jsonl`, bound to
+the exact baseline and overlay byte digests, and explicitly approved by the
+owner named in the registry record. The effective order is:
+
+1. this file's safety boundary and implementation discipline;
+2. the frozen parent implementation plan;
+3. only the fields explicitly enumerated by a validated, activated overlay;
+4. every unmodified field of the frozen issue DAG.
+
+Unknown overlays, fields, operations, wildcard paths, sequence gaps, broken
+hash chains, missing approvals, or digest mismatches fail closed. An overlay
+cannot expand network, credential, live-read, external-write, or review
+authority. `tests/governance/test_issue_dag_overlay.py` is the executable
+validator; an unregistered erratum file has no authority.
+
 ## Safety boundary
 
 - Never modify `~/.claude`, `~/.codex`, `~/.pi`, the live Watari memory tree,
