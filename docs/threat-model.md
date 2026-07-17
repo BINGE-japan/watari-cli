@@ -2,8 +2,8 @@
 
 Status: D005 design freeze
 Issue: D005
-Dependency: D001
-Baseline/dependency SHA: `0d4f062ef8ecd567e977838f90c3330563c7d140`
+Dependencies: D001, D003
+Dependency SHAs: D001 `0d4f062ef8ecd567e977838f90c3330563c7d140`; D003 `dd753a559571f09f1c6323b1342946ff62fe842c`
 Normative route matrix: [`docs/adr/005-data-routes.md`](adr/005-data-routes.md)
 
 この文書は、Watari CLIがどのactorに何を見せ、どの境界で拒否するかを固定する。外部modelの
@@ -79,11 +79,14 @@ directions: egress selects endpoint and sent bytes; ingress accepts only the dec
 trust class and never grants write authority.
 
 The policy digest is a `watari-route-policy-v1:` D003 WATARI typed-frame digest over the explicit
-closed projection of every top-level, route, and nested policy leaf; only the self digest and the
-explicit `test_vectors` subtree are excluded. Each route's golden fingerprint is computed with the
-imported D003 `context_fingerprint` over exact sample bytes, while `sent_bytes_digest` is a
-separate `watari-wire-bytes-v1:` typed digest over those bytes. A mutation of any included leaf
-must produce a different policy digest.
+closed projection of every top-level, route, and nested policy leaf. The verifier's code-owned
+`POLICY_EXCLUDED_PATHS` is the sole exclusion authority; it does not read exclusions from the
+matrix. The matching declaration in `projection_policy` is itself covered by the policy digest.
+Exact exclusions are limited to the policy self-digests, the complete `test_vectors` subtree,
+context goldens, wire digests, and connector contract digests. Each route's golden fingerprint is
+computed with the imported D003 `context_fingerprint` over exact sample bytes, while
+`sent_bytes_digest` is a separate `watari-wire-bytes-v1:` typed digest over those bytes. A mutation
+of any included leaf must produce a different policy digest.
 
 ## Closed mutation and runtime capability policy
 
@@ -100,31 +103,48 @@ model runtimes; no state or key is mounted.
 
 ## Session receipt provenance
 
-Every Watari-owned session receipt records session lineage, a Watari-launch attestation, the
-origin route/model/policy identity, role provenance, and source binding. Only a local user-authored
-turn may be the primary evidence for a trusted-dream candidate. Assistant/provider/tool output is
-unverified context or evidence and cannot become primary evidence, a canonical event, or a
-checkpoint advance without local validation and review.
+The receipt capture route and the origin launch route are distinct identities. The verifier receives
+independently observed turn ID, capture route ID, origin launch route ID, exact bytes, semantic role,
+source, session lineage, and Watari-launch attestation. It resolves both IDs from the trusted route
+matrix. Provider, model, origin runtime, and policy digest are derived from those trusted records;
+caller-supplied identity strings are not accepted.
 
-Each turn receipt also binds its exact bytes digest, role, source, session lineage, Watari launch
-attestation, and origin route/model/policy digest under the closed `watari.turn-receipt.v1`
-schema. Provider ingress accepts no `user` role; only local session-receipt routes accept a user
-role as primary evidence. Assistant, system, tool, and provider output cannot be re-labelled as
-that role.
+The capture route must have `session_receipt.required=true`, the semantic role must be one of
+`user`, `assistant`, `tool`, or `system`, and the origin route must occur in that capture route's
+explicit allowlist. Provider is a source (`provider-output`), not a semantic role. The only allowed
+role/source pairs are `user/local-user-turn`, `assistant/local-assistant-turn`,
+`assistant/provider-output`, `tool/local-tool-turn`, and `system/local-system-turn`. Provider output
+is always nonprimary; only `user/local-user-turn` on a qualified receipt route can be primary.
+The `evidence` value on a non-receipt route's ingress policy is a route-level evidence class, not a
+turn-receipt semantic role. Disabled connector receipt-capture fields are `not-applicable`.
 
-Connector contract digests are independent `watari-connector-v1:` typed digests over the closed
-contract body without its own digest. The body fixes GET-only method paths, read-only state, source
-policy, and credential scope; POST, PUT, PATCH, DELETE, scope drift, and credential drift fail
-closed.
+Each closed `watari.turn-receipt.v1` record binds the independently observed turn and route IDs,
+exact bytes, role/source, session lineage, launch attestation, and origin route/provider/model/policy.
+The launch attestation digest binds the capture route plus the actual origin route, origin runtime,
+and policy. The origin digest binds the actual origin route, provider, model, and policy. Relabeling,
+unknown routes, external model or connector routes used as capture routes, empty inputs, and any
+digest mismatch fail closed.
+
+Codex capture is allowlisted only to `route.codex.full-watari.v1`; Pi high-trust capture is
+allowlisted only to `route.pi.openai-codex.trusted-dream.v1`. D005 has no qualified Claude model
+route. The Claude receipt route may record capture-only local roles with its own route as a local
+origin marker, but that marker does not prove a real model origin. Claude `provider-output` remains
+`deny-until-qualified-model-route`.
 
 ## Connector read-only contract
 
 Each enabled connector binds an opaque non-PII `connector_instance_id` to its source policy,
 allowed method/path set, read-only credential scope, and contract digest. Absolute paths, names,
 emails, credentials, and tokens are forbidden in the instance identifier. The allowed method/path
-set contains read methods only; write methods are rejected before network use. Source visibility,
-connector contract digest, route policy digest, and checkpoint lineage must match before evidence
-is accepted.
+set contains read methods only; write methods are rejected before network use. The independent
+`watari-connector-v1:` contract digest covers the closed body without its own digest, including
+`checkpoint_lineage_binding=required-at-D008-evidence-boundary`.
+
+D005 defines only that static checkpoint-lineage requirement. It does not claim that an actual
+checkpoint lineage was observed or verified. Connector evidence remains unqualified until D008
+implements a verifier that compares independently observed lineage at the evidence boundary.
+POST, PUT, PATCH, DELETE, source-policy drift, credential-scope drift, and contract drift fail
+closed.
 
 ## Context route selection and project layer
 

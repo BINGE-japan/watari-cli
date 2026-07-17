@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 ADR = Path(__file__).parents[2] / "docs" / "adr" / "005-data-routes.md"
+
 EXPECTED_ROUTE_IDS = {
     "route.codex.full-watari.v1",
     "route.pi.openai-codex.trusted-dream.v1",
@@ -18,9 +19,84 @@ EXPECTED_ROUTE_IDS = {
     "route.session-receipt.pi-high-trust.v1",
     "route.connector.read-only.v1",
 }
+RECEIPT_ROUTE_IDS = {
+    "route.session-receipt.claude.v1",
+    "route.session-receipt.codex.v1",
+    "route.session-receipt.pi-high-trust.v1",
+}
+EXPECTED_ORIGINS = {
+    "route.session-receipt.claude.v1": ["route.session-receipt.claude.v1"],
+    "route.session-receipt.codex.v1": ["route.codex.full-watari.v1"],
+    "route.session-receipt.pi-high-trust.v1": [
+        "route.pi.openai-codex.trusted-dream.v1"
+    ],
+}
+SEMANTIC_ROLES = {"user", "assistant", "tool", "system"}
+SOURCES = {
+    "local-user-turn",
+    "local-assistant-turn",
+    "provider-output",
+    "local-tool-turn",
+    "local-system-turn",
+}
+ROLE_SOURCE_PAIRS = {
+    ("user", "local-user-turn"),
+    ("assistant", "local-assistant-turn"),
+    ("assistant", "provider-output"),
+    ("tool", "local-tool-turn"),
+    ("system", "local-system-turn"),
+}
+LOCAL_ROLE_SOURCE = {
+    "user": "local-user-turn",
+    "assistant": "local-assistant-turn",
+    "tool": "local-tool-turn",
+    "system": "local-system-turn",
+}
 VISIBILITIES = {"local-only", "trusted-model", "low-risk-model"}
-CAPABILITY_KEYS = {"mount", "retrieval", "shell", "file", "project", "external_write", "process", "network"}
-MUTATION_KEYS = {"canonical_write", "profile_write", "checkpoint_write", "connector_write", "external_write", "credential_write", "project_layer_write"}
+CAPABILITY_KEYS = {
+    "mount",
+    "retrieval",
+    "shell",
+    "file",
+    "project",
+    "external_write",
+    "process",
+    "network",
+}
+MUTATION_KEYS = {
+    "canonical_write",
+    "profile_write",
+    "checkpoint_write",
+    "connector_write",
+    "external_write",
+    "credential_write",
+    "project_layer_write",
+}
+RECEIPT_KEYS = {
+    "schema_version",
+    "turn_id",
+    "route_id",
+    "origin_route_id",
+    "bytes_digest",
+    "role",
+    "source",
+    "session_lineage_digest",
+    "watari_launch_attestation_digest",
+    "origin_route_provider_model_policy_digest",
+    "primary_evidence",
+}
+RECEIPT_VECTOR_KEYS = {
+    "observed_turn_id",
+    "observed_capture_route_id",
+    "observed_origin_route_id",
+    "observed_bytes_hex",
+    "observed_role",
+    "observed_source",
+    "observed_session_lineage",
+    "observed_launch_attestation",
+    "receipt",
+}
+
 ROUTE_TOKEN = re.compile(r"^watari-route-policy-v1:[0-9a-f]{64}$")
 CONTEXT_TOKEN = re.compile(r"^watari-context-effective-v1:[0-9a-f]{64}$")
 WIRE_TOKEN = re.compile(r"^watari-wire-bytes-v1:[0-9a-f]{64}$")
@@ -28,57 +104,205 @@ LINEAGE_TOKEN = re.compile(r"^watari-lineage-v1:[0-9a-f]{64}$")
 ATTESTATION_TOKEN = re.compile(r"^watari-attestation-v1:[0-9a-f]{64}$")
 ORIGIN_TOKEN = re.compile(r"^watari-origin-v1:[0-9a-f]{64}$")
 CONNECTOR_TOKEN = re.compile(r"^watari-connector-v1:[0-9a-f]{64}$")
+SOURCE_POLICY_TOKEN = re.compile(r"^watari-source-policy-v1:[0-9a-f]{64}$")
+
 TRACE = {
     "route.codex.full-watari.v1": {"MX-001", "RQ-002", "RQ-004", "AC-002"},
-    "route.pi.openai-codex.trusted-dream.v1": {"MX-002", "RQ-004", "RQ-006", "AC-006"},
-    "route.pi.openrouter.low-risk-utility.v1": {"MX-003", "RQ-004", "RQ-009", "NM-004", "AC-009"},
-    "route.session-receipt.claude.v1": {"MX-004", "RQ-002", "RQ-004", "AC-002", "AC-004"},
-    "route.session-receipt.codex.v1": {"MX-004", "RQ-002", "RQ-004", "AC-002", "AC-004"},
-    "route.session-receipt.pi-high-trust.v1": {"MX-004", "RQ-002", "RQ-004", "AC-002", "AC-004"},
+    "route.pi.openai-codex.trusted-dream.v1": {
+        "MX-002",
+        "RQ-004",
+        "RQ-006",
+        "AC-006",
+    },
+    "route.pi.openrouter.low-risk-utility.v1": {
+        "MX-003",
+        "RQ-004",
+        "RQ-009",
+        "NM-004",
+        "AC-009",
+    },
+    "route.session-receipt.claude.v1": {
+        "MX-004",
+        "RQ-002",
+        "RQ-004",
+        "AC-002",
+        "AC-004",
+    },
+    "route.session-receipt.codex.v1": {
+        "MX-004",
+        "RQ-002",
+        "RQ-004",
+        "AC-002",
+        "AC-004",
+    },
+    "route.session-receipt.pi-high-trust.v1": {
+        "MX-004",
+        "RQ-002",
+        "RQ-004",
+        "AC-002",
+        "AC-004",
+    },
     "route.connector.read-only.v1": {"MX-005", "RQ-005", "AC-005"},
 }
-TRACE_FULL = {route_id: values | {"SB-001", "SB-003", "SB-004"} for route_id, values in TRACE.items()}
+TRACE_FULL = {
+    route_id: values | {"SB-001", "SB-003", "SB-004"}
+    for route_id, values in TRACE.items()
+}
 EXACT = {
-    "route.codex.full-watari.v1": ("provider.openai.codex-cli.v1", "model.codex.full-watari.v1", "endpoint.codex.approved.v1", "runtime.codex-dedicated", "trusted-model", ["profile.explicit", "memory.trusted-projection", "user.turn", "source.verified-projection"]),
-    "route.pi.openai-codex.trusted-dream.v1": ("provider.openai.api.v1", "model.openai-codex.trusted-dream.v1", "endpoint.openai.exact.v1", "runtime.pi-openai-codex-dedicated", "trusted-model", ["user.turn", "source.verified-projection", "memory.dream-candidate"]),
-    "route.pi.openrouter.low-risk-utility.v1": ("provider.openrouter.api.v1", "model.openrouter.low-risk-utility.v1", "endpoint.openrouter.exact.v1", "runtime.openrouter-dedicated", "low-risk-model", ["user.turn", "utility.task.minimal"]),
-    "route.session-receipt.claude.v1": ("provider.local-session.v1", "model.none.v1", "endpoint.local-only.v1", "none", "local-only", ["session.receipt"]),
-    "route.session-receipt.codex.v1": ("provider.local-session.v1", "model.none.v1", "endpoint.local-only.v1", "none", "local-only", ["session.receipt"]),
-    "route.session-receipt.pi-high-trust.v1": ("provider.local-session.v1", "model.none.v1", "endpoint.local-only.v1", "none", "local-only", ["session.receipt"]),
-    "route.connector.read-only.v1": ("provider.connector.v1", "model.none.v1", "endpoint.connector-read-only.v1", "connector-instance-scoped", "local-only", ["connector.approved-projection"]),
-}
-EXPECTED_POLICY_DIGEST = "watari-route-policy-v1:3635e7573d1b7ea269683796284ab5d63671f771b3c14c787b43b9789122f40a"
-EXPECTED_VECTORS = {
-    'route.codex.full-watari.v1': ('watari-context-effective-v1:3b30c539fb4acca5fd80adfd031bc0379bcbf7ae16446a452bbf5b63162552c9', 'watari-wire-bytes-v1:2d09d8d1a72e2840a0ae5acd9c957057a37783a404c631f0b8f33117d0e6b686', 'watari-lineage-v1:2081ab7292f5670979529d4f9ad911bdc1b8a39892deaa30762776124de2b44c', 'watari-attestation-v1:9525072f17ca01426896ce2e38d1e8b09856433615cc54e8d24650ab580b0974', 'watari-origin-v1:67e42e39690c504aea6f9f84156478203408a6b0dd62183c732a83807b8fdac9', 'watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1'),
-    'route.pi.openai-codex.trusted-dream.v1': ('watari-context-effective-v1:3e3c9b4970c8ee40a1bbf10259fd18cf45f262c82dc6b475cdccd45c8735a7ff', 'watari-wire-bytes-v1:fffc52d9651394ab7f2641724f0b7f7e8a8b3d2e981dcba4ae307be141a6cade', 'watari-lineage-v1:85fd52b50b11430ca20450cb599bd3cc0752105656c30fdc799449ee8e442f03', 'watari-attestation-v1:bb6f3e3428b4c7c128b5db7dd3e676cd067d4150aba4b91d91dda5b21580d2e4', 'watari-origin-v1:69ff29becb0c8d11edf264acd8c827b352b2cb525c9ef8e99d4ba7ceefc837f3', 'watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1'),
-    'route.pi.openrouter.low-risk-utility.v1': ('watari-context-effective-v1:1d688cd4998af26e09a5fecce2b53932fe02920cc02b88d4178e51c54e646543', 'watari-wire-bytes-v1:af87aa8b8146e9e54599928ed27f6e5054b698b995d62536b4b867d90c886f4e', 'watari-lineage-v1:de3304e1a472459698c6bf02280f76dcd38d68a0925272c336ae4d661cf0130c', 'watari-attestation-v1:0342acd6ebfc6e43c38971c95612b94992633abb94859aecd6b11f271a49b8e3', 'watari-origin-v1:423ec9f8a3702f7a1089918838cd640476a0e24d2c21e60d0b828d55cd737b6c', 'watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1'),
-    'route.session-receipt.claude.v1': ('watari-context-effective-v1:09bb7b3e52e90fef3a0e7cd361ce806cb5e09e9f86b51edc061538061f6b2cf2', 'watari-wire-bytes-v1:966920edc9320531ad765bc8cc9715f82c2b26576a71359b56b426ae59c05fda', 'watari-lineage-v1:f5b6bca251c76158c4d4f880c80eeb1d5c0573c09f3c5df3395170c7967986ee', 'watari-attestation-v1:acc7073b6860bef59ae0a1a6a6bcb6f84c65de01886778995569ed622d4dca84', 'watari-origin-v1:a5054dfa8f2fbab711627a331a0ace38108f76223d4fe00edfc0742c9a43e1f7', 'watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1'),
-    'route.session-receipt.codex.v1': ('watari-context-effective-v1:5205225905b0bd77a562ba39fbab1913cca10d61ad3edd0b357845e2d92da609', 'watari-wire-bytes-v1:4978c3f6467eda12dc85685311ffd3244350d380e13993c65b932b29b3026291', 'watari-lineage-v1:4da8d577b04d162afc5c3f25937e84b3e2ddf6edc8ac88f012cb9069db6bd166', 'watari-attestation-v1:56714f2f266637ecf7d85ab087b111bd5577917746bffc416649c360a7dde7c6', 'watari-origin-v1:16a9b80a9ba3e8e46d215927151f2b7eeb208ad90166ba35587aae9a6e2c7cc8', 'watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1'),
-    'route.session-receipt.pi-high-trust.v1': ('watari-context-effective-v1:705a384740f05aaa9df93fb03a56c12ff000e2cefdc1fce8f7d7ebe17e34a5f1', 'watari-wire-bytes-v1:e7f3a7c55ca953ca580baba635eb99345b2a842df0a77bba69d7189befa48bc8', 'watari-lineage-v1:59534dc5a444c7bf790281a75dead434087a939db2abf4d84324585feff3fee8', 'watari-attestation-v1:2366c9428fc06ddb6519bb803867de908d744eb9d6190c10729bc5ab1194e82c', 'watari-origin-v1:de40342104d38fed1a2b03bfc4af77a0c2b00b2d9ea347606ecaee7fe01bfae3', 'watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1'),
-    'route.connector.read-only.v1': ('watari-context-effective-v1:5b7117fd9cdcf7a7e3c0b4d6f97ddc148321608522e3bd99fcd1853b88d8c244', 'watari-wire-bytes-v1:9d89e1aeaa1680d4d9c2123b250890ccd6da01db6322e16cb13a4d55b6dbe745', 'watari-lineage-v1:adde0f7738e39e5ce05eb989bdcb8e5e9141aba5101b1c9cbd3cd29b17b3e61a', 'watari-attestation-v1:e5da59c32414f45882cfda0d1c488498a4d9936f09a1b4d4d4edf8888e64ad52', 'watari-origin-v1:52e55ea8f33d7fd600518ed426e9e5937685968d63e9a2012474da09a6b39e39', 'watari-connector-v1:f9e4bc1a0aa6a21aa5b003b29e53ecc30dec9d078c43051b2ca809f74309a3e2'),
+    "route.codex.full-watari.v1": (
+        "provider.openai.codex-cli.v1",
+        "model.codex.full-watari.v1",
+        "endpoint.codex.approved.v1",
+        "runtime.codex-dedicated",
+        "trusted-model",
+        ["profile.explicit", "memory.trusted-projection", "user.turn", "source.verified-projection"],
+    ),
+    "route.pi.openai-codex.trusted-dream.v1": (
+        "provider.openai.api.v1",
+        "model.openai-codex.trusted-dream.v1",
+        "endpoint.openai.exact.v1",
+        "runtime.pi-openai-codex-dedicated",
+        "trusted-model",
+        ["user.turn", "source.verified-projection", "memory.dream-candidate"],
+    ),
+    "route.pi.openrouter.low-risk-utility.v1": (
+        "provider.openrouter.api.v1",
+        "model.openrouter.low-risk-utility.v1",
+        "endpoint.openrouter.exact.v1",
+        "runtime.openrouter-dedicated",
+        "low-risk-model",
+        ["user.turn", "utility.task.minimal"],
+    ),
+    "route.session-receipt.claude.v1": (
+        "provider.local-session.v1",
+        "model.none.v1",
+        "endpoint.local-only.v1",
+        "none",
+        "local-only",
+        ["session.receipt"],
+    ),
+    "route.session-receipt.codex.v1": (
+        "provider.local-session.v1",
+        "model.none.v1",
+        "endpoint.local-only.v1",
+        "none",
+        "local-only",
+        ["session.receipt"],
+    ),
+    "route.session-receipt.pi-high-trust.v1": (
+        "provider.local-session.v1",
+        "model.none.v1",
+        "endpoint.local-only.v1",
+        "none",
+        "local-only",
+        ["session.receipt"],
+    ),
+    "route.connector.read-only.v1": (
+        "provider.connector.v1",
+        "model.none.v1",
+        "endpoint.connector-read-only.v1",
+        "connector-instance-scoped",
+        "local-only",
+        ["connector.approved-projection"],
+    ),
 }
 
-
-EXPECTED_RECEIPT_GOLDENS = {
-    'route.session-receipt.claude.v1': {
-        'user': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e636c617564652e76313a757365720a', 'lineage:route.session-receipt.claude.v1:user', 'attestation:route.session-receipt.claude.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:d4bf6c7638e77dbdace472708aa27e50cf8f08963a2b3f0323ea17c20685a899', 'watari-lineage-v1:20da8a55baa676b0adac272b60e919fad1cf604c99ae01b7e4c1e4ec252c3c8a', 'watari-attestation-v1:c87aef69ee90f62275c0dd4564f1b54f67867050a020f9169c1f9f2c372612d3', 'watari-origin-v1:a5054dfa8f2fbab711627a331a0ace38108f76223d4fe00edfc0742c9a43e1f7', True),
-        'assistant': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e636c617564652e76313a617373697374616e740a', 'lineage:route.session-receipt.claude.v1:assistant', 'attestation:route.session-receipt.claude.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:9e8b3e8cb60e54c96e0f0095a05386cff7c0ac10fe8fe9554148e561dc3ce3ef', 'watari-lineage-v1:fdddee85f6ace64322b068a03aacba715d2663181db4d0e7af359ad3328f530a', 'watari-attestation-v1:c87aef69ee90f62275c0dd4564f1b54f67867050a020f9169c1f9f2c372612d3', 'watari-origin-v1:a5054dfa8f2fbab711627a331a0ace38108f76223d4fe00edfc0742c9a43e1f7', False),
-        'tool': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e636c617564652e76313a746f6f6c0a', 'lineage:route.session-receipt.claude.v1:tool', 'attestation:route.session-receipt.claude.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:3d12baefb745a644cc9d4272fe0f895a49e391de71d1673341d46ac10783b09c', 'watari-lineage-v1:5f4577136dccd27e5c4e60f4c391620709397bcc93aea3a4c4bd7a0ffdca9816', 'watari-attestation-v1:c87aef69ee90f62275c0dd4564f1b54f67867050a020f9169c1f9f2c372612d3', 'watari-origin-v1:a5054dfa8f2fbab711627a331a0ace38108f76223d4fe00edfc0742c9a43e1f7', False),
-        'system': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e636c617564652e76313a73797374656d0a', 'lineage:route.session-receipt.claude.v1:system', 'attestation:route.session-receipt.claude.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:1834893827e4e923263a9312a0a877f6d88ec956153f3678d8ca7a1fb9e72eb5', 'watari-lineage-v1:1deda292d2e59f1dbd7a92442ba88cafcf70bd059961ea4719dcd853709b5184', 'watari-attestation-v1:c87aef69ee90f62275c0dd4564f1b54f67867050a020f9169c1f9f2c372612d3', 'watari-origin-v1:a5054dfa8f2fbab711627a331a0ace38108f76223d4fe00edfc0742c9a43e1f7', False),
-    },
-    'route.session-receipt.codex.v1': {
-        'user': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e636f6465782e76313a757365720a', 'lineage:route.session-receipt.codex.v1:user', 'attestation:route.session-receipt.codex.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:edac1a991b619cd24f552be61acc5dde4c87312d6a8dcb5262df34a68c4c98ff', 'watari-lineage-v1:ff40b7b36f2da546677a885d205f9f65f293348f5571c5c880e7d44985a34634', 'watari-attestation-v1:00414eba310a4e03f90275fca55d8fae4a972f1cc7d1f7d8d718c7bc3563e4a5', 'watari-origin-v1:16a9b80a9ba3e8e46d215927151f2b7eeb208ad90166ba35587aae9a6e2c7cc8', True),
-        'assistant': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e636f6465782e76313a617373697374616e740a', 'lineage:route.session-receipt.codex.v1:assistant', 'attestation:route.session-receipt.codex.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:61c65ed425f3f9317c8b7015dc4be9822b27c7294e7fd5f8bbf732c7dd7e9425', 'watari-lineage-v1:088f82ba958b53f6fe8225c023f82bb63d94469c5675c4ba2c27b3d8c1fc27c8', 'watari-attestation-v1:00414eba310a4e03f90275fca55d8fae4a972f1cc7d1f7d8d718c7bc3563e4a5', 'watari-origin-v1:16a9b80a9ba3e8e46d215927151f2b7eeb208ad90166ba35587aae9a6e2c7cc8', False),
-        'tool': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e636f6465782e76313a746f6f6c0a', 'lineage:route.session-receipt.codex.v1:tool', 'attestation:route.session-receipt.codex.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:84deea574159e6549f1b11a606a213dbdab8c44a0654ed996e3b78b52cbaf132', 'watari-lineage-v1:9e6184f6d64cd5ee73e857046baad34400ca30f00b56e18303ab728dbc767413', 'watari-attestation-v1:00414eba310a4e03f90275fca55d8fae4a972f1cc7d1f7d8d718c7bc3563e4a5', 'watari-origin-v1:16a9b80a9ba3e8e46d215927151f2b7eeb208ad90166ba35587aae9a6e2c7cc8', False),
-        'system': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e636f6465782e76313a73797374656d0a', 'lineage:route.session-receipt.codex.v1:system', 'attestation:route.session-receipt.codex.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:66dce2c65d4360f063be9a4378dad38b2514a8d04675c09c07e514579f2acd25', 'watari-lineage-v1:f74749655532e5712a739dc247d23fe5ef93abb11c97cbeac007f667ab405540', 'watari-attestation-v1:00414eba310a4e03f90275fca55d8fae4a972f1cc7d1f7d8d718c7bc3563e4a5', 'watari-origin-v1:16a9b80a9ba3e8e46d215927151f2b7eeb208ad90166ba35587aae9a6e2c7cc8', False),
-    },
-    'route.session-receipt.pi-high-trust.v1': {
-        'user': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e70692d686967682d74727573742e76313a757365720a', 'lineage:route.session-receipt.pi-high-trust.v1:user', 'attestation:route.session-receipt.pi-high-trust.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:d80ce5ddbc40686e931329bf8852dd1d16749f9139ff52ece82e735c52f402e8', 'watari-lineage-v1:45dd3de1c7eb21cb015d9b90f380bd539dcc6e54d2dc173564782fe197195ce3', 'watari-attestation-v1:dccaaefe4a4de78ee548bbafe461ad596c34fb59692c502fc8feb95bd72999d8', 'watari-origin-v1:de40342104d38fed1a2b03bfc4af77a0c2b00b2d9ea347606ecaee7fe01bfae3', True),
-        'assistant': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e70692d686967682d74727573742e76313a617373697374616e740a', 'lineage:route.session-receipt.pi-high-trust.v1:assistant', 'attestation:route.session-receipt.pi-high-trust.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:8544f4774a68885d77d65aa46c893c0a802c3aa183b171140fd28ecee0cf1578', 'watari-lineage-v1:f40e1460c65ad9074769c46c9dba7e1120fc9f6ec1693d29c58b4cc027a461f6', 'watari-attestation-v1:dccaaefe4a4de78ee548bbafe461ad596c34fb59692c502fc8feb95bd72999d8', 'watari-origin-v1:de40342104d38fed1a2b03bfc4af77a0c2b00b2d9ea347606ecaee7fe01bfae3', False),
-        'tool': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e70692d686967682d74727573742e76313a746f6f6c0a', 'lineage:route.session-receipt.pi-high-trust.v1:tool', 'attestation:route.session-receipt.pi-high-trust.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:bc27c51dcf6c78490572ba3d606c8ef1901e7799763657314b1060ed9a884a2d', 'watari-lineage-v1:d3af092bbd111bef3669735d5644c2f6e2a1e80f91c79832d3c9a32ad194d76d', 'watari-attestation-v1:dccaaefe4a4de78ee548bbafe461ad596c34fb59692c502fc8feb95bd72999d8', 'watari-origin-v1:de40342104d38fed1a2b03bfc4af77a0c2b00b2d9ea347606ecaee7fe01bfae3', False),
-        'system': ('7475726e2d62797465733a726f7574652e73657373696f6e2d726563656970742e70692d686967682d74727573742e76313a73797374656d0a', 'lineage:route.session-receipt.pi-high-trust.v1:system', 'attestation:route.session-receipt.pi-high-trust.v1', 'provider.local-session.v1', 'model.none.v1', 'watari-wire-bytes-v1:1356f2543ff7c9643ef626cc62439ebe9d1dcedeb1e0d0cbc156342259b37361', 'watari-lineage-v1:fe2bfbe79f2e6490b6f1397cec0b987b23b355869e387a37208711613fe01ec8', 'watari-attestation-v1:dccaaefe4a4de78ee548bbafe461ad596c34fb59692c502fc8feb95bd72999d8', 'watari-origin-v1:de40342104d38fed1a2b03bfc4af77a0c2b00b2d9ea347606ecaee7fe01bfae3', False),
-    },
+POLICY_EXCLUDED_PATHS = (
+    ("route_policy_digest",),
+    ("routes", "*", "route_policy_digest"),
+    ("test_vectors",),
+    ("routes", "*", "golden_fingerprint"),
+    ("routes", "*", "wire_projection", "sent_bytes_digest"),
+    ("routes", "*", "wire_projection", "sample_bytes_digest"),
+    ("routes", "*", "connector_contract", "contract_digest"),
+)
+POLICY_EXCLUDED_PATH_STRINGS = [
+    "route_policy_digest",
+    "routes[*].route_policy_digest",
+    "test_vectors",
+    "routes[*].golden_fingerprint",
+    "routes[*].wire_projection.sent_bytes_digest",
+    "routes[*].wire_projection.sample_bytes_digest",
+    "routes[*].connector_contract.contract_digest",
+]
+EXPECTED_EXCLUSION_MATCH_COUNTS = {
+    ("route_policy_digest",): 1,
+    ("routes", "*", "route_policy_digest"): 7,
+    ("test_vectors",): 1,
+    ("routes", "*", "golden_fingerprint"): 7,
+    ("routes", "*", "wire_projection", "sent_bytes_digest"): 7,
+    ("routes", "*", "wire_projection", "sample_bytes_digest"): 7,
+    ("routes", "*", "connector_contract", "contract_digest"): 7,
 }
+
+EXPECTED_POLICY_DIGEST = (
+    "watari-route-policy-v1:"
+    "e117add0f8bf0d01c45b2c0a821b843e2732ec20e89cd3c8b3fdeecf869985c4"
+)
+EXPECTED_ROUTE_VECTORS = {
+    "route.codex.full-watari.v1": (
+        "watari-context-effective-v1:1f2777c4e8c74a585971811a3dab29359ba3a90347182bae7b657ea27af434e7",
+        "watari-wire-bytes-v1:2d09d8d1a72e2840a0ae5acd9c957057a37783a404c631f0b8f33117d0e6b686",
+        "watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1",
+    ),
+    "route.pi.openai-codex.trusted-dream.v1": (
+        "watari-context-effective-v1:eb2b1faf5c2fbcaa1d9e1a821e988f0ce46f164c0a989da891ac851bea1fc0a0",
+        "watari-wire-bytes-v1:fffc52d9651394ab7f2641724f0b7f7e8a8b3d2e981dcba4ae307be141a6cade",
+        "watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1",
+    ),
+    "route.pi.openrouter.low-risk-utility.v1": (
+        "watari-context-effective-v1:6741236b4c3c3acc0acf22997cec99b37db1bccab0c6ebd15053f61168278a96",
+        "watari-wire-bytes-v1:af87aa8b8146e9e54599928ed27f6e5054b698b995d62536b4b867d90c886f4e",
+        "watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1",
+    ),
+    "route.session-receipt.claude.v1": (
+        "watari-context-effective-v1:58028445de274c11d63aedfb844670b13622867510c2005d1a17232bb6deed4f",
+        "watari-wire-bytes-v1:966920edc9320531ad765bc8cc9715f82c2b26576a71359b56b426ae59c05fda",
+        "watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1",
+    ),
+    "route.session-receipt.codex.v1": (
+        "watari-context-effective-v1:5c1ca43e2e210a7eb175e0f6439400aafb044f6c26eeed04380bbef472582b78",
+        "watari-wire-bytes-v1:4978c3f6467eda12dc85685311ffd3244350d380e13993c65b932b29b3026291",
+        "watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1",
+    ),
+    "route.session-receipt.pi-high-trust.v1": (
+        "watari-context-effective-v1:1581ff250c39c0bfe9f94331aab3bf2d094bb003098f5751bdcfb4d3201d80f4",
+        "watari-wire-bytes-v1:e7f3a7c55ca953ca580baba635eb99345b2a842df0a77bba69d7189befa48bc8",
+        "watari-connector-v1:931d23e342b0be08d8966913d12cc5d407c1cdc5503343e0d4d6328eec48afe1",
+    ),
+    "route.connector.read-only.v1": (
+        "watari-context-effective-v1:7f30cf643f6587e5cb77bec44a92e08c9154bb42773b6ba9453694291c4a316e",
+        "watari-wire-bytes-v1:9d89e1aeaa1680d4d9c2123b250890ccd6da01db6322e16cb13a4d55b6dbe745",
+        "watari-connector-v1:42d2ce3be9a548e586b0c38de0ff9293125ea1100dffbdd07260f6a3f74d592c",
+    ),
+}
+EXPECTED_RECEIPT_VECTOR_DIGESTS = {
+    ("route.session-receipt.claude.v1", "user"):
+        "watari-receipt-vector-v1:36ed7d3646e56189e1767656f3e0192ed0a181b94a58c03816b2eb35c655b894",
+    ("route.session-receipt.claude.v1", "assistant"):
+        "watari-receipt-vector-v1:4eb8983f219e59d4403e91c10f0463aa47ec565d3235c12c6931e291f9182d47",
+    ("route.session-receipt.claude.v1", "tool"):
+        "watari-receipt-vector-v1:3ea7ddbe3c65c19c2db1b4ab36c2ded4245a159d1e13f81c00c3a66ca61ab452",
+    ("route.session-receipt.claude.v1", "system"):
+        "watari-receipt-vector-v1:0ec534d69d4edda8099510d0652e8b4e2cc694998fe265c41c7de9c3f648f692",
+    ("route.session-receipt.codex.v1", "user"):
+        "watari-receipt-vector-v1:41ca2144f2d28339e9df46deeaaa8278a9aa232fc4d28624d4189825d4b95c09",
+    ("route.session-receipt.codex.v1", "assistant"):
+        "watari-receipt-vector-v1:1d92dbe56a20360152cc452a4d1bb9993671ee6772bb0d95b00889e6f0dadef7",
+    ("route.session-receipt.codex.v1", "tool"):
+        "watari-receipt-vector-v1:cfb31daf5e0e85680e907b24b6bfdc113873cd60761f2210a90d30a3a319df80",
+    ("route.session-receipt.codex.v1", "system"):
+        "watari-receipt-vector-v1:6d637bb011aea5c4b3f83a4acac4a3e23c5fcb12dbdb389ef55e1681e624745a",
+    ("route.session-receipt.pi-high-trust.v1", "user"):
+        "watari-receipt-vector-v1:24ced7f9144b870362484f445e226eb143705ac54e13adc7cf5db887111c4ce8",
+    ("route.session-receipt.pi-high-trust.v1", "assistant"):
+        "watari-receipt-vector-v1:c9e47988c721e0ebd4a6bd91cf00f385feae9b3e40cb91ad4703043a81ab2367",
+    ("route.session-receipt.pi-high-trust.v1", "tool"):
+        "watari-receipt-vector-v1:33749b49475da002a48b2f363ca2f9db808c88f500c9fc85d72c39801bf1dfb4",
+    ("route.session-receipt.pi-high-trust.v1", "system"):
+        "watari-receipt-vector-v1:d4b3d80b2acdb359ccf560da88e0062bb4ba0ef6693b11f795770ab8a81a3389",
+}
+
 
 def d003_module():
     path = Path(__file__).parents[2] / "tests" / "unit" / "test_canonical_vectors.py"
@@ -88,99 +312,104 @@ def d003_module():
     return module
 
 
+def _path_matches(path, pattern):
+    return len(path) == len(pattern) and all(
+        actual == expected or (expected == "*" and isinstance(actual, int))
+        for actual, expected in zip(path, pattern)
+    )
+
+
 def policy_projection(matrix):
-    excluded = tuple(matrix["test_vectors"]["excluded_paths"])
-    def excluded_path(path):
-        normalized = ".".join("*" if isinstance(part, int) else part for part in path).replace("routes.*", "routes[*]")
-        return normalized in excluded
+    """Project policy with a code-owned exact exclusion set."""
     def clean(value, path=()):
         if isinstance(value, dict):
             output = {}
             for key, child in value.items():
                 child_path = path + (key,)
-                if excluded_path(child_path):
+                if any(
+                    _path_matches(child_path, pattern)
+                    for pattern in POLICY_EXCLUDED_PATHS
+                ):
                     continue
                 output[key] = clean(child, child_path)
             return output
         if isinstance(value, list):
-            return [clean(child, path + (index,)) for index, child in enumerate(value)]
+            return [
+                clean(child, path + (index,))
+                for index, child in enumerate(value)
+            ]
         return value
+
     return clean(matrix)
+
+
+def policy_exclusion_match_counts(matrix):
+    counts = {pattern: 0 for pattern in POLICY_EXCLUDED_PATHS}
+
+    def walk(value, path=()):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                child_path = path + (key,)
+                matched = [
+                    pattern
+                    for pattern in POLICY_EXCLUDED_PATHS
+                    if _path_matches(child_path, pattern)
+                ]
+                if matched:
+                    if len(matched) != 1:
+                        raise AssertionError(f"ambiguous exclusion at {child_path}")
+                    counts[matched[0]] += 1
+                    continue
+                walk(child, child_path)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk(child, path + (index,))
+
+    walk(matrix)
+    return counts
 
 
 def route_policy_digest(matrix, d003):
     payload = d003.canonical_bytes(policy_projection(matrix))
-    frame = b"WATARI\x00route-policy/v1\x00" + struct.pack(">Q", len(payload)) + payload
+    frame = (
+        b"WATARI\x00route-policy/v1\x00"
+        + struct.pack(">Q", len(payload))
+        + payload
+    )
     return "watari-route-policy-v1:" + hashlib.sha256(frame).hexdigest()
 
 
 def typed_digest(prefix, domain, payload, d003):
     raw = payload if isinstance(payload, bytes) else d003.canonical_bytes(payload)
-    frame = b"WATARI\x00" + domain.encode("ascii") + b"\x00" + struct.pack(">Q", len(raw)) + raw
+    frame = (
+        b"WATARI\x00"
+        + domain.encode("ascii")
+        + b"\x00"
+        + struct.pack(">Q", len(raw))
+        + raw
+    )
     return prefix + hashlib.sha256(frame).hexdigest()
 
 
-RECEIPT_KEYS = {"schema_version", "turn_id", "route_id", "bytes_digest", "role", "source", "session_lineage_digest", "watari_launch_attestation_digest", "origin_route_provider_model_policy_digest", "primary_evidence"}
-ROLE_SOURCE = {"user": "local-user-turn", "assistant": "local-assistant-turn", "tool": "local-tool-turn", "system": "local-system-turn", "provider": "provider-output"}
-
-
-def turn_receipt_errors(receipt, *, observed_bytes, observed_role, observed_source, expected_route_id, expected_session_lineage, expected_launch_attestation, expected_provider_id, expected_model_id, expected_route_policy_digest, d003):
-    """Return fail-closed errors by comparing a receipt to independent capture inputs."""
-    errors = set()
-    try:
-        if not isinstance(receipt, dict):
-            return {"receipt.type"}
-        missing = RECEIPT_KEYS - set(receipt)
-        unknown = set(receipt) - RECEIPT_KEYS
-        errors |= {"receipt.missing:" + key for key in missing}
-        errors |= {"receipt.unknown:" + key for key in unknown}
-        if errors:
-            return errors
-        if receipt["schema_version"] != "watari.turn-receipt.v1":
-            errors.add("schema_version")
-        if not isinstance(receipt["turn_id"], str) or not receipt["turn_id"]:
-            errors.add("turn_id.type")
-        if receipt["route_id"] != expected_route_id:
-            errors.add("route_id")
-        if not isinstance(observed_bytes, bytes):
-            errors.add("observed_bytes.type")
-        else:
-            expected_bytes_digest = typed_digest("watari-wire-bytes-v1:", "wire-bytes/v1", observed_bytes, d003)
-            if receipt["bytes_digest"] != expected_bytes_digest:
-                errors.add("bytes_digest")
-        if observed_role not in ROLE_SOURCE:
-            errors.add("observed_role")
-        if observed_source != ROLE_SOURCE.get(observed_role):
-            errors.add("role_source")
-        if receipt["role"] != observed_role:
-            errors.add("role")
-        if receipt["source"] != observed_source:
-            errors.add("source")
-        expected_primary = observed_role == "user" and observed_source == "local-user-turn"
-        if type(receipt["primary_evidence"]) is not bool or receipt["primary_evidence"] != expected_primary:
-            errors.add("primary_evidence")
-        if receipt["session_lineage_digest"] != typed_digest("watari-lineage-v1:", "session-lineage/v1", {"route_id": expected_route_id, "lineage": expected_session_lineage}, d003):
-            errors.add("session_lineage_digest")
-        if receipt["watari_launch_attestation_digest"] != typed_digest("watari-attestation-v1:", "watari-attestation/v1", {"route_id": expected_route_id, "attestation": expected_launch_attestation, "caller_runtime": "session-receipt"}, d003):
-            errors.add("watari_launch_attestation_digest")
-        expected_origin = {"route_id": expected_route_id, "provider_id": expected_provider_id, "model_id": expected_model_id, "route_policy_digest": expected_route_policy_digest}
-        if receipt["origin_route_provider_model_policy_digest"] != typed_digest("watari-origin-v1:", "origin-route/v1", expected_origin, d003):
-            errors.add("origin_route_provider_model_policy_digest")
-    except Exception as error:
-        errors.add("verifier.exception:" + type(error).__name__)
-    return errors
-
-
 def assert_exact_keys(test, value, expected, label):
-    test.assertIsInstance(value, dict, label)
+    if type(value) is not dict:
+        test.fail(f"{label}: expected exact object, got {type(value).__name__}")
     test.assertEqual(set(value), set(expected), label)
+
+
+def assert_exact_list(test, value, label):
+    if type(value) is not list:
+        test.fail(f"{label}: expected list, got {type(value).__name__}")
 
 
 def load_matrix():
     text = ADR.read_text(encoding="utf-8")
     blocks = re.findall(r"```json\n(.*?)\n```", text, re.DOTALL)
     if len(blocks) != 1:
-        raise AssertionError(f"T-ROUTE-MATRIX requires exactly one JSON block, got {len(blocks)}")
+        raise AssertionError(
+            f"T-ROUTE-MATRIX requires exactly one JSON block, got {len(blocks)}"
+        )
+
     def reject_duplicate(pairs):
         result = {}
         for key, value in pairs:
@@ -188,257 +417,918 @@ def load_matrix():
                 raise ValueError("duplicate JSON member")
             result[key] = value
         return result
+
     return json.loads(blocks[0], object_pairs_hook=reject_duplicate)
+
+
+def _nonempty_exact_string(value):
+    return type(value) is str and bool(value)
+
+
+def turn_receipt_errors(
+    receipt,
+    *,
+    trusted_matrix,
+    observed_turn_id,
+    observed_capture_route_id,
+    observed_origin_route_id,
+    observed_bytes,
+    observed_role,
+    observed_source,
+    observed_session_lineage,
+    observed_launch_attestation,
+    d003,
+):
+    """Verify a receipt against independent observations and trusted routes."""
+    errors = set()
+    try:
+        if type(receipt) is not dict:
+            return {"receipt.type"}
+        missing = RECEIPT_KEYS - set(receipt)
+        unknown = set(receipt) - RECEIPT_KEYS
+        errors |= {"receipt.missing:" + key for key in missing}
+        errors |= {"receipt.unknown:" + key for key in unknown}
+        if missing or unknown:
+            return errors
+
+        string_fields = RECEIPT_KEYS - {"primary_evidence"}
+        for field in string_fields:
+            if not _nonempty_exact_string(receipt[field]):
+                errors.add("receipt.type:" + field)
+        if type(receipt["primary_evidence"]) is not bool:
+            errors.add("receipt.type:primary_evidence")
+
+        observed_strings = {
+            "observed_turn_id": observed_turn_id,
+            "observed_capture_route_id": observed_capture_route_id,
+            "observed_origin_route_id": observed_origin_route_id,
+            "observed_role": observed_role,
+            "observed_source": observed_source,
+            "observed_session_lineage": observed_session_lineage,
+            "observed_launch_attestation": observed_launch_attestation,
+        }
+        for name, value in observed_strings.items():
+            if not _nonempty_exact_string(value):
+                errors.add("observation.type:" + name)
+        if type(observed_bytes) is not bytes or not observed_bytes:
+            errors.add("observation.type:observed_bytes")
+        if errors:
+            return errors
+
+        if receipt["schema_version"] != "watari.turn-receipt.v1":
+            errors.add("schema_version")
+        if observed_role not in SEMANTIC_ROLES:
+            errors.add("semantic_role")
+        if observed_source not in SOURCES:
+            errors.add("source")
+        if (observed_role, observed_source) not in ROLE_SOURCE_PAIRS:
+            errors.add("role_source_pair")
+
+        routes_value = trusted_matrix.get("routes")
+        if type(routes_value) is not list:
+            return errors | {"trusted_matrix.routes"}
+        routes = {}
+        for route in routes_value:
+            if type(route) is not dict or not _nonempty_exact_string(route.get("route_id")):
+                return errors | {"trusted_matrix.route"}
+            if route["route_id"] in routes:
+                return errors | {"trusted_matrix.duplicate_route"}
+            routes[route["route_id"]] = route
+
+        capture = routes.get(observed_capture_route_id)
+        origin = routes.get(observed_origin_route_id)
+        if capture is None:
+            errors.add("capture_route.unknown")
+        if origin is None:
+            errors.add("origin_route.unknown")
+        if capture is None or origin is None:
+            return errors
+
+        policy_digest = trusted_matrix.get("route_policy_digest")
+        if not _nonempty_exact_string(policy_digest):
+            return errors | {"trusted_matrix.policy_digest"}
+        if policy_digest != EXPECTED_POLICY_DIGEST:
+            errors.add("trusted_matrix.unapproved_policy_digest")
+        if route_policy_digest(trusted_matrix, d003) != policy_digest:
+            errors.add("trusted_matrix.policy_digest_mismatch")
+        if capture.get("route_policy_digest") != policy_digest:
+            errors.add("capture_route.policy_digest")
+        if origin.get("route_policy_digest") != policy_digest:
+            errors.add("origin_route.policy_digest")
+
+        receipt_policy = capture.get("session_receipt")
+        ingress = capture.get("direction", {}).get("ingress")
+        origin_policy = capture.get("origin_policy")
+        if type(receipt_policy) is not dict or receipt_policy.get("required") is not True:
+            errors.add("capture_route.receipt_not_required")
+        if type(ingress) is not dict or observed_role not in ingress.get("accepted_roles", []):
+            errors.add("capture_route.role_not_accepted")
+        if (
+            type(origin_policy) is not dict
+            or observed_origin_route_id
+            not in origin_policy.get("allowed_origin_route_ids", [])
+        ):
+            errors.add("capture_route.origin_not_allowed")
+        if (
+            observed_source == "provider-output"
+            and origin_policy.get("provider_output_policy")
+            != "allow-unverified-context"
+        ):
+            errors.add("capture_route.provider_output_denied")
+
+        if receipt["turn_id"] != observed_turn_id:
+            errors.add("turn_id")
+        if receipt["route_id"] != observed_capture_route_id:
+            errors.add("route_id")
+        if receipt["origin_route_id"] != observed_origin_route_id:
+            errors.add("origin_route_id")
+        if receipt["role"] != observed_role:
+            errors.add("role")
+        if receipt["source"] != observed_source:
+            errors.add("source_binding")
+
+        expected_primary = (
+            observed_role == "user" and observed_source == "local-user-turn"
+        )
+        if receipt["primary_evidence"] != expected_primary:
+            errors.add("primary_evidence")
+        if observed_source == "provider-output" and receipt["primary_evidence"]:
+            errors.add("provider_output_primary")
+
+        expected_bytes = typed_digest(
+            "watari-wire-bytes-v1:", "wire-bytes/v1", observed_bytes, d003
+        )
+        if receipt["bytes_digest"] != expected_bytes:
+            errors.add("bytes_digest")
+        expected_lineage = typed_digest(
+            "watari-lineage-v1:",
+            "session-lineage/v1",
+            {
+                "capture_route_id": observed_capture_route_id,
+                "lineage": observed_session_lineage,
+            },
+            d003,
+        )
+        if receipt["session_lineage_digest"] != expected_lineage:
+            errors.add("session_lineage_digest")
+
+        origin_runtime = origin.get("caller_runtime")
+        provider_id = origin.get("provider_id")
+        model_id = origin.get("model_id")
+        for name, value in (
+            ("origin_runtime", origin_runtime),
+            ("provider_id", provider_id),
+            ("model_id", model_id),
+        ):
+            if not _nonempty_exact_string(value):
+                errors.add("trusted_origin.type:" + name)
+        if any(error.startswith("trusted_origin.type:") for error in errors):
+            return errors
+
+        expected_attestation = typed_digest(
+            "watari-attestation-v1:",
+            "watari-attestation/v1",
+            {
+                "capture_route_id": observed_capture_route_id,
+                "origin_route_id": observed_origin_route_id,
+                "origin_caller_runtime": origin_runtime,
+                "route_policy_digest": policy_digest,
+                "attestation": observed_launch_attestation,
+            },
+            d003,
+        )
+        if receipt["watari_launch_attestation_digest"] != expected_attestation:
+            errors.add("watari_launch_attestation_digest")
+
+        expected_origin = typed_digest(
+            "watari-origin-v1:",
+            "origin-route/v1",
+            {
+                "origin_route_id": observed_origin_route_id,
+                "provider_id": provider_id,
+                "model_id": model_id,
+                "route_policy_digest": policy_digest,
+            },
+            d003,
+        )
+        if (
+            receipt["origin_route_provider_model_policy_digest"]
+            != expected_origin
+        ):
+            errors.add("origin_route_provider_model_policy_digest")
+
+        for field, pattern in (
+            ("bytes_digest", WIRE_TOKEN),
+            ("session_lineage_digest", LINEAGE_TOKEN),
+            ("watari_launch_attestation_digest", ATTESTATION_TOKEN),
+            ("origin_route_provider_model_policy_digest", ORIGIN_TOKEN),
+        ):
+            if not pattern.fullmatch(receipt[field]):
+                errors.add("receipt.token:" + field)
+    except Exception as error:
+        errors.add("verifier.exception:" + type(error).__name__)
+    return errors
+
+
+def observation_kwargs(vector, matrix, d003):
+    return {
+        "trusted_matrix": matrix,
+        "observed_turn_id": vector["observed_turn_id"],
+        "observed_capture_route_id": vector["observed_capture_route_id"],
+        "observed_origin_route_id": vector["observed_origin_route_id"],
+        "observed_bytes": bytes.fromhex(vector["observed_bytes_hex"]),
+        "observed_role": vector["observed_role"],
+        "observed_source": vector["observed_source"],
+        "observed_session_lineage": vector["observed_session_lineage"],
+        "observed_launch_attestation": vector["observed_launch_attestation"],
+        "d003": d003,
+    }
+
+
+def receipt_from_observation(
+    matrix,
+    *,
+    turn_id,
+    capture_route_id,
+    origin_route_id,
+    observed_bytes,
+    role,
+    source,
+    lineage,
+    attestation,
+    d003,
+):
+    """Construct synthetic evidence without taking provider/model input."""
+    routes = {route["route_id"]: route for route in matrix["routes"]}
+    origin = routes[origin_route_id]
+    policy = matrix["route_policy_digest"]
+    return {
+        "schema_version": "watari.turn-receipt.v1",
+        "turn_id": turn_id,
+        "route_id": capture_route_id,
+        "origin_route_id": origin_route_id,
+        "bytes_digest": typed_digest(
+            "watari-wire-bytes-v1:", "wire-bytes/v1", observed_bytes, d003
+        ),
+        "role": role,
+        "source": source,
+        "session_lineage_digest": typed_digest(
+            "watari-lineage-v1:",
+            "session-lineage/v1",
+            {"capture_route_id": capture_route_id, "lineage": lineage},
+            d003,
+        ),
+        "watari_launch_attestation_digest": typed_digest(
+            "watari-attestation-v1:",
+            "watari-attestation/v1",
+            {
+                "capture_route_id": capture_route_id,
+                "origin_route_id": origin_route_id,
+                "origin_caller_runtime": origin["caller_runtime"],
+                "route_policy_digest": policy,
+                "attestation": attestation,
+            },
+            d003,
+        ),
+        "origin_route_provider_model_policy_digest": typed_digest(
+            "watari-origin-v1:",
+            "origin-route/v1",
+            {
+                "origin_route_id": origin_route_id,
+                "provider_id": origin["provider_id"],
+                "model_id": origin["model_id"],
+                "route_policy_digest": policy,
+            },
+            d003,
+        ),
+        "primary_evidence": role == "user" and source == "local-user-turn",
+    }
 
 
 class RouteMatrixTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.matrix = load_matrix()
-        cls.routes = {route["route_id"]: route for route in cls.matrix["routes"]}
         cls.d003 = d003_module()
-
-    def test_t_route_matrix_schema_and_exact_routes(self):
-        required_top = {
-            "schema_version", "route_policy_revision", "route_policy_digest", "visibility_values",
-            "capability_values", "fallback_values", "retention_zdr_values", "context_selection",
-            "mutation_policy", "projection_policy", "connector_instance_policy", "routes",
+        cls.routes = {
+            route["route_id"]: route for route in cls.matrix["routes"]
         }
-        self.assertTrue(required_top <= self.matrix.keys())
-        self.assertEqual(self.matrix["schema_version"], "watari.route-matrix.v1")
-        self.assertEqual(self.matrix["route_policy_revision"], "D003.route-policy.v1")
-        self.assertRegex(self.matrix["route_policy_digest"], ROUTE_TOKEN)
-        self.assertEqual(self.matrix["route_policy_digest"], route_policy_digest(self.matrix, self.d003))
-        self.assertEqual(set(self.routes), EXPECTED_ROUTE_IDS)
-        self.assertEqual(len(self.routes), len(self.matrix["routes"]))
-        required_route = {
-            "route_id", "caller_runtime", "provider_model_class", "provider_id", "model_id", "endpoint_id",
-            "input_visibility", "allowed_projection", "forbidden_data", "network_endpoint_class",
-            "credential_reference_class", "credential_scope", "fallback_policy", "retention_zdr",
-            "output_trust", "canonical_write", "dream", "sandbox_class", "fail_closed_conditions",
-            "route_policy_revision", "route_policy_digest", "golden_fingerprint", "capability_set",
-            "project_layer_policy", "wire_projection", "direction", "session_receipt",
-            "connector_contract", "origin_policy", "d001_trace",
-        }
-        for route in self.matrix["routes"]:
-            self.assertTrue(required_route <= route.keys(), route["route_id"])
-            self.assertRegex(route["golden_fingerprint"], CONTEXT_TOKEN, route["route_id"])
-            self.assertEqual(route["route_policy_revision"], self.matrix["route_policy_revision"], route["route_id"])
-            self.assertEqual(route["route_policy_digest"], self.matrix["route_policy_digest"], route["route_id"])
-            for field in ("provider_id", "model_id", "endpoint_id", "credential_scope"):
-                self.assertTrue(route[field])
-                self.assertNotIn("*", route[field])
-            self.assertTrue(set(route["d001_trace"]) >= TRACE[route["route_id"]])
-
-    def test_t_route_matrix_rejects_all_mutation_and_fallbacks(self):
-        self.assertEqual(self.matrix["unknown_policy"], "fail-closed")
-        self.assertEqual(self.matrix["fallback_values"], ["disabled"])
-        self.assertEqual(set(self.matrix["mutation_policy"]), MUTATION_KEYS)
-        self.assertTrue(all(value == "deny" for value in self.matrix["mutation_policy"].values()))
-        for route in self.routes.values():
-            self.assertFalse(route["canonical_write"], route["route_id"])
-            self.assertEqual(route["fallback_policy"], "disabled", route["route_id"])
-            self.assertEqual(route["direction"]["ingress"]["canonical_write"], "deny", route["route_id"])
-            self.assertEqual(route["capability_set"]["external_write"], "deny", route["route_id"])
-            self.assertIn("unknown-route", route["fail_closed_conditions"])
-            self.assertIn("capability-mismatch", route["fail_closed_conditions"])
-            self.assertIn("fallback-not-allowlisted", route["fail_closed_conditions"] or ["not-required"])
-
-    def test_t_route_matrix_visibility_projection_and_direction(self):
-        self.assertEqual(self.matrix["projection_policy"]["declassification"], "forbidden")
-        for route in self.routes.values():
-            self.assertTrue(set(route["input_visibility"]) <= VISIBILITIES, route["route_id"])
-            wire = route["wire_projection"]
-            self.assertEqual(wire["source_visibility"], route["input_visibility"], route["route_id"])
-            self.assertEqual(wire["sent_visibility"], route["input_visibility"], route["route_id"])
-            self.assertEqual(wire["declassification"], "forbidden", route["route_id"])
-            self.assertEqual(wire["byte_selection"], "exact-allowlisted-projection", route["route_id"])
-            self.assertRegex(wire["sent_bytes_digest"], WIRE_TOKEN, route["route_id"])
-            self.assertNotEqual(wire["sent_bytes_digest"], route["golden_fingerprint"], route["route_id"])
-            self.assertEqual(bytes.fromhex(wire["sample_bytes_hex"]), ("watari-wire-sample-v1:" + route["route_id"] + "\n").encode())
-            self.assertEqual(set(route["direction"]), {"egress", "ingress"}, route["route_id"])
-            self.assertIn("enabled", route["direction"]["egress"])
-            self.assertIn("enabled", route["direction"]["ingress"])
-            self.assertFalse(route["direction"]["ingress"]["provider_output_as_primary_evidence"])
-
-    def test_t_route_matrix_openrouter_closed_capabilities(self):
-        route = self.routes["route.pi.openrouter.low-risk-utility.v1"]
-        self.assertEqual(set(route["capability_set"]), CAPABILITY_KEYS)
-        for key in ("mount", "retrieval", "shell", "file", "project", "external_write"):
-            self.assertEqual(route["capability_set"][key], "deny", key)
-        self.assertEqual(route["capability_set"]["process"], "allow:bounded-child-process")
-        self.assertEqual(route["capability_set"]["network"], "allow:exact-provider-endpoint")
-        for forbidden in ("private.memory", "raw.connector.data", "credential.value", "canonical.event"):
-            self.assertIn(forbidden, route["forbidden_data"])
-        self.assertFalse(route["dream"])
-        self.assertIn("not-model-input", route["credential_reference_class"])
-
-    def test_t_route_matrix_receipt_and_connector_provenance(self):
-        receipt_ids = [route_id for route_id in self.routes if route_id.startswith("route.session-receipt")]
-        for route_id in receipt_ids:
-            receipt = self.routes[route_id]["session_receipt"]
-            self.assertTrue(receipt["required"], route_id)
-            for key in ("session_lineage", "watari_launch_attestation", "origin_route_model_policy", "role_provenance"):
-                self.assertNotEqual(receipt[key], "not-applicable", route_id)
-            self.assertEqual(receipt["primary_evidence_roles"], ["user"], route_id)
-            self.assertEqual(receipt["provider_output_status"], "unverified-context", route_id)
-            self.assertEqual(self.routes[route_id]["origin_policy"]["primary_evidence_roles"], ["user"])
-            self.assertFalse(self.routes[route_id]["origin_policy"]["provider_output_primary_evidence"])
-        connector = self.routes["route.connector.read-only.v1"]["connector_contract"]
-        self.assertTrue(connector["required"])
-        self.assertEqual(connector["connector_instance_id_policy"], "opaque-non-PII")
-        self.assertNotRegex(connector["connector_instance_id"], r"[/@\\]|\.\.")
-        self.assertEqual(connector["source_policy"], "enabled-read-only")
-        self.assertEqual(connector["allowed_method_paths"], ["GET /approved-scope/**"])
-        self.assertTrue(all(not path.startswith(("POST", "PUT", "PATCH", "DELETE")) for path in connector["allowed_method_paths"]))
-        self.assertRegex(connector["contract_digest"], CONNECTOR_TOKEN)
-        self.assertTrue(connector["read_only"])
-
-    def test_t_route_matrix_context_selection_and_d001_coverage(self):
-        selection = self.matrix["context_selection"]
-        self.assertEqual(selection["selection_key"], "route_id")
-        self.assertEqual(selection["multi_match"], "reject")
-        self.assertEqual(selection["implicit_default"], "deny")
-        self.assertEqual(selection["approved_project_layer"], "required-digest-root-scope")
-        self.assertEqual(selection["changed_project_layer"], "reapproval-required")
-        covered = {trace for route in self.routes.values() for trace in route["d001_trace"]}
-        self.assertTrue({"MX-001", "MX-002", "MX-003", "MX-004", "MX-005"} <= covered)
-        for route in self.routes.values():
-            project = route["project_layer_policy"]
-            self.assertTrue(project["approved_digest_required"])
-            self.assertTrue(project["root_scope_required"])
-            self.assertEqual(project["auto_discovery"], "deny")
-            self.assertEqual(project["model_override"], "deny")
 
     def _validate_closed(self, matrix):
-        top = {"schema_version", "visibility_values", "unknown_policy", "provider_output_default_trust", "route_policy_revision", "route_policy_digest", "capability_values", "fallback_values", "retention_zdr_values", "context_selection", "mutation_policy", "projection_policy", "connector_instance_policy", "session_receipt_schema", "test_vectors", "routes"}
-        assert_exact_keys(self, matrix, top, "top schema")
-        self.assertEqual(matrix["visibility_values"], ["local-only", "trusted-model", "low-risk-model"])
+        top_keys = {
+            "schema_version",
+            "visibility_values",
+            "unknown_policy",
+            "provider_output_default_trust",
+            "route_policy_revision",
+            "route_policy_digest",
+            "capability_values",
+            "fallback_values",
+            "retention_zdr_values",
+            "context_selection",
+            "mutation_policy",
+            "projection_policy",
+            "connector_instance_policy",
+            "routes",
+            "session_receipt_schema",
+            "test_vectors",
+        }
+        assert_exact_keys(self, matrix, top_keys, "top schema")
+        self.assertEqual(matrix["schema_version"], "watari.route-matrix.v1")
+        self.assertEqual(matrix["visibility_values"], [
+            "local-only",
+            "trusted-model",
+            "low-risk-model",
+        ])
         self.assertEqual(matrix["unknown_policy"], "fail-closed")
-        self.assertEqual(matrix["provider_output_default_trust"], "unverified-context")
-        self.assertEqual(matrix["fallback_values"], ["disabled"])
+        self.assertEqual(
+            matrix["provider_output_default_trust"], "unverified-context"
+        )
         self.assertEqual(matrix["route_policy_revision"], "D003.route-policy.v1")
+        self.assertEqual(matrix["fallback_values"], ["disabled"])
         self.assertRegex(matrix["route_policy_digest"], ROUTE_TOKEN)
-        self.assertEqual(matrix["route_policy_digest"], route_policy_digest(matrix, self.d003))
+        self.assertEqual(
+            route_policy_digest(matrix, self.d003),
+            matrix["route_policy_digest"],
+        )
         self.assertEqual(matrix["route_policy_digest"], EXPECTED_POLICY_DIGEST)
-        self.assertIsInstance(matrix["routes"], list)
-        self.assertIsInstance(matrix["capability_values"], list)
-        self.assertIsInstance(matrix["retention_zdr_values"], list)
-        assert_exact_keys(self, matrix["session_receipt_schema"], {"schema_version", "turn_schema", "required_fields", "role_values", "source_values", "primary_evidence_rule", "provider_ingress_user", "role_source_map"}, "session schema")
-        self.assertEqual(matrix["session_receipt_schema"]["schema_version"], "watari.session-receipt.v1")
-        self.assertEqual(matrix["session_receipt_schema"]["turn_schema"], "watari.turn-receipt.v1")
-        self.assertEqual(matrix["session_receipt_schema"]["required_fields"], ["bytes_digest", "role", "source", "session_lineage_digest", "watari_launch_attestation_digest", "origin_route_provider_model_policy_digest"])
-        self.assertEqual(matrix["session_receipt_schema"]["role_values"], ["user", "assistant", "tool", "system", "provider"])
-        self.assertEqual(matrix["session_receipt_schema"]["source_values"], ["local-user-turn", "local-assistant-turn", "local-tool-turn", "local-system-turn", "provider-output"])
-        self.assertEqual(matrix["session_receipt_schema"]["role_source_map"], ROLE_SOURCE)
-        self.assertEqual(matrix["session_receipt_schema"]["primary_evidence_rule"], "local-user-turn-only")
-        self.assertEqual(matrix["session_receipt_schema"]["provider_ingress_user"], "deny")
-        assert_exact_keys(self, matrix["context_selection"], {"selection_key", "multi_match", "implicit_default", "approved_project_layer", "changed_project_layer"}, "context selection")
-        self.assertEqual(matrix["context_selection"], {"selection_key": "route_id", "multi_match": "reject", "implicit_default": "deny", "approved_project_layer": "required-digest-root-scope", "changed_project_layer": "reapproval-required"})
-        assert_exact_keys(self, matrix["connector_instance_policy"], {"identifier_class", "forbidden_fields", "source_policy_digest"}, "connector instance policy")
-        self.assertEqual(matrix["connector_instance_policy"]["identifier_class"], "opaque-non-PII")
-        assert_exact_keys(self, matrix["test_vectors"], {"excluded_paths", "wire_domain", "receipt_domains", "connector_domain", "routes", "receipts"}, "test vectors")
-        self.assertEqual(matrix["test_vectors"]["excluded_paths"], ["route_policy_digest", "routes[*].route_policy_digest", "test_vectors", "routes[*].golden_fingerprint", "routes[*].wire_projection.sent_bytes_digest", "routes[*].wire_projection.sample_bytes_digest", "routes[*].session_receipt.bytes_digest", "routes[*].session_receipt.session_lineage_digest", "routes[*].session_receipt.watari_launch_attestation_digest", "routes[*].session_receipt.origin_route_provider_model_policy_digest", "routes[*].connector_contract.contract_digest"])
-        self.assertEqual(matrix["unknown_policy"], "fail-closed")
+
+        assert_exact_keys(
+            self,
+            matrix["context_selection"],
+            {
+                "selection_key",
+                "multi_match",
+                "implicit_default",
+                "approved_project_layer",
+                "changed_project_layer",
+            },
+            "context selection",
+        )
+        self.assertEqual(
+            matrix["context_selection"],
+            {
+                "selection_key": "route_id",
+                "multi_match": "reject",
+                "implicit_default": "deny",
+                "approved_project_layer": "required-digest-root-scope",
+                "changed_project_layer": "reapproval-required",
+            },
+        )
         self.assertEqual(set(matrix["mutation_policy"]), MUTATION_KEYS)
-        self.assertTrue(all(value == "deny" for value in matrix["mutation_policy"].values()))
-        self.assertEqual(matrix["projection_policy"], {"wire_bytes": "exact-allowlisted-projection", "source_visibility_required": True, "sent_visibility_required": True, "declassification": "forbidden", "visibility_elevation": "reject"})
-        self.assertEqual(set(route["route_id"] for route in matrix["routes"]), EXPECTED_ROUTE_IDS)
-        for rid, role_vectors in matrix["test_vectors"]["receipts"].items():
-            self.assertIn(rid, EXPECTED_ROUTE_IDS)
-            self.assertEqual(set(role_vectors), {"user", "assistant", "tool", "system"})
-            route = next(route for route in matrix["routes"] if route["route_id"] == rid)
-            for role, vector in role_vectors.items():
-                assert_exact_keys(self, vector, {"observed_bytes_hex", "expected_session_lineage", "expected_launch_attestation", "expected_provider_id", "expected_model_id", "receipt"}, rid + ":" + role)
-                literal = EXPECTED_RECEIPT_GOLDENS[rid][role]
-                receipt = vector["receipt"]
-                self.assertEqual((vector["observed_bytes_hex"], vector["expected_session_lineage"], vector["expected_launch_attestation"], vector["expected_provider_id"], vector["expected_model_id"], receipt["bytes_digest"], receipt["session_lineage_digest"], receipt["watari_launch_attestation_digest"], receipt["origin_route_provider_model_policy_digest"], receipt["primary_evidence"]), literal, rid + ":" + role)
-                self.assertEqual(turn_receipt_errors(vector["receipt"], observed_bytes=bytes.fromhex(vector["observed_bytes_hex"]), observed_role=role, observed_source=ROLE_SOURCE[role], expected_route_id=rid, expected_session_lineage=vector["expected_session_lineage"], expected_launch_attestation=vector["expected_launch_attestation"], expected_provider_id=vector["expected_provider_id"], expected_model_id=vector["expected_model_id"], expected_route_policy_digest=matrix["route_policy_digest"], d003=self.d003), set(), rid + ":" + role)
-                self.assertEqual(vector["expected_provider_id"], route["provider_id"])
-                self.assertEqual(vector["expected_model_id"], route["model_id"])
-        route_keys = {"route_id", "caller_runtime", "provider_model_class", "provider_id", "model_id", "endpoint_id", "input_visibility", "allowed_projection", "forbidden_data", "network_endpoint_class", "credential_reference_class", "credential_scope", "fallback_policy", "retention_zdr", "output_trust", "canonical_write", "dream", "sandbox_class", "route_policy_revision", "route_policy_digest", "golden_fingerprint", "capability_set", "project_layer_policy", "wire_projection", "direction", "session_receipt", "connector_contract", "origin_policy", "fail_closed_conditions", "d001_trace"}
+        self.assertTrue(
+            all(value == "deny" for value in matrix["mutation_policy"].values())
+        )
+        assert_exact_keys(
+            self,
+            matrix["projection_policy"],
+            {
+                "wire_bytes",
+                "source_visibility_required",
+                "sent_visibility_required",
+                "declassification",
+                "visibility_elevation",
+                "policy_digest_excluded_paths",
+            },
+            "projection policy",
+        )
+        self.assertEqual(
+            matrix["projection_policy"],
+            {
+                "wire_bytes": "exact-allowlisted-projection",
+                "source_visibility_required": True,
+                "sent_visibility_required": True,
+                "declassification": "forbidden",
+                "visibility_elevation": "reject",
+                "policy_digest_excluded_paths": POLICY_EXCLUDED_PATH_STRINGS,
+            },
+        )
+        assert_exact_keys(
+            self,
+            matrix["connector_instance_policy"],
+            {"identifier_class", "forbidden_fields", "source_policy_digest"},
+            "connector instance policy",
+        )
+        self.assertEqual(
+            matrix["connector_instance_policy"]["identifier_class"],
+            "opaque-non-PII",
+        )
+
+        schema = matrix["session_receipt_schema"]
+        assert_exact_keys(
+            self,
+            schema,
+            {
+                "schema_version",
+                "turn_schema",
+                "required_fields",
+                "role_values",
+                "source_values",
+                "allowed_role_source_pairs",
+                "primary_evidence_rule",
+                "provider_ingress_user",
+            },
+            "session receipt schema",
+        )
+        self.assertEqual(schema["schema_version"], "watari.session-receipt.v1")
+        self.assertEqual(schema["turn_schema"], "watari.turn-receipt.v1")
+        self.assertEqual(schema["required_fields"], [
+            "schema_version",
+            "turn_id",
+            "route_id",
+            "origin_route_id",
+            "bytes_digest",
+            "role",
+            "source",
+            "session_lineage_digest",
+            "watari_launch_attestation_digest",
+            "origin_route_provider_model_policy_digest",
+            "primary_evidence",
+        ])
+        self.assertEqual(set(schema["required_fields"]), RECEIPT_KEYS)
+        self.assertEqual(schema["role_values"], [
+            "user",
+            "assistant",
+            "tool",
+            "system",
+        ])
+        self.assertEqual(set(schema["role_values"]), SEMANTIC_ROLES)
+        self.assertEqual(schema["source_values"], [
+            "local-user-turn",
+            "local-assistant-turn",
+            "provider-output",
+            "local-tool-turn",
+            "local-system-turn",
+        ])
+        self.assertEqual(schema["allowed_role_source_pairs"], [
+            {"role": "user", "source": "local-user-turn"},
+            {"role": "assistant", "source": "local-assistant-turn"},
+            {"role": "assistant", "source": "provider-output"},
+            {"role": "tool", "source": "local-tool-turn"},
+            {"role": "system", "source": "local-system-turn"},
+        ])
+        self.assertEqual(
+            {
+                (pair["role"], pair["source"])
+                for pair in schema["allowed_role_source_pairs"]
+            },
+            ROLE_SOURCE_PAIRS,
+        )
+        for pair in schema["allowed_role_source_pairs"]:
+            assert_exact_keys(self, pair, {"role", "source"}, "role/source pair")
+        self.assertEqual(
+            schema["primary_evidence_rule"],
+            "capture-receipt-user-local-user-turn-only",
+        )
+        self.assertEqual(schema["provider_ingress_user"], "deny")
+
+        assert_exact_list(self, matrix["routes"], "routes")
         for route in matrix["routes"]:
-            self.assertIsInstance(route, dict, "route")
-            rid = route["route_id"]
-            assert_exact_keys(self, route, route_keys, rid)
-            provider, model, endpoint, scope, visibility, projection = EXACT[rid]
-            self.assertEqual((route["provider_id"], route["model_id"], route["endpoint_id"], route["credential_scope"], route["input_visibility"][0], route["allowed_projection"]), (provider, model, endpoint, scope, visibility, projection), rid)
-            self.assertEqual(route["route_policy_digest"], matrix["route_policy_digest"])
-            for field in ("route_id", "caller_runtime", "provider_model_class", "provider_id", "model_id", "endpoint_id", "credential_scope", "sandbox_class"):
-                self.assertIsInstance(route[field], str, rid)
-            self.assertIsInstance(route["input_visibility"], list, rid)
-            self.assertIsInstance(route["allowed_projection"], list, rid)
-            self.assertIsInstance(route["forbidden_data"], list, rid)
-            self.assertIsInstance(route["fail_closed_conditions"], list, rid)
-            self.assertIsInstance(route["d001_trace"], list, rid)
-            self.assertIsInstance(route["canonical_write"], bool, rid)
-            self.assertIsInstance(route["dream"], bool, rid)
-            expected_vectors = EXPECTED_VECTORS[rid]
-            self.assertEqual(tuple(matrix["test_vectors"]["routes"][rid].values()), expected_vectors)
-            self.assertEqual((route["golden_fingerprint"], route["wire_projection"]["sent_bytes_digest"], route["connector_contract"]["contract_digest"]), (expected_vectors[0], expected_vectors[1], expected_vectors[5]), rid)
+            if type(route) is not dict or not _nonempty_exact_string(
+                route.get("route_id")
+            ):
+                self.fail("route must be an object with nonempty route_id")
+        route_ids = [route["route_id"] for route in matrix["routes"]]
+        self.assertEqual(set(route_ids), EXPECTED_ROUTE_IDS)
+        self.assertEqual(len(route_ids), len(set(route_ids)))
+        routes = {route["route_id"]: route for route in matrix["routes"]}
+
+        vector_root = matrix["test_vectors"]
+        assert_exact_keys(
+            self, vector_root, {"routes", "receipts"}, "test vectors"
+        )
+        assert_exact_keys(
+            self,
+            vector_root["routes"],
+            EXPECTED_ROUTE_IDS,
+            "route vector set",
+        )
+        assert_exact_keys(
+            self,
+            vector_root["receipts"],
+            RECEIPT_ROUTE_IDS,
+            "receipt vector route set",
+        )
+        for route_id, vector in vector_root["routes"].items():
+            assert_exact_keys(
+                self,
+                vector,
+                {
+                    "golden_fingerprint",
+                    "wire_bytes_digest",
+                    "connector_digest",
+                },
+                route_id + " route vector",
+            )
+            expected = EXPECTED_ROUTE_VECTORS[route_id]
+            self.assertEqual(
+                (
+                    vector["golden_fingerprint"],
+                    vector["wire_bytes_digest"],
+                    vector["connector_digest"],
+                ),
+                expected,
+                route_id,
+            )
+
+        for capture_id, role_vectors in vector_root["receipts"].items():
+            assert_exact_keys(
+                self, role_vectors, SEMANTIC_ROLES, capture_id + " role vectors"
+            )
+            for role, vector in role_vectors.items():
+                assert_exact_keys(
+                    self,
+                    vector,
+                    RECEIPT_VECTOR_KEYS,
+                    capture_id + ":" + role,
+                )
+                assert_exact_keys(
+                    self,
+                    vector["receipt"],
+                    RECEIPT_KEYS,
+                    capture_id + ":" + role + " receipt",
+                )
+                self.assertEqual(vector["observed_capture_route_id"], capture_id)
+                self.assertEqual(vector["observed_origin_route_id"], EXPECTED_ORIGINS[capture_id][0])
+                self.assertEqual(vector["observed_role"], role)
+                self.assertEqual(
+                    vector["observed_source"], LOCAL_ROLE_SOURCE[role]
+                )
+                vector_digest = typed_digest(
+                    "watari-receipt-vector-v1:",
+                    "receipt-vector/v1",
+                    vector,
+                    self.d003,
+                )
+                self.assertEqual(
+                    vector_digest,
+                    EXPECTED_RECEIPT_VECTOR_DIGESTS[(capture_id, role)],
+                    capture_id + ":" + role,
+                )
+                self.assertEqual(
+                    turn_receipt_errors(
+                        vector["receipt"],
+                        **observation_kwargs(vector, matrix, self.d003),
+                    ),
+                    set(),
+                    capture_id + ":" + role,
+                )
+
+        route_keys = {
+            "route_id",
+            "caller_runtime",
+            "provider_model_class",
+            "provider_id",
+            "model_id",
+            "endpoint_id",
+            "input_visibility",
+            "allowed_projection",
+            "forbidden_data",
+            "network_endpoint_class",
+            "credential_reference_class",
+            "credential_scope",
+            "fallback_policy",
+            "retention_zdr",
+            "output_trust",
+            "canonical_write",
+            "dream",
+            "sandbox_class",
+            "route_policy_revision",
+            "route_policy_digest",
+            "golden_fingerprint",
+            "capability_set",
+            "project_layer_policy",
+            "wire_projection",
+            "direction",
+            "session_receipt",
+            "connector_contract",
+            "origin_policy",
+            "fail_closed_conditions",
+            "d001_trace",
+        }
+        for route_id, route in routes.items():
+            assert_exact_keys(self, route, route_keys, route_id)
+            provider, model, endpoint, scope, visibility, projection = EXACT[route_id]
+            self.assertEqual(
+                (
+                    route["provider_id"],
+                    route["model_id"],
+                    route["endpoint_id"],
+                    route["credential_scope"],
+                    route["input_visibility"][0],
+                    route["allowed_projection"],
+                ),
+                (provider, model, endpoint, scope, visibility, projection),
+                route_id,
+            )
+            for field in (
+                "route_id",
+                "caller_runtime",
+                "provider_model_class",
+                "provider_id",
+                "model_id",
+                "endpoint_id",
+                "credential_scope",
+                "sandbox_class",
+            ):
+                self.assertTrue(_nonempty_exact_string(route[field]), field)
+            self.assertEqual(
+                route["route_policy_revision"],
+                matrix["route_policy_revision"],
+            )
+            self.assertEqual(
+                route["route_policy_digest"], matrix["route_policy_digest"]
+            )
             self.assertRegex(route["golden_fingerprint"], CONTEXT_TOKEN)
-            exact_bytes = bytes.fromhex(route["wire_projection"]["sample_bytes_hex"])
-            self.assertEqual(route["wire_projection"]["sent_bytes_digest"], typed_digest("watari-wire-bytes-v1:", "wire-bytes/v1", exact_bytes, self.d003), rid)
-            connector_body = {key: value for key, value in route["connector_contract"].items() if key != "contract_digest"}
-            self.assertEqual(route["connector_contract"]["contract_digest"], typed_digest("watari-connector-v1:", "connector-contract/v1", connector_body, self.d003), rid)
+            self.assertEqual(
+                (
+                    route["golden_fingerprint"],
+                    route["wire_projection"]["sent_bytes_digest"],
+                    route["connector_contract"]["contract_digest"],
+                ),
+                EXPECTED_ROUTE_VECTORS[route_id],
+            )
             self.assertEqual(route["fallback_policy"], "disabled")
-            self.assertEqual(route["sandbox_class"], "mandatory-external-runtime-no-state-key-mount")
+            self.assertEqual(
+                route["sandbox_class"],
+                "mandatory-external-runtime-no-state-key-mount",
+            )
             self.assertFalse(route["canonical_write"])
             self.assertNotIn("allow:any", json.dumps(route))
-            self.assertIn("unknown-route", route["fail_closed_conditions"])
-            self.assertIn("capability-mismatch", route["fail_closed_conditions"])
-            self.assertIn("fallback-not-allowlisted", route["fail_closed_conditions"])
-            assert_exact_keys(self, route["retention_zdr"], {"retention_class", "zero_data_retention", "fallback_retention"}, rid)
-            assert_exact_keys(self, route["capability_set"], CAPABILITY_KEYS, rid)
+            for condition in (
+                "unknown-route",
+                "capability-mismatch",
+                "fallback-not-allowlisted",
+            ):
+                self.assertIn(condition, route["fail_closed_conditions"])
+
+            assert_exact_keys(
+                self,
+                route["retention_zdr"],
+                {"retention_class", "zero_data_retention", "fallback_retention"},
+                route_id,
+            )
+            assert_exact_keys(
+                self, route["capability_set"], CAPABILITY_KEYS, route_id
+            )
             self.assertEqual(route["capability_set"]["external_write"], "deny")
-            assert_exact_keys(self, route["wire_projection"], {"source_visibility", "sent_visibility", "allowed_projection", "byte_selection", "declassification", "sent_bytes_digest", "sample_bytes_hex", "sample_bytes_digest"}, rid)
-            assert_exact_keys(self, route["direction"], {"egress", "ingress"}, rid)
-            assert_exact_keys(self, route["direction"]["egress"], {"enabled", "endpoint_id", "allowed_visibility", "fallback_policy", "capture"}, rid)
-            assert_exact_keys(self, route["direction"]["ingress"], {"enabled", "accepted_output_trust", "accepted_roles", "provider_output_as_primary_evidence", "canonical_write"}, rid)
-            assert_exact_keys(self, route["session_receipt"], {"required", "session_lineage", "watari_launch_attestation", "origin_route_model_policy", "role_provenance", "primary_evidence_roles", "provider_output_status", "schema_version", "turn_schema", "source_binding", "role_capture", "source_capture"}, rid)
-            connector_keys = {"required", "connector_instance_id_policy", "connector_instance_id", "source_policy", "allowed_method_paths", "forbidden_method_paths", "credential_scope", "contract_digest", "read_only"}
-            if rid == "route.connector.read-only.v1": connector_keys |= {"source_policy_digest", "checkpoint_lineage_digest"}
-            assert_exact_keys(self, route["connector_contract"], connector_keys, rid)
-            assert_exact_keys(self, route["origin_policy"], {"primary_evidence_roles", "provider_output_primary_evidence", "source_binding"}, rid)
-            self.assertTrue(set(route["input_visibility"]) <= VISIBILITIES)
-            self.assertEqual(route["wire_projection"]["source_visibility"], route["input_visibility"])
-            self.assertEqual(route["wire_projection"]["sent_visibility"], route["input_visibility"])
-            self.assertEqual(route["wire_projection"]["allowed_projection"], route["allowed_projection"])
-            self.assertEqual(route["wire_projection"]["declassification"], "forbidden")
-            self.assertRegex(route["wire_projection"]["sent_bytes_digest"], WIRE_TOKEN)
-            self.assertNotEqual(route["wire_projection"]["sent_bytes_digest"], route["golden_fingerprint"])
-            self.assertEqual(route["wire_projection"]["sample_bytes_digest"], route["wire_projection"]["sent_bytes_digest"])
-            self.assertEqual(route["session_receipt"]["source_binding"], "required")
-            self.assertEqual(route["session_receipt"]["session_lineage"], "required" if rid.startswith("route.session-receipt") else "not-applicable")
-            self.assertEqual(route["session_receipt"]["watari_launch_attestation"], "required" if rid.startswith("route.session-receipt") else "not-applicable")
-            self.assertIsInstance(route["session_receipt"]["role_provenance"], list)
-            self.assertTrue(set(route["session_receipt"]["role_provenance"]) <= {"user", "assistant", "tool", "system"})
-            self.assertEqual(route["session_receipt"]["primary_evidence_roles"], ["user"])
-            self.assertEqual(route["session_receipt"]["provider_output_status"], "unverified-context")
-            self.assertEqual(route["origin_policy"]["source_binding"], "required")
-            self.assertFalse(route["origin_policy"]["provider_output_primary_evidence"])
-            self.assertEqual(route["origin_policy"]["primary_evidence_roles"], ["user"] if rid.startswith("route.session-receipt") or "trusted-dream" in rid else ["evidence"])
-            self.assertEqual(route["direction"]["egress"]["endpoint_id"], route["endpoint_id"])
-            self.assertEqual(route["direction"]["egress"]["allowed_visibility"], route["input_visibility"])
-            self.assertEqual(route["direction"]["ingress"]["accepted_roles"], ["user", "assistant", "tool", "system"] if rid.startswith("route.session-receipt") else ["evidence"])
-            is_receipt = rid.startswith("route.session-receipt")
-            self.assertEqual(route["direction"]["egress"]["enabled"], not is_receipt)
-            self.assertEqual(route["session_receipt"]["required"], is_receipt)
-            self.assertEqual(route["session_receipt"]["role_capture"], "provider" if rid == "route.connector.read-only.v1" else "observed-role")
-            self.assertEqual(route["session_receipt"]["source_capture"], "provider-output" if rid == "route.connector.read-only.v1" else "observed-source")
-            self.assertIn(route["retention_zdr"]["zero_data_retention"], {"required", "not-applicable"})
+            assert_exact_keys(
+                self,
+                route["project_layer_policy"],
+                {
+                    "approved_digest_required",
+                    "root_scope_required",
+                    "auto_discovery",
+                    "model_override",
+                },
+                route_id,
+            )
+            self.assertTrue(
+                route["project_layer_policy"]["approved_digest_required"]
+            )
+            self.assertTrue(route["project_layer_policy"]["root_scope_required"])
+            self.assertEqual(
+                route["project_layer_policy"]["auto_discovery"], "deny"
+            )
+            self.assertEqual(
+                route["project_layer_policy"]["model_override"], "deny"
+            )
+
+            wire = route["wire_projection"]
+            assert_exact_keys(
+                self,
+                wire,
+                {
+                    "source_visibility",
+                    "sent_visibility",
+                    "allowed_projection",
+                    "byte_selection",
+                    "sent_bytes_digest",
+                    "declassification",
+                    "sample_bytes_hex",
+                    "sample_bytes_digest",
+                },
+                route_id + " wire",
+            )
+            self.assertEqual(wire["source_visibility"], route["input_visibility"])
+            self.assertEqual(wire["sent_visibility"], route["input_visibility"])
+            self.assertEqual(
+                wire["allowed_projection"], route["allowed_projection"]
+            )
+            self.assertEqual(
+                wire["byte_selection"], "exact-allowlisted-projection"
+            )
+            self.assertEqual(wire["declassification"], "forbidden")
+            exact_bytes = bytes.fromhex(wire["sample_bytes_hex"])
+            expected_wire = typed_digest(
+                "watari-wire-bytes-v1:",
+                "wire-bytes/v1",
+                exact_bytes,
+                self.d003,
+            )
+            self.assertEqual(wire["sent_bytes_digest"], expected_wire)
+            self.assertEqual(wire["sample_bytes_digest"], expected_wire)
+            self.assertRegex(wire["sent_bytes_digest"], WIRE_TOKEN)
+            self.assertNotEqual(
+                wire["sent_bytes_digest"], route["golden_fingerprint"]
+            )
+
+            direction = route["direction"]
+            assert_exact_keys(self, direction, {"egress", "ingress"}, route_id)
+            assert_exact_keys(
+                self,
+                direction["egress"],
+                {
+                    "enabled",
+                    "endpoint_id",
+                    "allowed_visibility",
+                    "fallback_policy",
+                    "capture",
+                },
+                route_id + " egress",
+            )
+            assert_exact_keys(
+                self,
+                direction["ingress"],
+                {
+                    "enabled",
+                    "accepted_output_trust",
+                    "accepted_roles",
+                    "provider_output_as_primary_evidence",
+                    "canonical_write",
+                },
+                route_id + " ingress",
+            )
+            self.assertEqual(
+                direction["egress"]["endpoint_id"], route["endpoint_id"]
+            )
+            self.assertEqual(
+                direction["egress"]["allowed_visibility"],
+                route["input_visibility"],
+            )
+            self.assertFalse(
+                direction["ingress"]["provider_output_as_primary_evidence"]
+            )
+            self.assertEqual(
+                direction["ingress"]["canonical_write"], "deny"
+            )
+
+            receipt = route["session_receipt"]
+            assert_exact_keys(
+                self,
+                receipt,
+                {
+                    "required",
+                    "session_lineage",
+                    "watari_launch_attestation",
+                    "origin_route_model_policy",
+                    "role_provenance",
+                    "primary_evidence_roles",
+                    "provider_output_status",
+                    "schema_version",
+                    "turn_schema",
+                    "source_binding",
+                    "role_capture",
+                    "source_capture",
+                },
+                route_id + " receipt policy",
+            )
+            is_receipt = route_id in RECEIPT_ROUTE_IDS
+            self.assertEqual(receipt["required"], is_receipt)
+            self.assertEqual(
+                direction["egress"]["enabled"], not is_receipt
+            )
+            self.assertEqual(
+                direction["ingress"]["accepted_roles"],
+                ["user", "assistant", "tool", "system"]
+                if is_receipt
+                else ["evidence"],
+            )
+            self.assertEqual(
+                receipt["session_lineage"],
+                "required" if is_receipt else "not-applicable",
+            )
+            self.assertEqual(
+                receipt["watari_launch_attestation"],
+                "required" if is_receipt else "not-applicable",
+            )
+            self.assertEqual(
+                receipt["role_provenance"],
+                ["user", "assistant", "tool", "system"] if is_receipt else [],
+            )
+            self.assertEqual(receipt["primary_evidence_roles"], ["user"])
+            self.assertEqual(
+                receipt["provider_output_status"], "unverified-context"
+            )
+            self.assertEqual(receipt["source_binding"], "required")
+            self.assertEqual(
+                receipt["role_capture"],
+                "not-applicable"
+                if route_id == "route.connector.read-only.v1"
+                else "observed-role",
+            )
+            self.assertEqual(
+                receipt["source_capture"],
+                "not-applicable"
+                if route_id == "route.connector.read-only.v1"
+                else "observed-source",
+            )
+
             connector = route["connector_contract"]
-            self.assertIsInstance(connector["allowed_method_paths"], list)
-            self.assertEqual(connector["allowed_method_paths"], ["GET /approved-scope/**"] if rid == "route.connector.read-only.v1" else [])
-            self.assertEqual(connector["source_policy"], "enabled-read-only" if rid == "route.connector.read-only.v1" else "not-applicable")
-            self.assertEqual(connector["credential_scope"], route["credential_scope"] if rid == "route.connector.read-only.v1" else "not-applicable")
+            connector_keys = {
+                "required",
+                "connector_instance_id_policy",
+                "connector_instance_id",
+                "source_policy",
+                "allowed_method_paths",
+                "forbidden_method_paths",
+                "credential_scope",
+                "contract_digest",
+                "read_only",
+            }
+            if route_id == "route.connector.read-only.v1":
+                connector_keys |= {
+                    "source_policy_digest",
+                    "checkpoint_lineage_binding",
+                }
+            assert_exact_keys(
+                self, connector, connector_keys, route_id + " connector"
+            )
+            connector_body = {
+                key: value
+                for key, value in connector.items()
+                if key != "contract_digest"
+            }
+            self.assertEqual(
+                connector["contract_digest"],
+                typed_digest(
+                    "watari-connector-v1:",
+                    "connector-contract/v1",
+                    connector_body,
+                    self.d003,
+                ),
+            )
+            self.assertRegex(connector["contract_digest"], CONNECTOR_TOKEN)
+            is_connector = route_id == "route.connector.read-only.v1"
+            self.assertEqual(
+                connector["allowed_method_paths"],
+                ["GET /approved-scope/**"] if is_connector else [],
+            )
+            self.assertEqual(
+                connector["source_policy"],
+                "enabled-read-only" if is_connector else "not-applicable",
+            )
+            self.assertEqual(
+                connector["credential_scope"],
+                route["credential_scope"] if is_connector else "not-applicable",
+            )
             self.assertTrue(connector["read_only"])
-            if rid == "route.connector.read-only.v1":
-                self.assertRegex(connector["source_policy_digest"], r"^watari-source-policy-v1:[0-9a-f]{64}$")
-                self.assertRegex(connector["checkpoint_lineage_digest"], r"^watari-checkpoint-v1:[0-9a-f]{64}$")
-                self.assertEqual(connector["source_policy_digest"], typed_digest("watari-source-policy-v1:", "source-policy/v1", {"route_id": rid, "source_policy": connector["source_policy"], "allowed_method_paths": connector["allowed_method_paths"], "credential_scope": connector["credential_scope"]}, self.d003))
-                self.assertEqual(connector["checkpoint_lineage_digest"], typed_digest("watari-checkpoint-v1:", "checkpoint-lineage/v1", {"route_id": rid, "checkpoint_lineage": "required"}, self.d003))
-            self.assertEqual(set(route["d001_trace"]), TRACE_FULL[rid])
+
+            origin_policy = route["origin_policy"]
+            assert_exact_keys(
+                self,
+                origin_policy,
+                {
+                    "primary_evidence_roles",
+                    "provider_output_primary_evidence",
+                    "source_binding",
+                    "allowed_origin_route_ids",
+                    "provider_output_policy",
+                },
+                route_id + " origin policy",
+            )
+            self.assertFalse(
+                origin_policy["provider_output_primary_evidence"]
+            )
+            self.assertEqual(origin_policy["source_binding"], "required")
+            self.assertEqual(
+                origin_policy["primary_evidence_roles"],
+                ["user"]
+                if route_id in RECEIPT_ROUTE_IDS
+                or "trusted-dream" in route_id
+                else ["evidence"],
+            )
+            self.assertEqual(
+                origin_policy["allowed_origin_route_ids"],
+                EXPECTED_ORIGINS.get(route_id, []),
+            )
+            self.assertEqual(
+                origin_policy["provider_output_policy"],
+                (
+                    "deny-until-qualified-model-route"
+                    if route_id == "route.session-receipt.claude.v1"
+                    else "allow-unverified-context"
+                    if route_id in {
+                        "route.session-receipt.codex.v1",
+                        "route.session-receipt.pi-high-trust.v1",
+                    }
+                    else "not-applicable"
+                ),
+            )
+            self.assertEqual(set(route["d001_trace"]), TRACE_FULL[route_id])
+            self.assertEqual(
+                len(route["d001_trace"]), len(TRACE_FULL[route_id]), route_id
+            )
 
     def _assert_rejected(self, candidate):
         with self.assertRaises(AssertionError):
@@ -446,111 +1336,695 @@ class RouteMatrixTest(unittest.TestCase):
 
     def test_t_route_matrix_real_d003_vectors_and_closed_schema(self):
         self._validate_closed(self.matrix)
-        policy = self.matrix["route_policy_digest"]
         for route in self.matrix["routes"]:
-            manifest = {"schema_version": 1, "context_schema": "watari.context/v1", "projection_kind": "effective", "policy_revision": self.matrix["route_policy_revision"], "profile_revision": "profile.v1", "memory_revision": "memory.v1", "project_revision": "project.v1", "visibility": route["input_visibility"][0], "route_policy_digest": policy}
+            manifest = {
+                "schema_version": 1,
+                "context_schema": "watari.context/v1",
+                "projection_kind": "effective",
+                "policy_revision": self.matrix["route_policy_revision"],
+                "profile_revision": "profile.v1",
+                "memory_revision": "memory.v1",
+                "project_revision": "project.v1",
+                "visibility": route["input_visibility"][0],
+                "route_policy_digest": self.matrix["route_policy_digest"],
+            }
             context = bytes.fromhex(route["wire_projection"]["sample_bytes_hex"])
-            self.assertEqual(self.d003.context_fingerprint("effective", manifest, context), route["golden_fingerprint"])
+            self.assertEqual(
+                self.d003.context_fingerprint("effective", manifest, context),
+                route["golden_fingerprint"],
+            )
 
-    def test_t_turn_receipt_verifier_accepts_four_roles_and_provider_output(self):
-        for route_id, role_vectors in self.matrix["test_vectors"]["receipts"].items():
-            route = self.routes[route_id]
-            for role in ("user", "assistant", "tool", "system"):
-                vector = role_vectors[role]
-                errors = turn_receipt_errors(vector["receipt"], observed_bytes=bytes.fromhex(vector["observed_bytes_hex"]), observed_role=role, observed_source=ROLE_SOURCE[role], expected_route_id=route_id, expected_session_lineage=vector["expected_session_lineage"], expected_launch_attestation=vector["expected_launch_attestation"], expected_provider_id=vector["expected_provider_id"], expected_model_id=vector["expected_model_id"], expected_route_policy_digest=self.matrix["route_policy_digest"], d003=self.d003)
-                self.assertEqual(errors, set(), (route_id, role))
-                self.assertEqual(vector["receipt"]["primary_evidence"], role == "user")
-            provider_bytes = b"provider-output-bytes\n"
-            provider_lineage = "provider-lineage"
-            provider_attestation = "provider-attestation"
-            provider = {"schema_version": "watari.turn-receipt.v1", "turn_id": "turn:provider", "route_id": route_id, "bytes_digest": typed_digest("watari-wire-bytes-v1:", "wire-bytes/v1", provider_bytes, self.d003), "role": "provider", "source": "provider-output", "session_lineage_digest": typed_digest("watari-lineage-v1:", "session-lineage/v1", {"route_id": route_id, "lineage": provider_lineage}, self.d003), "watari_launch_attestation_digest": typed_digest("watari-attestation-v1:", "watari-attestation/v1", {"route_id": route_id, "attestation": provider_attestation, "caller_runtime": "session-receipt"}, self.d003), "origin_route_provider_model_policy_digest": typed_digest("watari-origin-v1:", "origin-route/v1", {"route_id": route_id, "provider_id": route["provider_id"], "model_id": route["model_id"], "route_policy_digest": self.matrix["route_policy_digest"]}, self.d003), "primary_evidence": False}
-            self.assertEqual(turn_receipt_errors(provider, observed_bytes=provider_bytes, observed_role="provider", observed_source="provider-output", expected_route_id=route_id, expected_session_lineage=provider_lineage, expected_launch_attestation=provider_attestation, expected_provider_id=route["provider_id"], expected_model_id=route["model_id"], expected_route_policy_digest=self.matrix["route_policy_digest"], d003=self.d003), set())
+    def test_t_route_matrix_rejects_mutation_and_fallbacks(self):
+        self.assertEqual(set(self.matrix["mutation_policy"]), MUTATION_KEYS)
+        self.assertTrue(
+            all(value == "deny" for value in self.matrix["mutation_policy"].values())
+        )
+        for route in self.routes.values():
+            self.assertFalse(route["canonical_write"])
+            self.assertEqual(route["fallback_policy"], "disabled")
+            self.assertEqual(
+                route["direction"]["ingress"]["canonical_write"], "deny"
+            )
+            self.assertEqual(route["capability_set"]["external_write"], "deny")
 
-    def test_t_turn_receipt_verifier_rejects_forgery_recomputed_digests_and_malformed(self):
-        vector = self.matrix["test_vectors"]["receipts"]["route.session-receipt.claude.v1"]["assistant"]
+    def test_t_route_matrix_visibility_and_openrouter_capabilities(self):
+        for route in self.routes.values():
+            self.assertTrue(set(route["input_visibility"]) <= VISIBILITIES)
+            self.assertEqual(
+                route["wire_projection"]["source_visibility"],
+                route["input_visibility"],
+            )
+            self.assertEqual(
+                route["wire_projection"]["sent_visibility"],
+                route["input_visibility"],
+            )
+        route = self.routes["route.pi.openrouter.low-risk-utility.v1"]
+        self.assertEqual(set(route["capability_set"]), CAPABILITY_KEYS)
+        for key in ("mount", "retrieval", "shell", "file", "project", "external_write"):
+            self.assertEqual(route["capability_set"][key], "deny")
+        self.assertEqual(
+            route["capability_set"]["process"], "allow:bounded-child-process"
+        )
+        self.assertEqual(
+            route["capability_set"]["network"], "allow:exact-provider-endpoint"
+        )
+        for forbidden in (
+            "private.memory",
+            "raw.connector.data",
+            "credential.value",
+            "canonical.event",
+        ):
+            self.assertIn(forbidden, route["forbidden_data"])
+        self.assertFalse(route["dream"])
+        self.assertIn("not-model-input", route["credential_reference_class"])
+
+    def test_t_connector_is_static_d008_requirement_not_fake_evidence(self):
+        connector = self.routes[
+            "route.connector.read-only.v1"
+        ]["connector_contract"]
+        self.assertTrue(connector["required"])
+        self.assertTrue(connector["read_only"])
+        self.assertEqual(connector["source_policy"], "enabled-read-only")
+        self.assertRegex(
+            connector["source_policy_digest"], SOURCE_POLICY_TOKEN
+        )
+        self.assertEqual(
+            connector["source_policy_digest"],
+            typed_digest(
+                "watari-source-policy-v1:",
+                "source-policy/v1",
+                {
+                    "route_id": "route.connector.read-only.v1",
+                    "source_policy": connector["source_policy"],
+                    "allowed_method_paths": connector["allowed_method_paths"],
+                    "credential_scope": connector["credential_scope"],
+                },
+                self.d003,
+            ),
+        )
+        self.assertEqual(
+            connector["allowed_method_paths"], ["GET /approved-scope/**"]
+        )
+        self.assertEqual(
+            connector["forbidden_method_paths"],
+            ["POST /", "PUT /", "PATCH /", "DELETE /"],
+        )
+        self.assertEqual(
+            connector["credential_scope"], "connector-instance-scoped"
+        )
+        self.assertEqual(
+            connector["connector_instance_id_policy"], "opaque-non-PII"
+        )
+        self.assertNotRegex(
+            connector["connector_instance_id"], r"[/@\\]|\.\."
+        )
+        self.assertTrue(
+            all(
+                not path.startswith(("POST", "PUT", "PATCH", "DELETE"))
+                for path in connector["allowed_method_paths"]
+            )
+        )
+        self.assertEqual(
+            connector["checkpoint_lineage_binding"],
+            "required-at-D008-evidence-boundary",
+        )
+        self.assertNotIn("checkpoint_lineage_digest", connector)
+        self.assertNotIn(
+            "watari-checkpoint-v1:",
+            json.dumps(self.matrix),
+        )
+
+    def test_t_receipt_vectors_are_literal_closed_and_all_validate(self):
+        seen = set()
+        for capture_id, role_vectors in self.matrix["test_vectors"]["receipts"].items():
+            for role, vector in role_vectors.items():
+                seen.add((capture_id, role))
+                self.assertEqual(
+                    typed_digest(
+                        "watari-receipt-vector-v1:",
+                        "receipt-vector/v1",
+                        vector,
+                        self.d003,
+                    ),
+                    EXPECTED_RECEIPT_VECTOR_DIGESTS[(capture_id, role)],
+                )
+                self.assertEqual(
+                    turn_receipt_errors(
+                        vector["receipt"],
+                        **observation_kwargs(vector, self.matrix, self.d003),
+                    ),
+                    set(),
+                )
+        self.assertEqual(seen, set(EXPECTED_RECEIPT_VECTOR_DIGESTS))
+        self.assertEqual(len(seen), 12)
+
+    def test_t_receipt_provider_output_is_assistant_nonprimary_and_claude_denies(self):
+        capture = "route.session-receipt.codex.v1"
+        origin = "route.codex.full-watari.v1"
+        values = {
+            "turn_id": "turn:provider-output",
+            "capture_route_id": capture,
+            "origin_route_id": origin,
+            "observed_bytes": b"provider-output-bytes\n",
+            "role": "assistant",
+            "source": "provider-output",
+            "lineage": "provider-output-lineage",
+            "attestation": "provider-output-attestation",
+        }
+        receipt = receipt_from_observation(
+            self.matrix, d003=self.d003, **values
+        )
+        errors = turn_receipt_errors(
+            receipt,
+            trusted_matrix=self.matrix,
+            observed_turn_id=values["turn_id"],
+            observed_capture_route_id=capture,
+            observed_origin_route_id=origin,
+            observed_bytes=values["observed_bytes"],
+            observed_role="assistant",
+            observed_source="provider-output",
+            observed_session_lineage=values["lineage"],
+            observed_launch_attestation=values["attestation"],
+            d003=self.d003,
+        )
+        self.assertEqual(errors, set())
+        self.assertFalse(receipt["primary_evidence"])
+
+        forged_primary = copy.deepcopy(receipt)
+        forged_primary["primary_evidence"] = True
+        self.assertIn(
+            "primary_evidence",
+            turn_receipt_errors(
+                forged_primary,
+                trusted_matrix=self.matrix,
+                observed_turn_id=values["turn_id"],
+                observed_capture_route_id=capture,
+                observed_origin_route_id=origin,
+                observed_bytes=values["observed_bytes"],
+                observed_role="assistant",
+                observed_source="provider-output",
+                observed_session_lineage=values["lineage"],
+                observed_launch_attestation=values["attestation"],
+                d003=self.d003,
+            ),
+        )
+
+        claude = "route.session-receipt.claude.v1"
+        claude_receipt = receipt_from_observation(
+            self.matrix,
+            turn_id="turn:claude-provider",
+            capture_route_id=claude,
+            origin_route_id=claude,
+            observed_bytes=b"claude-provider-output\n",
+            role="assistant",
+            source="provider-output",
+            lineage="claude-provider-lineage",
+            attestation="claude-local-capture-marker",
+            d003=self.d003,
+        )
+        self.assertIn(
+            "capture_route.provider_output_denied",
+            turn_receipt_errors(
+                claude_receipt,
+                trusted_matrix=self.matrix,
+                observed_turn_id="turn:claude-provider",
+                observed_capture_route_id=claude,
+                observed_origin_route_id=claude,
+                observed_bytes=b"claude-provider-output\n",
+                observed_role="assistant",
+                observed_source="provider-output",
+                observed_session_lineage="claude-provider-lineage",
+                observed_launch_attestation="claude-local-capture-marker",
+                d003=self.d003,
+            ),
+        )
+
+    def test_t_receipt_rejects_relabel_forgery_and_malformed_fields(self):
+        vector = self.matrix["test_vectors"]["receipts"][
+            "route.session-receipt.claude.v1"
+        ]["assistant"]
+        kwargs = observation_kwargs(vector, self.matrix, self.d003)
         forged = copy.deepcopy(vector["receipt"])
-        observed = bytes.fromhex(vector["observed_bytes_hex"])
         forged["role"] = "user"
         forged["source"] = "local-user-turn"
         forged["primary_evidence"] = True
-        forged["bytes_digest"] = typed_digest("watari-wire-bytes-v1:", "wire-bytes/v1", observed, self.d003)
-        forged["session_lineage_digest"] = typed_digest("watari-lineage-v1:", "session-lineage/v1", {"route_id": vector["receipt"]["route_id"], "lineage": vector["expected_session_lineage"]}, self.d003)
-        forged["watari_launch_attestation_digest"] = typed_digest("watari-attestation-v1:", "watari-attestation/v1", {"route_id": vector["receipt"]["route_id"], "attestation": vector["expected_launch_attestation"], "caller_runtime": "session-receipt"}, self.d003)
-        forged["origin_route_provider_model_policy_digest"] = typed_digest("watari-origin-v1:", "origin-route/v1", {"route_id": vector["receipt"]["route_id"], "provider_id": vector["expected_provider_id"], "model_id": vector["expected_model_id"], "route_policy_digest": self.matrix["route_policy_digest"]}, self.d003)
-        errors = turn_receipt_errors(forged, observed_bytes=observed, observed_role="assistant", observed_source="local-assistant-turn", expected_route_id=vector["receipt"]["route_id"], expected_session_lineage=vector["expected_session_lineage"], expected_launch_attestation=vector["expected_launch_attestation"], expected_provider_id=vector["expected_provider_id"], expected_model_id=vector["expected_model_id"], expected_route_policy_digest=self.matrix["route_policy_digest"], d003=self.d003)
-        self.assertTrue({"role", "source", "primary_evidence"} <= errors)
-        for field, bad in (("bytes_digest", None), ("role", 1), ("source", []), ("session_lineage_digest", None), ("primary_evidence", "true")):
-            malformed = copy.deepcopy(vector["receipt"]); malformed[field] = bad
-            errors = turn_receipt_errors(malformed, observed_bytes=observed, observed_role="assistant", observed_source="local-assistant-turn", expected_route_id=vector["receipt"]["route_id"], expected_session_lineage=vector["expected_session_lineage"], expected_launch_attestation=vector["expected_launch_attestation"], expected_provider_id=vector["expected_provider_id"], expected_model_id=vector["expected_model_id"], expected_route_policy_digest=self.matrix["route_policy_digest"], d003=self.d003)
-            self.assertTrue(errors, field)
-        unknown = copy.deepcopy(vector["receipt"]); unknown["unknown"] = True
-        self.assertTrue(turn_receipt_errors(unknown, observed_bytes=observed, observed_role="assistant", observed_source="local-assistant-turn", expected_route_id=vector["receipt"]["route_id"], expected_session_lineage=vector["expected_session_lineage"], expected_launch_attestation=vector["expected_launch_attestation"], expected_provider_id=vector["expected_provider_id"], expected_model_id=vector["expected_model_id"], expected_route_policy_digest=self.matrix["route_policy_digest"], d003=self.d003))
+        errors = turn_receipt_errors(forged, **kwargs)
+        self.assertTrue({"role", "source_binding", "primary_evidence"} <= errors)
 
-    def test_t_route_matrix_exact_excluded_path_matching(self):
+        for field, bad in (
+            ("turn_id", ""),
+            ("origin_route_id", None),
+            ("bytes_digest", None),
+            ("role", 1),
+            ("source", []),
+            ("session_lineage_digest", None),
+            ("watari_launch_attestation_digest", ""),
+            ("origin_route_provider_model_policy_digest", {}),
+            ("primary_evidence", "true"),
+        ):
+            malformed = copy.deepcopy(vector["receipt"])
+            malformed[field] = bad
+            self.assertTrue(
+                turn_receipt_errors(malformed, **kwargs),
+                field,
+            )
+        missing = copy.deepcopy(vector["receipt"])
+        missing.pop("turn_id")
+        self.assertTrue(turn_receipt_errors(missing, **kwargs))
+        unknown = copy.deepcopy(vector["receipt"])
+        unknown["unknown"] = True
+        self.assertTrue(turn_receipt_errors(unknown, **kwargs))
+
+    def test_t_receipt_rejects_independent_id_route_and_digest_mismatch(self):
+        vector = self.matrix["test_vectors"]["receipts"][
+            "route.session-receipt.codex.v1"
+        ]["user"]
+        kwargs = observation_kwargs(vector, self.matrix, self.d003)
+        for field, value, expected_error in (
+            ("turn_id", "turn:other", "turn_id"),
+            (
+                "origin_route_id",
+                "route.pi.openai-codex.trusted-dream.v1",
+                "origin_route_id",
+            ),
+            ("bytes_digest", WIRE_TOKEN.pattern.replace("^", ""), "bytes_digest"),
+            (
+                "session_lineage_digest",
+                "watari-lineage-v1:" + "0" * 64,
+                "session_lineage_digest",
+            ),
+            (
+                "watari_launch_attestation_digest",
+                "watari-attestation-v1:" + "0" * 64,
+                "watari_launch_attestation_digest",
+            ),
+            (
+                "origin_route_provider_model_policy_digest",
+                "watari-origin-v1:" + "0" * 64,
+                "origin_route_provider_model_policy_digest",
+            ),
+        ):
+            candidate = copy.deepcopy(vector["receipt"])
+            candidate[field] = value
+            self.assertIn(
+                expected_error,
+                turn_receipt_errors(candidate, **kwargs),
+                field,
+            )
+
+        altered = dict(kwargs)
+        altered["observed_turn_id"] = "turn:independently-different"
+        self.assertIn(
+            "turn_id",
+            turn_receipt_errors(vector["receipt"], **altered),
+        )
+        altered = dict(kwargs)
+        altered["observed_origin_route_id"] = (
+            "route.pi.openai-codex.trusted-dream.v1"
+        )
+        errors = turn_receipt_errors(vector["receipt"], **altered)
+        self.assertTrue(
+            {"capture_route.origin_not_allowed", "origin_route_id"} <= errors
+        )
+
+        resealed_matrix = copy.deepcopy(self.matrix)
+        resealed_matrix["routes"][0]["provider_id"] = "provider.spoofed.v1"
+        resealed_digest = route_policy_digest(resealed_matrix, self.d003)
+        resealed_matrix["route_policy_digest"] = resealed_digest
+        for route in resealed_matrix["routes"]:
+            route["route_policy_digest"] = resealed_digest
+        altered = dict(kwargs)
+        altered["trusted_matrix"] = resealed_matrix
+        self.assertIn(
+            "trusted_matrix.unapproved_policy_digest",
+            turn_receipt_errors(vector["receipt"], **altered),
+        )
+
+    def test_t_receipt_rejects_unknown_external_connector_and_empty_observations(self):
+        vector = self.matrix["test_vectors"]["receipts"][
+            "route.session-receipt.codex.v1"
+        ]["user"]
+        kwargs = observation_kwargs(vector, self.matrix, self.d003)
+
+        for field in (
+            "observed_turn_id",
+            "observed_capture_route_id",
+            "observed_origin_route_id",
+            "observed_role",
+            "observed_source",
+            "observed_session_lineage",
+            "observed_launch_attestation",
+        ):
+            for bad in (None, ""):
+                altered = dict(kwargs)
+                altered[field] = bad
+                self.assertTrue(
+                    turn_receipt_errors(vector["receipt"], **altered),
+                    (field, bad),
+                )
+        for bad in (None, b""):
+            altered = dict(kwargs)
+            altered["observed_bytes"] = bad
+            self.assertTrue(turn_receipt_errors(vector["receipt"], **altered))
+
+        altered = dict(kwargs)
+        altered["observed_capture_route_id"] = "route.unknown.v1"
+        self.assertIn(
+            "capture_route.unknown",
+            turn_receipt_errors(vector["receipt"], **altered),
+        )
+        altered = dict(kwargs)
+        altered["observed_origin_route_id"] = "route.unknown.v1"
+        self.assertIn(
+            "origin_route.unknown",
+            turn_receipt_errors(vector["receipt"], **altered),
+        )
+
+        for capture_id in (
+            "route.codex.full-watari.v1",
+            "route.connector.read-only.v1",
+        ):
+            origin_id = capture_id
+            receipt = receipt_from_observation(
+                self.matrix,
+                turn_id="turn:invalid-capture",
+                capture_route_id=capture_id,
+                origin_route_id=origin_id,
+                observed_bytes=b"invalid-capture\n",
+                role="user",
+                source="local-user-turn",
+                lineage="invalid-capture-lineage",
+                attestation="invalid-capture-attestation",
+                d003=self.d003,
+            )
+            errors = turn_receipt_errors(
+                receipt,
+                trusted_matrix=self.matrix,
+                observed_turn_id="turn:invalid-capture",
+                observed_capture_route_id=capture_id,
+                observed_origin_route_id=origin_id,
+                observed_bytes=b"invalid-capture\n",
+                observed_role="user",
+                observed_source="local-user-turn",
+                observed_session_lineage="invalid-capture-lineage",
+                observed_launch_attestation="invalid-capture-attestation",
+                d003=self.d003,
+            )
+            self.assertIn("capture_route.receipt_not_required", errors)
+            self.assertIn("capture_route.origin_not_allowed", errors)
+
+    def test_t_receipt_rejects_nonsemantic_provider_role_and_bad_pairs(self):
+        vector = self.matrix["test_vectors"]["receipts"][
+            "route.session-receipt.codex.v1"
+        ]["assistant"]
+        kwargs = observation_kwargs(vector, self.matrix, self.d003)
+        for role, source in (
+            ("provider", "provider-output"),
+            ("user", "provider-output"),
+            ("tool", "provider-output"),
+            ("system", "local-assistant-turn"),
+        ):
+            altered = dict(kwargs)
+            altered["observed_role"] = role
+            altered["observed_source"] = source
+            errors = turn_receipt_errors(vector["receipt"], **altered)
+            self.assertTrue(
+                "semantic_role" in errors or "role_source_pair" in errors,
+                (role, source, errors),
+            )
+
+    def test_t_route_vector_schema_rejects_missing_unknown_rename_and_turn_change(self):
+        candidates = []
+        candidate = copy.deepcopy(self.matrix)
+        candidate["test_vectors"]["routes"].pop(
+            "route.codex.full-watari.v1"
+        )
+        candidates.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["test_vectors"]["routes"]["route.unknown.v1"] = {}
+        candidates.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        route_vector = candidate["test_vectors"]["routes"][
+            "route.codex.full-watari.v1"
+        ]
+        route_vector["wire_digest"] = route_vector.pop("wire_bytes_digest")
+        candidates.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["test_vectors"]["receipts"].pop(
+            "route.session-receipt.codex.v1"
+        )
+        candidates.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["test_vectors"]["receipts"]["route.unknown.v1"] = {}
+        candidates.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        receipt_vector = candidate["test_vectors"]["receipts"][
+            "route.session-receipt.codex.v1"
+        ]["user"]
+        receipt_vector["capture_route"] = receipt_vector.pop(
+            "observed_capture_route_id"
+        )
+        candidates.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["test_vectors"]["receipts"][
+            "route.session-receipt.codex.v1"
+        ]["user"]["receipt"]["turn_id"] = "turn:renamed"
+        candidates.append(candidate)
+        for candidate in candidates:
+            self._assert_rejected(candidate)
+
+    def test_t_policy_exclusions_are_code_owned_exact_and_counted(self):
+        self.assertEqual(
+            self.matrix["projection_policy"]["policy_digest_excluded_paths"],
+            POLICY_EXCLUDED_PATH_STRINGS,
+        )
+        self.assertEqual(
+            policy_exclusion_match_counts(self.matrix),
+            EXPECTED_EXCLUSION_MATCH_COUNTS,
+        )
         base = route_policy_digest(self.matrix, self.d003)
-        excluded = copy.deepcopy(self.matrix); excluded["routes"][0]["wire_projection"]["sent_bytes_digest"] += "x"
-        self.assertEqual(route_policy_digest(excluded, self.d003), base)
-        excluded = copy.deepcopy(self.matrix); excluded["routes"][0]["route_policy_digest"] += "x"
-        self.assertEqual(route_policy_digest(excluded, self.d003), base)
-        included = copy.deepcopy(self.matrix); included["session_receipt_schema"]["golden_fingerprint"] = "policy-leaf"
-        self.assertNotEqual(route_policy_digest(included, self.d003), base)
-        included = copy.deepcopy(self.matrix); included["routes"][0]["connector_contract"]["golden_fingerprint"] = "policy-leaf"
-        self.assertNotEqual(route_policy_digest(included, self.d003), base)
+        for mutate in (
+            lambda m: m["routes"][0]["wire_projection"].__setitem__(
+                "sent_bytes_digest",
+                m["routes"][0]["wire_projection"]["sent_bytes_digest"] + "x",
+            ),
+            lambda m: m["routes"][0].__setitem__(
+                "route_policy_digest",
+                m["routes"][0]["route_policy_digest"] + "x",
+            ),
+            lambda m: m.__setitem__("test_vectors", {"entirely": "derived"}),
+        ):
+            candidate = copy.deepcopy(self.matrix)
+            mutate(candidate)
+            self.assertEqual(route_policy_digest(candidate, self.d003), base)
+
+        for path, value in (
+            (("session_receipt_schema", "route_policy_digest"), "same-name"),
+            (("routes", 0, "origin_policy", "contract_digest"), "same-name"),
+            (("projection_policy", "test_vectors"), "same-name"),
+        ):
+            candidate = copy.deepcopy(self.matrix)
+            parent = candidate
+            for part in path[:-1]:
+                parent = parent[part]
+            parent[path[-1]] = value
+            self.assertNotEqual(route_policy_digest(candidate, self.d003), base)
+
+    def test_t_prior_audit_mutations_still_reject_after_resealing(self):
+        candidates = []
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["context_selection"]["implicit_default"] = "allow"
+        candidates.append(("context-selection", candidate))
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["provider_output_default_trust"] = "trusted"
+        candidates.append(("provider-default", candidate))
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["caller_runtime"] = "spoofed-runtime"
+        candidates.append(("caller-runtime", candidate))
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["provider_model_class"] = "low-risk-model"
+        candidates.append(("provider-class", candidate))
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["network_endpoint_class"] = "unbounded-egress"
+        candidates.append(("network-class", candidate))
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["wire_projection"]["byte_selection"] = "all"
+        candidates.append(("wire-policy", candidate))
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["session_receipt"]["source_binding"] = "optional"
+        candidates.append(("receipt-policy", candidate))
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][4]["origin_policy"]["allowed_origin_route_ids"] = [
+            "route.pi.openrouter.low-risk-utility.v1"
+        ]
+        candidates.append(("origin-policy", candidate))
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["fail_closed_conditions"].remove(
+            "provider-mismatch"
+        )
+        candidates.append(("fail-condition", candidate))
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["d001_trace"].remove("MX-001")
+        candidates.append(("trace-subset", candidate))
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][2]["forbidden_data"].remove("private.memory")
+        candidates.append(("openrouter-private-data", candidate))
+
+        for path in ("POST /approved-scope/**", "GET /global-admin/**"):
+            candidate = copy.deepcopy(self.matrix)
+            connector = candidate["routes"][6]["connector_contract"]
+            connector["allowed_method_paths"] = [path]
+            connector_body = {
+                key: value
+                for key, value in connector.items()
+                if key != "contract_digest"
+            }
+            connector["contract_digest"] = typed_digest(
+                "watari-connector-v1:",
+                "connector-contract/v1",
+                connector_body,
+                self.d003,
+            )
+            candidates.append((path, candidate))
+
+        for label, candidate in candidates:
+            resealed = route_policy_digest(candidate, self.d003)
+            self.assertNotEqual(resealed, self.matrix["route_policy_digest"], label)
+            candidate["route_policy_digest"] = resealed
+            for route in candidate["routes"]:
+                route["route_policy_digest"] = resealed
+            self._assert_rejected(candidate)
 
     def test_t_route_matrix_negative_mutation_corpus(self):
         mutations = []
-        candidate = copy.deepcopy(self.matrix); candidate["unknown"] = True; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][0]["provider_id"], candidate["routes"][1]["provider_id"] = candidate["routes"][1]["provider_id"], candidate["routes"][0]["provider_id"]; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][2]["capability_set"]["network"] = "allow:any"; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][0]["sandbox_class"] = "none"; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][2]["allowed_projection"].append("private.memory"); mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][3]["direction"]["egress"]["enabled"] = True; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][0]["retention_zdr"]["zero_data_retention"] = "disabled"; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][0]["origin_policy"]["source_binding"] = "disabled"; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][3]["session_receipt"]["role"] = "assistant"; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][1]["direction"]["ingress"]["accepted_roles"] = ["user"]; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][6]["connector_contract"]["allowed_method_paths"] = ["POST /approved-scope/**"]; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][6]["connector_contract"]["checkpoint_lineage_digest"] += "x"; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][0]["d001_trace"].append("UNKNOWN"); mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][0]["session_receipt"]["role_provenance"] = "user"; mutations.append(candidate)
-        for malformed in (None, "routes", 1, {}):
-            candidate = copy.deepcopy(self.matrix); candidate["routes"] = malformed; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][0]["capability_set"] = "deny"; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][0]["wire_projection"] = None; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][0]["direction"]["ingress"]["accepted_roles"] = "user"; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][6]["connector_contract"]["allowed_method_paths"] = 1; mutations.append(candidate)
-        candidate = copy.deepcopy(self.matrix); candidate["routes"][0]["origin_policy"] = None; mutations.append(candidate)
-        for forged_role in ("assistant", "system", "tool", "provider"):
-            candidate = copy.deepcopy(self.matrix); candidate["routes"][3]["session_receipt"]["role"] = forged_role; mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["unknown"] = True
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["provider_id"], candidate["routes"][1]["provider_id"] = (
+            candidate["routes"][1]["provider_id"],
+            candidate["routes"][0]["provider_id"],
+        )
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][2]["capability_set"]["network"] = "allow:any"
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["sandbox_class"] = "none"
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][2]["allowed_projection"].append("private.memory")
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][3]["direction"]["egress"]["enabled"] = True
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["retention_zdr"]["zero_data_retention"] = "disabled"
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["origin_policy"]["source_binding"] = "disabled"
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][1]["direction"]["ingress"]["accepted_roles"] = ["user"]
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][6]["connector_contract"]["allowed_method_paths"] = [
+            "POST /approved-scope/**"
+        ]
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][6]["connector_contract"][
+            "checkpoint_lineage_binding"
+        ] = "verified"
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["d001_trace"].append("UNKNOWN")
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][3]["session_receipt"]["role_provenance"] = "user"
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][4]["origin_policy"][
+            "allowed_origin_route_ids"
+        ] = ["route.pi.openrouter.low-risk-utility.v1"]
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["session_receipt_schema"]["role_values"].append("provider")
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["capability_set"] = "deny"
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["wire_projection"] = None
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["direction"]["ingress"]["accepted_roles"] = "user"
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][6]["connector_contract"]["allowed_method_paths"] = 1
+        mutations.append(candidate)
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["origin_policy"] = None
+        mutations.append(candidate)
         for candidate in mutations:
             self._assert_rejected(candidate)
 
-    def test_t_route_matrix_mutation_changes_policy_vector_and_user_provenance(self):
+    def test_t_closed_schema_rejects_malformed_types_and_unknown_members(self):
+        candidates = []
+        for malformed in (None, "routes", 1, {}):
+            candidate = copy.deepcopy(self.matrix)
+            candidate["routes"] = malformed
+            candidates.append(candidate)
+
         candidate = copy.deepcopy(self.matrix)
-        candidate["routes"][0]["allowed_projection"].append("unapproved.extra")
-        self.assertNotEqual(route_policy_digest(candidate, self.d003), self.matrix["route_policy_digest"])
-        for route in self.matrix["routes"]:
-            if route["route_id"].startswith("route.session-receipt"):
-                self.assertEqual(route["session_receipt"]["role_capture"], "observed-role")
-                self.assertEqual(route["session_receipt"]["source_capture"], "observed-source")
-            else:
-                self.assertNotIn("user", route["direction"]["ingress"]["accepted_roles"])
-                self.assertNotEqual(route["session_receipt"]["role_capture"], "user")
+        candidate["test_vectors"] = None
+        candidates.append(candidate)
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["session_receipt_schema"]["allowed_role_source_pairs"] = None
+        candidates.append(candidate)
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["direction"] = None
+        candidates.append(candidate)
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][4]["origin_policy"]["allowed_origin_route_ids"] = (
+            "route.codex.full-watari.v1"
+        )
+        candidates.append(candidate)
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][6]["connector_contract"] = []
+        candidates.append(candidate)
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["routes"][0]["wire_projection"]["unknown"] = True
+        candidates.append(candidate)
+
+        candidate = copy.deepcopy(self.matrix)
+        candidate["test_vectors"]["receipts"][
+            "route.session-receipt.codex.v1"
+        ]["user"]["receipt"] = None
+        candidates.append(candidate)
+
+        for candidate in candidates:
+            self._assert_rejected(candidate)
 
     def test_t_route_matrix_nested_schema_and_duplicate_members(self):
-        for route in self.matrix["routes"]:
-            rid = route["route_id"]
-            assert_exact_keys(self, route["retention_zdr"], {"retention_class", "zero_data_retention", "fallback_retention"}, rid)
-            assert_exact_keys(self, route["capability_set"], CAPABILITY_KEYS, rid)
-            assert_exact_keys(self, route["project_layer_policy"], {"approved_digest_required", "root_scope_required", "auto_discovery", "model_override"}, rid)
-            assert_exact_keys(self, route["wire_projection"], {"source_visibility", "sent_visibility", "allowed_projection", "byte_selection", "declassification", "sent_bytes_digest", "sample_bytes_hex", "sample_bytes_digest"}, rid)
-            assert_exact_keys(self, route["direction"]["egress"], {"enabled", "endpoint_id", "allowed_visibility", "fallback_policy", "capture"}, rid)
-            assert_exact_keys(self, route["direction"]["ingress"], {"enabled", "accepted_output_trust", "accepted_roles", "provider_output_as_primary_evidence", "canonical_write"}, rid)
-            assert_exact_keys(self, route["session_receipt"], {"required", "session_lineage", "watari_launch_attestation", "origin_route_model_policy", "role_provenance", "primary_evidence_roles", "provider_output_status", "schema_version", "turn_schema", "source_binding", "role_capture", "source_capture"}, rid)
-            connector_keys = {"required", "connector_instance_id_policy", "connector_instance_id", "source_policy", "allowed_method_paths", "forbidden_method_paths", "credential_scope", "contract_digest", "read_only"}
-            if rid == "route.connector.read-only.v1": connector_keys |= {"source_policy_digest", "checkpoint_lineage_digest"}
-            assert_exact_keys(self, route["connector_contract"], connector_keys, rid)
-            assert_exact_keys(self, route["origin_policy"], {"primary_evidence_roles", "provider_output_primary_evidence", "source_binding"}, rid)
+        self._validate_closed(self.matrix)
+
         def duplicate_reject(pairs):
             seen = set()
             for key, _ in pairs:
@@ -558,12 +2032,17 @@ class RouteMatrixTest(unittest.TestCase):
                     raise ValueError("duplicate JSON member")
                 seen.add(key)
             return dict(pairs)
-        with self.assertRaises(ValueError):
-            json.loads('{"route_id":"a","route_id":"b"}', object_pairs_hook=duplicate_reject)
 
-    def test_t_route_matrix_every_included_policy_leaf_changes_digest(self):
+        with self.assertRaises(ValueError):
+            json.loads(
+                '{"route_id":"a","route_id":"b"}',
+                object_pairs_hook=duplicate_reject,
+            )
+
+    def test_t_every_included_policy_leaf_changes_digest(self):
         projection = policy_projection(self.matrix)
         paths = []
+
         def walk(value, path=()):
             if isinstance(value, dict):
                 for key, child in value.items():
@@ -573,6 +2052,7 @@ class RouteMatrixTest(unittest.TestCase):
                     walk(child, path + (index,))
             else:
                 paths.append(path)
+
         walk(projection)
         self.assertGreater(len(paths), 100)
         for path in paths:
@@ -589,8 +2069,14 @@ class RouteMatrixTest(unittest.TestCase):
             elif isinstance(old, int):
                 parent[key] = old + 1
             else:
-                self.fail(f"unhandled policy leaf type at {path}: {type(old)}")
-            self.assertNotEqual(route_policy_digest(candidate, self.d003), self.matrix["route_policy_digest"], path)
+                self.fail(
+                    f"unhandled policy leaf type at {path}: {type(old)}"
+                )
+            self.assertNotEqual(
+                route_policy_digest(candidate, self.d003),
+                self.matrix["route_policy_digest"],
+                path,
+            )
 
 
 if __name__ == "__main__":
