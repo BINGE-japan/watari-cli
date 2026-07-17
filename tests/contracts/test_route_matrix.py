@@ -378,6 +378,51 @@ EXPECTED_EGRESS_VECTOR_DIGESTS = {
     "case.egress.structural-arbitrary.connector-read-only.v1":
         "watari-egress-vector-v1:d1963a771fa8083d573d227af1beb53bfb9909815d2b38c56c71444820c196e4",
 }
+PRIOR_AUDIT_COVERAGE = {
+    "codex_provider_assistant_accept": "test_t_receipt_provider_output_is_assistant_nonprimary_and_claude_denies",
+    "codex_provider_nonprimary": "test_t_receipt_provider_output_is_assistant_nonprimary_and_claude_denies",
+    "pi_provider_assistant_accept": "test_t_receipt_provider_output_is_assistant_nonprimary_and_claude_denies",
+    "pi_provider_nonprimary": "test_t_receipt_provider_output_is_assistant_nonprimary_and_claude_denies",
+    "claude_provider_denied": "test_t_receipt_provider_output_is_assistant_nonprimary_and_claude_denies",
+    "external_user_primary_rejected": "test_t_receipt_rejects_unknown_external_connector_and_empty_observations",
+    "external_capture_not_receipt": "test_t_receipt_rejects_unknown_external_connector_and_empty_observations",
+    "connector_user_primary_rejected": "test_t_receipt_rejects_unknown_external_connector_and_empty_observations",
+    "connector_capture_not_receipt": "test_t_receipt_rejects_unknown_external_connector_and_empty_observations",
+    "literal_baseline_accept": "test_t_receipt_vectors_are_literal_closed_and_all_validate",
+    "receipt_mutation_bytes_digest": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "receipt_mutation_origin_route_id": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "receipt_mutation_origin_route_provider_model_policy_digest": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "receipt_mutation_primary_evidence": "test_t_receipt_rejects_relabel_forgery_and_malformed_fields",
+    "receipt_mutation_role": "test_t_receipt_rejects_relabel_forgery_and_malformed_fields",
+    "receipt_mutation_route_id": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "receipt_mutation_schema_version": "test_t_receipt_rejects_relabel_forgery_and_malformed_fields",
+    "receipt_mutation_session_lineage_digest": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "receipt_mutation_source": "test_t_receipt_rejects_relabel_forgery_and_malformed_fields",
+    "receipt_mutation_turn_id": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "receipt_mutation_watari_launch_attestation_digest": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "observation_mutation_observed_turn_id": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "observation_mutation_observed_capture_route_id": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "observation_mutation_observed_origin_route_id": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "observation_mutation_observed_bytes": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "observation_mutation_observed_role": "test_t_receipt_rejects_relabel_forgery_and_malformed_fields",
+    "observation_mutation_observed_source": "test_t_receipt_rejects_relabel_forgery_and_malformed_fields",
+    "observation_mutation_observed_session_lineage": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "observation_mutation_observed_launch_attestation": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "capture_origin_swap": "test_t_receipt_rejects_independent_id_route_and_digest_mismatch",
+    "unknown_capture": "test_t_receipt_rejects_unknown_external_connector_and_empty_observations",
+    "unknown_origin": "test_t_receipt_rejects_unknown_external_connector_and_empty_observations",
+    "provider_role": "test_t_receipt_rejects_nonsemantic_provider_role_and_bad_pairs",
+    "none_turn": "test_t_receipt_rejects_unknown_external_connector_and_empty_observations",
+    "empty_bytes": "test_t_receipt_rejects_unknown_external_connector_and_empty_observations",
+    "resealed_policy_rejected": "test_t_prior_audit_mutations_still_reject_after_resealing",
+    "missing_receipt_route": "test_t_route_vector_schema_rejects_missing_unknown_rename_and_turn_change",
+    "extra_route_vector": "test_t_route_vector_schema_rejects_missing_unknown_rename_and_turn_change",
+    "renamed_vector_key": "test_t_route_vector_schema_rejects_missing_unknown_rename_and_turn_change",
+    "missing_turn_required_field": "test_t_route_vector_schema_rejects_missing_unknown_rename_and_turn_change",
+    "exclusion_counts": "test_t_policy_exclusions_are_code_owned_exact_and_counted",
+    "no_fake_checkpoint_digest": "test_t_connector_is_static_d008_requirement_not_fake_evidence",
+    "d008_checkpoint_requirement": "test_t_connector_is_static_d008_requirement_not_fake_evidence",
+}
 
 
 def d003_module():
@@ -2498,6 +2543,11 @@ class RouteMatrixTest(unittest.TestCase):
             self.assertNotEqual(route_policy_digest(candidate, self.d003), base)
 
     def test_t_prior_audit_mutations_still_reject_after_resealing(self):
+        self.assertEqual(len(PRIOR_AUDIT_COVERAGE), 43)
+        for case_id, test_method in PRIOR_AUDIT_COVERAGE.items():
+            self.assertRegex(case_id, r"^[a-z0-9_]+$")
+            self.assertTrue(hasattr(type(self), test_method), case_id)
+
         candidates = []
 
         candidate = copy.deepcopy(self.matrix)
