@@ -170,44 +170,113 @@ def _default_cartridge_dir() -> str:
     return os.path.join(base, "watari", "cartridge")
 
 
-def cmd_install(args) -> int:
-    """初回セットアップ: カセットを用意し、その位置を永続化する。
+PROVIDER_MODELS = {
+    "openrouter": "deepseek/deepseek-chat",
+    "anthropic": "anthropic/claude-sonnet-5",
+    "google": "",
+    "openai": "openai/gpt-5",
+}
+PROVIDER_KEY_ENV = {
+    "openrouter": "OPENROUTER_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
+    "google": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY",
+}
 
-    3モード: --from <git> でクローンして記憶を継承 / 既存カセットを採用 / まっさら新規作成。
-    いずれも state を再生成し、WATARI_HOME を保存する。
-    """
+
+def _setup_cartridge(mode: str, home: str, url: str | None) -> tuple[str, str]:
+    """mode='clone'|'adopt'|'new'。home にカセットを用意し state を再生成。(絶対home, 説明) を返す。"""
     import subprocess
 
-    target = os.path.abspath(os.path.expanduser(args.home or _default_cartridge_dir()))
-
-    if args.from_url:
-        if os.path.exists(target) and os.listdir(target):
-            sys.stderr.write(f"クローン先が空ではありません: {target}\n")
-            return 1
-        os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-        clone = subprocess.run(["git", "clone", args.from_url, target],
-                               capture_output=True, text=True)
+    home = os.path.abspath(os.path.expanduser(home))
+    if mode == "clone":
+        if os.path.exists(home) and os.listdir(home):
+            raise RuntimeError(f"クローン先が空ではありません: {home}")
+        os.makedirs(os.path.dirname(home) or ".", exist_ok=True)
+        clone = subprocess.run(["git", "clone", url, home], capture_output=True, text=True)
         if clone.returncode != 0:
-            sys.stderr.write(f"git clone 失敗:\n{clone.stderr}")
-            return 1
-        config.apply(target)
+            raise RuntimeError(f"git clone 失敗:\n{clone.stderr}")
+        config.apply(home)
         _rebuild_state()
-        mode = "クローン＋state再生成（記憶を継承）"
-    elif os.path.isdir(target) and os.listdir(target):
-        config.apply(target)
+        return home, "クローン＋state再生成（記憶を継承）"
+    config.apply(home)
+    if mode == "adopt":
+        if not (os.path.isdir(home) and os.listdir(home)):
+            raise RuntimeError(f"既存カセットが見つかりません: {home}")
         _rebuild_state()
-        mode = "既存カセットを採用＋state再生成"
-    else:
-        config.apply(target)
-        _scaffold_empty_cartridge()
-        mode = "空カセットを新規作成"
+        return home, "既存カセットを採用＋state再生成"
+    if os.path.isdir(home) and os.listdir(home):
+        raise RuntimeError(f"空ではありません: {home}")
+    _scaffold_empty_cartridge()
+    return home, "空カセットを新規作成"
 
-    saved = config.save_home(target)
-    config.save_config(runtime=args.runtime, provider=args.provider, model=args.model)
-    print(f"インストール完了（{mode}）")
+
+def cmd_install(args) -> int:
+    """初回セットアップ。未指定の項目だけウィザードで尋ねる（create-vite 風）。
+
+    フラグを渡せばその質問は飛ばす。--yes で全部既定のまま非対話（コマンド一発）。
+    """
+    from watari_cli import prompts
+
+    default_dir = _default_cartridge_dir()
+    live = os.path.join(os.path.expanduser("~"), ".claude", "skills", "watari", "memory")
+
+    try:
+        # 1) カセット（フラグ優先。無ければ尋ねる）
+        if args.from_url:
+            mode, home, url = "clone", (args.home or default_dir), args.from_url
+        elif args.home:
+            existing = os.path.isdir(args.home) and os.listdir(args.home)
+            mode, home, url = ("adopt" if existing else "new"), args.home, None
+        elif args.yes:
+            mode, home, url = "new", default_dir, None
+        else:
+            kind = prompts.select("記憶（カセット）をどうしますか？", [
+                ("まっさら新規作成（自分のワタリを一から育てる）", "new"),
+                ("このマシンにある既存カセットを使う", "adopt"),
+                ("既存のワタリ記憶を git から引き継ぐ（別マシン再現・共有）", "clone"),
+            ], default=0)
+            if kind == "clone":
+                url = prompts.text("カセットの git URL")
+                home = prompts.text("取り込み先", default=default_dir)
+            elif kind == "adopt":
+                home = prompts.text("カセットのパス", default=(live if os.path.isdir(live) else default_dir))
+                url = None
+            else:
+                home = prompts.text("作成先", default=default_dir)
+                url = None
+            mode = kind
+
+        # 2) プロバイダ / モデル（フラグ優先。ウィザード時のみ尋ねる）
+        provider = args.provider
+        wizard = not (args.from_url or args.home or args.yes)
+        if provider is None and wizard:
+            provider = prompts.select("モデルプロバイダは？（Pi で使う。後で変更可）", [
+                ("OpenRouter（安価モデルを横断）", "openrouter"),
+                ("Anthropic（Claude）", "anthropic"),
+                ("Google（Pi 既定）", "google"),
+                ("OpenAI", "openai"),
+            ], default=0)
+        model = args.model
+        if model is None and wizard and provider is not None:
+            model = prompts.text("モデル（空Enterで既定）", default=PROVIDER_MODELS.get(provider, "")) or None
+
+        home, desc = _setup_cartridge(mode, home, url)
+    except prompts.Cancelled:
+        sys.stderr.write("\n中止しました。\n")
+        return 130
+    except RuntimeError as error:
+        sys.stderr.write(f"{error}\n")
+        return 1
+
+    saved = config.save_home(home)
+    config.save_config(runtime=args.runtime, provider=provider, model=model)
+    print(f"\n✓ インストール完了（{desc}）")
     print(f"  カセット: {saved}")
-    print("  設定を保存しました（カセット位置・runtime・model）。")
-    print("  起動: watari chat   ← スキル/カセット/モデルを全部自動で渡してワタリを呼ぶ")
+    if provider or model:
+        print(f"  ランタイム: provider={provider or '既定'} model={model or '既定'}")
+    print("  起動:  watari chat")
+    key_env = PROVIDER_KEY_ENV.get(provider or "")
+    if key_env and not os.environ.get(key_env):
+        print(f"  ※ モデルのキー未設定。一度だけ: export {key_env}=...")
     return 0
 
 
@@ -384,6 +453,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pinst.add_argument("--runtime", help="起動ランタイム（既定 pi）。watari chat が使う")
     pinst.add_argument("--provider", help="モデルプロバイダ（例 openrouter, google, anthropic）")
     pinst.add_argument("--model", help="モデル（例 anthropic/claude-... や provider 既定）")
+    pinst.add_argument("--yes", "-y", action="store_true", help="質問せず既定のまま（コマンド一発）")
     pinst.set_defaults(func=cmd_install)
 
     pc = sub.add_parser("chat", help="ワタリを起動（スキル/カセット/モデルを自動で渡す）")
