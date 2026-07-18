@@ -264,37 +264,25 @@ def _install_wizard(args) -> dict:
         print("\nワタリのセットアップ")
         print("会話からあなたを少しずつ覚えていく相棒「ワタリ」を用意します。\n")
         kind = prompts.select("ワタリの記憶を、どこから始めますか？", [
-            ("新しく始める（何も覚えていない状態から育てる）", "new"),
+            ("新しく始める", "new"),
             ("このパソコンにある記憶を引き継ぐ", "adopt"),
             ("別の場所のバックアップから復元する", "clone"),
         ], default=0)
         if kind == "clone":
             url = prompts.text("バックアップの場所（git URL）")
-            home = prompts.text("復元先のフォルダ", default=default_dir)
+            home = default_dir  # 保存先は既定で十分。こだわる人は --home で上書き
         elif kind == "adopt":
             home = prompts.text("記憶のあるフォルダ", default=(live if os.path.isdir(live) else default_dir))
             url = None
-        else:
-            home = prompts.text("記憶の保存先フォルダ", default=default_dir)
+        else:  # new: 保存先は聞かず既定を使う
+            home = default_dir
             url = None
         mode = kind
 
-    # 2) 使う AI（ウィザード時のみ尋ねる）
-    provider = args.provider
-    wizard = not (args.from_url or args.home or args.yes)
-    if provider is None and wizard:
-        provider = prompts.select("ワタリを動かす AI サービスは？（あとで変えられます）", [
-            ("OpenRouter（安価なモデルを横断して使える）", "openrouter"),
-            ("Anthropic（Claude）", "anthropic"),
-            ("Google（Gemini）", "google"),
-            ("OpenAI", "openai"),
-        ], default=0)
-    model = args.model
-    if model is None and wizard and provider is not None:
-        model = prompts.text("モデル名（Enter で既定のまま）", default=PROVIDER_MODELS.get(provider, "")) or None
-
+    # AI（プロバイダ/モデル）は Pi 側で選ぶもの。install では尋ねない（アプリはモデル非依存）。
+    # 明示フラグ（--provider/--model）が来た時だけ保存する（上級者向け）。
     return {"mode": mode, "home": home, "url": url,
-            "provider": provider, "model": model, "runtime": args.runtime}
+            "provider": args.provider, "model": args.model, "runtime": args.runtime}
 
 
 def _install_done_lines(home: str, desc: str, plan: dict) -> list[str]:
