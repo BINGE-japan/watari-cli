@@ -1,19 +1,46 @@
-"""カセット差込口（cartridge slot）の解決と永続化。
+"""設定（カセット差込口＋起動設定）の解決と永続化。
 
 ゲーム機(watari-cli)はカセット＝個人記憶を内蔵しない。実行時にここで解決した
-パスを、エンジン(engine.watari_lib)が import 時に読む環境変数へ橋渡しする。
-優先順: --home 引数 > 環境変数 WATARI_HOME > 保存済み設定 > エンジン既定(現ライブ・カセット)。
-既定値の正本はエンジン側(watari_lib)に一元化してあり、ここでは複製しない。
+カセットパスを、エンジン(engine.watari_lib)が import 時に読む環境変数へ橋渡しする。
+起動設定(runtime/provider/model)も同じ設定ファイルに永続化し、watari chat が使う。
+
+カセットパスの優先順: --home 引数 > 環境変数 WATARI_HOME > 保存済み設定 > エンジン既定。
+設定ファイルは XDG 準拠: $XDG_CONFIG_HOME/watari/config.json（既定 ~/.config/watari/config.json）。
 """
 from __future__ import annotations
 
+import json
 import os
 
 
-def _config_home_file() -> str:
-    """カセット位置を保存するファイル(XDG準拠)。watari install が書き、apply が読む。"""
+def _config_dir() -> str:
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "watari", "home")
+    return os.path.join(base, "watari")
+
+
+def _config_file() -> str:
+    return os.path.join(_config_dir(), "config.json")
+
+
+def load_config() -> dict:
+    try:
+        with open(_config_file(), encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_config(**kwargs) -> dict:
+    """None でない値だけを既存設定にマージして保存する。"""
+    cfg = load_config()
+    cfg.update({k: v for k, v in kwargs.items() if v is not None})
+    os.makedirs(_config_dir(), exist_ok=True)
+    tmp = _config_file() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=1)
+        f.write("\n")
+    os.replace(tmp, _config_file())
+    return cfg
 
 
 def apply(home: str | None = None) -> None:
@@ -28,19 +55,13 @@ def apply(home: str | None = None) -> None:
         return
     if "WATARI_HOME" in os.environ:
         return
-    saved_file = _config_home_file()
-    if os.path.exists(saved_file):
-        with open(saved_file, encoding="utf-8") as f:
-            saved = f.read().strip()
-        if saved:
-            os.environ["WATARI_HOME"] = saved
+    saved = load_config().get("home")
+    if saved:
+        os.environ["WATARI_HOME"] = saved
 
 
 def save_home(home: str) -> str:
-    """カセットパスを設定に永続化し、確定した絶対パスを返す（watari install 用）。"""
+    """カセットパスを設定に永続化し、確定した絶対パスを返す。"""
     resolved = os.path.abspath(os.path.expanduser(home))
-    saved_file = _config_home_file()
-    os.makedirs(os.path.dirname(saved_file), exist_ok=True)
-    with open(saved_file, "w", encoding="utf-8") as f:
-        f.write(resolved + "\n")
+    save_config(home=resolved)
     return resolved
