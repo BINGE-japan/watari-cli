@@ -21,11 +21,11 @@
  "domain":"<study行のみ・必須>","topic":"<study/interest/thread 行は必須>","summary":"<経緯・根拠。時系列可>",
  "mastery":1..3 (study必須),"heat":0..3 (interest任意),"note":"<state用・現在形1〜2文。study必須/interest・thread推奨>",
  "related":["domain/topic",...] (study任意),"freshness":"<ts>" (study任意・接触時刻の上書き),
- "profile":{"key":"...","value":"..."} (fact任意),"status":"closed" (thread任意),
+ "profile":{"key":"...","value":"..."} (fact任意),"status":"closed" (thread任意),"deadline":"<UTC ISO ...Z>" (thread任意・未来なら age によらず active 固定),
  "tags":["..."],"refs":{"cwd":"...","session":"...","uuid":"..."}}
 ```
 - **判定は行を書く時点で行い、行に記録する**：state はこれらの値を機械的に畳むだけで、内容の判断を後段でやり直さない（2026-07-02 スクリプト化。それ以前の行は旧仕様のままでよい——現在地は reconcile 快照行が持つ）。
-- `domain`（learning 行のみ・必須）：小文字 ASCII ケバブケース・最も広い安定名。フレームワーク名や流行語は domain にしない（vue は domain ではなく web 内の topic）。追記前に learning/state.json の既存 domains キーを読み、収まるものには必ず寄せる。新設は既存のどれにも収まらない時のみ。domain はデータなので中央目録への登録は不要（登録義務はジャンル＝フォルダの新設時のみ）。
+- `domain`（learning 行のみ・必須）：小文字 ASCII ケバブケース・最も広い安定名。フレームワーク名や流行語は domain にしない（vue は domain ではなく web 内の topic）。追記前に learning/state.json の既存 domains キーを読み、収まるものには必ず寄せる。新設は既存のどれにも収まらない時のみ。
 - `ts` は UTC（…Z）で保存。比較は必ず instant（時刻）として行い、JST と混ぜない。
 - `refs.uuid` は元 transcript メッセージの uuid（dedup の鍵）。`refs.session` は session id。
 - 記憶の根拠は原則 binge 本人（user 発話）。ワタリ(assistant)の発言は binge が採用/同意した事実の確認にのみ使う。
@@ -67,7 +67,7 @@ dedup 鍵は合成 uuid `codex:<session_id>:<timestamp>`。時刻は同じく to
   "updated": "<ts>",
   "profile": { "...安定した人物像・好み（変わりにくい）..." },
   "interests": { "<topic>": { "last": "<ts>", "heat": 0, "note": "..." } },
-  "open_threads": [ { "topic": "...", "note": "...", "last": "<ts>" } ]
+  "open_threads": [ { "topic": "...", "note": "...", "last": "<ts>", "deadline": "<ts>"(任意), "dormant": true(dormant 層のみ), "dormant_days": <int>(dormant 層のみ) } ]
 }
 ```
 
@@ -104,9 +104,14 @@ dedup 鍵は合成 uuid `codex:<session_id>:<timestamp>`。時刻は同じく to
 - ただし理解の中身（何をどこまで分かったか）は learning にのみ書く。life.interests の note は関心の痕跡に留める。
 - study 行は heat に算入しない（学習中の話題への接触は learning の freshness が持つ）。
 
-### life.open_threads
+### life.open_threads（経過日数で3層。しきい値は watari_lib.py の DORMANT_DAYS=45 / SINK_DAYS=90）
 - 開く条件：binge が「やりかけ・保留・気になっている」と示した進行中の事項（`kind:thread`）。
-- クローズ：最新行が `status:"closed"`、または `last` から **45 日**更新が無ければ自動クローズ（state からは外れる。経緯は log が持つ）。
+- `last` からの実経過日数 age（暦時間）で3層に分ける：
+  - **active**（`age < DORMANT_DAYS`）：通常どおり open_threads に載る（印なし）。
+  - **dormant**（`DORMANT_DAYS <= age < SINK_DAYS`）：**まだ open_threads に載る**が、その dict に `"dormant": true` と `"dormant_days": <age>` を付ける（＝「声かけ待ち」。ワタリが「最近どうなってる？」と確認するトリガ）。
+  - **sunk**（`age >= SINK_DAYS`）：state から沈める（log には残り復元可能。従来の自動クローズと同じで、しきい値が後ろに延びただけ）。
+- `status:"closed"` は age によらず即クローズ（従来どおり）。
+- **deadline（項目ごとの寿命）**：thread 行に任意の `deadline`（UTC ISO …Z）を付けられる。畳み込みは最新の非 null 値を record に持ち越し、`deadline` が **now より未来**なら age によらず active 固定（dormant/sunk にしない）。active/dormant の出力 dict には `deadline` も載る。deadline が無ければ上の age 規則に従う。
 
 ### life.profile
 - `profile:{key,value}` 行の key ごと最新値。恒常的と判断できるものだけ key を付けて書く（profile は変わりにくい人物像のみ。単発の観察には付けない）。

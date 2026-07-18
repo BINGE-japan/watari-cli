@@ -13,8 +13,13 @@
 - life.interests: kind=interest で topic を持つ行を topic ごとに畳み、
     base heat = heat を持つ最新行の heat（無ければ1）
     effective = max(0, base - floor((now-last)/30日))、0 なら state から落ちる。
-- life.open_threads: kind=thread で topic を持つ行。最新行が status:"closed"、
-  または now-last > 45日 なら閉じる。
+- life.open_threads: kind=thread で topic を持つ行。最新行 status:"closed" は即クローズ。
+  それ以外は last からの経過日数 age で3層に分ける：
+    active (age < DORMANT_DAYS)         … 通常どおり open_threads に載る（印なし）
+    dormant (DORMANT_DAYS <= age < SINK_DAYS) … open_threads に残すが dormant:true / dormant_days:age を付ける（声かけ待ち）
+    sunk (age >= SINK_DAYS)             … state から外す（log には残る）
+  deadline（UTC ISO …Z）を持つ行はその最新の非 null 値を record に持ち越し、
+  deadline が now より未来なら age によらず active 固定（dormant/sunk にしない）。
 - topic の無い interest/thread 行・domain の無い study 行は state に畳まれない
   （log 上の文脈としては残る）。
 
@@ -26,7 +31,7 @@ import json
 import sys
 
 from .watari_lib import (
-    GENRES, HEAT_DECAY_DAYS, THREAD_CLOSE_DAYS,
+    DORMANT_DAYS, GENRES, HEAT_DECAY_DAYS, SINK_DAYS,
     atomic_write_json, fmt_ts, load_aliases, load_log, now_utc, parse_ts,
     sorted_rows, state_path,
 )
@@ -83,9 +88,11 @@ def fold_life(rows, now):
             elif d.get("summary") and not it["note"]:
                 it["note"] = d["summary"]
         elif kind == "thread" and d.get("topic"):
-            th = threads.setdefault(d["topic"], {"last": None, "note": "", "closed": False})
+            th = threads.setdefault(d["topic"], {"last": None, "note": "", "closed": False, "deadline": None})
             th["last"] = max(th["last"], parse_ts(d["ts"])) if th["last"] else parse_ts(d["ts"])
             th["closed"] = d.get("status") == "closed"
+            if d.get("deadline"):  # 最新の非 null deadline を持ち越す（後続の null では消さない）
+                th["deadline"] = d["deadline"]
             if d.get("note"):
                 th["note"] = d["note"]
             elif d.get("summary") and not th["note"]:
@@ -98,10 +105,20 @@ def fold_life(rows, now):
             out_interests[topic] = {"last": fmt_ts(it["last"]), "heat": eff, "note": it["note"]}
     out_threads = []
     for topic, th in threads.items():
+        if th["closed"]:
+            continue  # status:"closed" は age によらず即クローズ（従来どおり）
+        # deadline が now より未来なら、経過日数によらず active に固定する（項目ごとの寿命）
+        deadline_future = bool(th["deadline"]) and parse_ts(th["deadline"]) > now
         age_days = (now - th["last"]).total_seconds() / 86400
-        if th["closed"] or age_days > THREAD_CLOSE_DAYS:
-            continue
-        out_threads.append({"topic": topic, "note": th["note"], "last": fmt_ts(th["last"])})
+        if not deadline_future and age_days >= SINK_DAYS:
+            continue  # sunk: state から沈める（log には残り復元可能）
+        out = {"topic": topic, "note": th["note"], "last": fmt_ts(th["last"])}
+        if th["deadline"]:
+            out["deadline"] = th["deadline"]
+        if not deadline_future and age_days >= DORMANT_DAYS:
+            out["dormant"] = True  # 声かけ待ち：state に残すが「最近どうなってる？」の印を付ける
+            out["dormant_days"] = int(age_days)
+        out_threads.append(out)
     return profile, out_interests, out_threads
 
 

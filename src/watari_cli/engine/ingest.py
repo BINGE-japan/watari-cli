@@ -87,6 +87,12 @@ def validate(rows, allow_new_domain):
                     errors.append(f"{where}: freshness はタイムゾーン必須（UTC …Z）。naive 値は regen で aware と比較できず毎回クラッシュする: {d['freshness']!r}")
             except Exception:
                 errors.append(f"{where}: freshness 不正（UTC …Z）: {d.get('freshness')!r}")
+        if d.get("deadline") is not None:
+            try:
+                if parse_ts(d["deadline"]).tzinfo is None:
+                    errors.append(f"{where}: deadline はタイムゾーン必須（UTC …Z）。naive 値は regen で aware と比較できず毎回クラッシュする: {d['deadline']!r}")
+            except Exception:
+                errors.append(f"{where}: deadline 不正（UTC …Z）: {d.get('deadline')!r}")
         rel = d.get("related")
         if rel is not None and (not isinstance(rel, list)
                                 or not all(isinstance(r, str) and "/" in r for r in rel)):

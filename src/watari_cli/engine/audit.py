@@ -4,7 +4,7 @@
 チェック内容:
 1. log 行の形式（kind とジャンルの一致・study の domain/topic・ts・refs.uuid・(uuid,kind) 重複）
 2. state が log から再生成した結果と一致するか（決定論の検証。now は state.updated を使う）
-3. related の宙に浮いた参照 / まもなく自動クローズ・冷却する項目（情報表示）
+3. related の宙に浮いた参照 / まもなく沈む・冷却する項目（情報表示）
 4. --coverage: 直近の transcript で実発話が多いのに log に一度も現れないセッション一覧
 
 exit 0 = 問題なし / 1 = 要修正の問題あり
@@ -18,7 +18,7 @@ import os
 import sys
 
 from .watari_lib import (
-    GENRES, KIND_TO_GENRE, STORES, THREAD_CLOSE_DAYS,
+    GENRES, KIND_TO_GENRE, SINK_DAYS, STORES,
     is_genuine_user_message, load_log, now_utc, parse_ts, sorted_rows, state_path,
 )
 from . import regen_state
@@ -80,9 +80,11 @@ def check_references(now):
                     infos.append(f"related が宙に浮いている: {dom}/{t} -> {r}")
     life = json.load(open(state_path("life"), encoding="utf-8"))
     for th in life["open_threads"]:
+        if th.get("deadline") and parse_ts(th["deadline"]) > now:
+            continue  # 期限が未来の thread は age によらず沈まない
         days = (now - parse_ts(th["last"])).days
-        if days > THREAD_CLOSE_DAYS - 10:
-            infos.append(f"thread まもなく自動クローズ({days}日): {th['topic']}")
+        if days > SINK_DAYS - 10:
+            infos.append(f"thread まもなく沈む({days}日): {th['topic']}")
     for topic, it in life["interests"].items():
         if it["heat"] == 1:
             infos.append(f"interest 冷却間近(heat=1): {topic}")

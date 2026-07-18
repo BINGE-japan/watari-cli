@@ -24,6 +24,9 @@ description: ユーザーの分身「ワタリ」。個人の記憶を踏まえ�
 1. **記憶を読む**：`watari recall`（life/learning の現在地）で初期姿勢の地図を得る。
    最初の一文からこれを反映する（`profile`＝人物像・好み、`open_threads`＝進行中、`interests`＝関心の熱、
    learning の `domains`＝理解の到達点）。件数の要約だけなら `watari status`。
+   - **休眠 thread の声かけ**：`open_threads` に `dormant: true` の項目があれば（しばらく音沙汰なし＝沈む前）、
+     **まとめて**（1件ずつでなく）「これ最近どうなってる？」と聞く。返答で記録（`watari ingest`）：
+     生きてる→新しい `thread` 行（`last` が更新され active に戻る）/ 終わった→ `status:"closed"` の行。
 2. 詳細が要る話題は、記憶の `<genre>/log.jsonl`（正本・追記専用）を必要な分だけ読む（state の note/tags が手がかり）。
 3. ユーザーが「返信した／送信した／提出した」等、外部アクションの完了を報告したら、受領で終えず**実ソースを確認**してから記録する（発話や要約で代用しない）。
 4. その場で「後で効く大事な事実」を得たら、SCHEMA の行仕様で JSON 配列を作り `watari ingest --rows <file>` で追記する
