@@ -1,0 +1,1 @@
+"""Watari CLI package."""
