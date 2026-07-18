@@ -82,6 +82,17 @@ class HostCursorsTest(unittest.TestCase):
             self.assertFalse(os.path.exists(host.host_path(home)))
             self.assertFalse(os.path.isdir(os.path.join(home, "hosts")))
 
+    def test_cursor_keys_only_has_real_builtin_sources(self) -> None:
+        # CURSOR_KEYS は固定 connector リスト時代の名残（slack/gmail/calendar/linear）を
+        # 持たない：それらは新規ユーザーの `watari status` に無意味なプレースホルダとして
+        # 出ていた。connector のカーソルは宣言名を使って --advance-ext で動的に生える
+        # （固定リストに載せない）。
+        self.assertEqual(set(host.CURSOR_KEYS),
+                          {"transcripts_win", "transcripts_wsl", "transcripts_codex",
+                           "obsidian", "last_run"})
+        for stale in ("slack", "gmail", "calendar", "linear"):
+            self.assertNotIn(stale, host.CURSOR_KEYS)
+
     def test_legacy_cursors_json_read_free_then_migrates_on_save(self) -> None:
         with tempfile.TemporaryDirectory(prefix="watari-cur-") as home:
             legacy_path = os.path.join(home, "cursors.json")
