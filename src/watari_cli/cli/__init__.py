@@ -203,14 +203,11 @@ def cmd_install(args) -> int:
         mode = "空カセットを新規作成"
 
     saved = config.save_home(target)
+    config.save_config(runtime=args.runtime, provider=args.provider, model=args.model)
     print(f"インストール完了（{mode}）")
     print(f"  カセット: {saved}")
-    print(f"  この位置を保存しました（--home 省略時この カセットを使う）。")
-    skill = _find_skill_dir()
-    if skill:
-        print(f"  次: ランタイム(Pi 等)に次のワタリ・スキルを読ませて起動 → {skill}")
-    else:
-        print("  次: ランタイム(Pi 等)に watari-cli リポの skills/watari を読ませて起動。")
+    print("  設定を保存しました（カセット位置・runtime・model）。")
+    print("  起動: watari chat   ← スキル/カセット/モデルを全部自動で渡してワタリを呼ぶ")
     return 0
 
 
@@ -220,12 +217,77 @@ def _find_skill_dir() -> str | None:
     candidates = [
         os.path.join(os.getcwd(), "skills", "watari"),
         os.path.join(here, "..", "..", "..", "skills", "watari"),
+        os.path.join(here, "..", "skills", "watari"),
     ]
     for path in candidates:
         resolved = os.path.abspath(path)
         if os.path.isfile(os.path.join(resolved, "SKILL.md")):
             return resolved
     return None
+
+
+def _runtime_base(runtime: str) -> list[str]:
+    """ランタイムの起動コマンド基底を返す。今は Pi。pi が無ければ npx 経由で取りに行く。"""
+    import shutil
+
+    if runtime in ("pi", None, ""):
+        if shutil.which("pi"):
+            return ["pi"]
+        npx = shutil.which("npx")
+        if npx:
+            return [npx, "-y", "@earendil-works/pi-coding-agent"]
+        return ["pi"]  # 見つからなければ実行時に分かりやすく失敗させる
+    # 他ランタイムは runtime 文字列をそのままコマンドとして扱う（拡張余地）
+    return runtime.split()
+
+
+def cmd_chat(args) -> int:
+    """ワタリを起動する。スキル・カセット・モデルを自動で渡すランチャー。
+
+    ユーザーは長い pi コマンドを覚えなくてよい: watari chat だけでワタリが立ち上がる。
+    """
+    import shlex
+    import subprocess
+
+    config.apply(args.home)
+    from watari_cli.engine import watari_lib as wl
+
+    home = wl.MEM
+    if not os.path.isdir(home):
+        sys.stderr.write(f"カセットが見つかりません: {home}\n  先に `watari install` を実行してください。\n")
+        return 1
+    skill = _find_skill_dir()
+    if not skill:
+        sys.stderr.write("同梱スキル skills/watari が見つかりません（リポから実行してください）。\n")
+        return 1
+
+    settings = config.load_config()
+    runtime = args.runtime or settings.get("runtime") or "pi"
+    provider = args.provider or settings.get("provider")
+    model = args.model or settings.get("model")
+
+    cmd = _runtime_base(runtime) + ["--skill", skill]
+    if provider:
+        cmd += ["--provider", provider]
+    if model:
+        cmd += ["--model", model]
+    cmd += args.extra
+
+    env = dict(os.environ)
+    env["WATARI_HOME"] = home  # ランタイムの bash ツールが watari CLI で同じカセットを読めるように
+
+    if args.show:
+        print(f"WATARI_HOME={home}")
+        print(" ".join(shlex.quote(c) for c in cmd))
+        return 0
+    try:
+        return subprocess.run(cmd, env=env).returncode
+    except FileNotFoundError:
+        sys.stderr.write(
+            f"ランタイム '{runtime}' が起動できません（{cmd[0]} が見つからない）。\n"
+            "  Pi を使うなら `npx -y @earendil-works/pi-coding-agent` が通るか確認してください。\n"
+        )
+        return 127
 
 
 def cmd_regen(args) -> int:
@@ -315,11 +377,23 @@ def _build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--check", action="store_true", help="書き込まず現 state と比較")
     pg.set_defaults(func=cmd_regen)
 
-    pinst = sub.add_parser("install", help="初回セットアップ（カセット用意＋位置保存。--from でgit継承）")
+    pinst = sub.add_parser("install", help="初回セットアップ（カセット用意＋設定保存。--from でgit継承）")
     pinst.add_argument("--home", help="カセットの場所（既定: XDG_DATA_HOME/watari/cartridge）")
     pinst.add_argument("--from", dest="from_url", metavar="GIT_URL",
                        help="既存カセットの git リポをクローンして記憶を継承する")
+    pinst.add_argument("--runtime", help="起動ランタイム（既定 pi）。watari chat が使う")
+    pinst.add_argument("--provider", help="モデルプロバイダ（例 openrouter, google, anthropic）")
+    pinst.add_argument("--model", help="モデル（例 anthropic/claude-... や provider 既定）")
     pinst.set_defaults(func=cmd_install)
+
+    pc = sub.add_parser("chat", help="ワタリを起動（スキル/カセット/モデルを自動で渡す）")
+    pc.add_argument("--home", help="カセットのパス")
+    pc.add_argument("--runtime", help="起動ランタイム（既定: 保存値か pi）")
+    pc.add_argument("--provider", help="モデルプロバイダ（保存値を上書き）")
+    pc.add_argument("--model", help="モデル（保存値を上書き）")
+    pc.add_argument("--show", action="store_true", help="起動せず、実行するコマンドだけ表示")
+    pc.add_argument("extra", nargs="*", help="ランタイムへ素通しする追加引数")
+    pc.set_defaults(func=cmd_chat)
 
     pi = sub.add_parser("ingest", help="判定済みの記憶行(JSON)をカセットへ書き込む")
     pi.add_argument("--rows", required=True, help="log 行の JSON 配列ファイル(SCHEMA 準拠)")
