@@ -46,7 +46,8 @@ description: ユーザーの分身「ワタリ」。個人の記憶を踏まえ�
    - `readable:false` または `max_ts:null` のストアの `--advance-*` は**渡さない**（カーソル据え置き＝取りこぼし防止）。
    - 新規 domain を書いた回だけ `--allow-new-domain`。検証エラー(exit 2)なら rows を直して再実行（何も書かれていない）。
    - 0 件の日も `[]` で実行してよい（last_run 更新・state の減衰/自動クローズが走る）。
-4. **監査（機械）**：`watari audit`。「要修正」が出たらその場で直してから終える。
+4. **connector も同様に（判定 ⇄ 機械）**：宣言された各 connector（`watari connector list`）について、その `read` 指示に従って自分のツール（MCP 等）で cursor 以降を読み→同じ「三層」「六規律」で判定→`watari ingest` で書き→`--advance-ext <name>=<最新ts>` でそのカーソルを前進。**cloud スコープの connector は「担当1台」だけが夢を見る**（多重取り込み防止。どのマシンが担当かは運用で決める）。読めなかった connector のカーソルは渡さない（据え置き）。
+5. **監査（機械）**：`watari audit`。「要修正」が出たらその場で直してから終える。
 
 ### 何を残すか（三層）
 - **必ず拾う（落としたら秘書失格）**：決定・約束・期限・本人/アカウントの事実・状態変化・**指示/好み/作業スタイル**（「X してほしい」「Y するな」「こう呼んで」等）。
@@ -76,7 +77,8 @@ description: ユーザーの分身「ワタリ」。個人の記憶を踏まえ�
 - `watari recall` … life/learning の現在地(state)を JSON で読む（人格の初期姿勢）
 - `watari host [--set KEY=VALUE]` … このマシンの環境を host record に記録し、他マシンの記録も一覧
 - `watari dream [--json]` … 会話ログから候補を抽出（読むだけ）
-- `watari ingest --rows FILE [--advance-*] [--allow-new-domain] [--dry-run]` … 判定済み行を記憶へ書く
+- `watari connector list` / `watari connector add --name <slug> --scope cloud|local --read "..."` … 夢に流し込むソースを宣言/一覧
+- `watari ingest --rows FILE [--advance-*] [--advance-ext NAME=TS] [--allow-new-domain] [--dry-run]` … 判定済み行を記憶へ書く
 - `watari audit [--coverage]` … 記憶の健全性監査
 - `watari init [--home DIR]` … 空の記憶を新規作成
 

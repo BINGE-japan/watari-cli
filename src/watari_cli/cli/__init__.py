@@ -460,6 +460,33 @@ def cmd_ingest(args) -> int:
     return 0
 
 
+def cmd_connector_list(args) -> int:
+    """宣言済み connector（夢に流し込むソース）を一覧する。"""
+    connectors = config.load_connectors()
+    if not connectors:
+        print("宣言済み connector: なし")
+        print('  追加: watari connector add --name <slug> --scope cloud|local --read "..."')
+        return 0
+    print("宣言済み connector:")
+    for c in connectors:
+        print(f"  {c.get('name')} [{c.get('scope')}]: {c.get('read') or '—'}")
+    return 0
+
+
+def cmd_connector_add(args) -> int:
+    """connector を宣言（同名は更新）。実際の読み取りはエージェントが行い、CLI は宣言だけ持つ。"""
+    try:
+        connectors = config.save_connector(
+            {"name": args.name, "scope": args.scope, "read": args.read})
+    except ValueError as error:
+        sys.stderr.write(f"{error}\n")
+        return 2
+    print(f"connector を保存しました: {args.name} [{args.scope}]")
+    print(f"  read: {args.read or '—'}")
+    print(f"  宣言済み: {', '.join(c['name'] for c in connectors)}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="watari", description="ワタリ — 会話からあなたを覚えていく相棒")
     try:
@@ -536,6 +563,19 @@ def _build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--allow-new-domain", action="store_true")
     pi.add_argument("--dry-run", action="store_true", help="検証と件数だけ（書き込みなし）")
     pi.set_defaults(func=cmd_ingest)
+
+    # connector は WATARI_HOME ではなく config.json に宣言する（記憶の場所に依らず全マシン共通の宣言）。
+    pcon = sub.add_parser("connector", help="夢に流し込むソース(connector)を宣言/一覧")
+    consub = pcon.add_subparsers(dest="connector_command", required=True)
+    pcl = consub.add_parser("list", help="宣言済み connector を一覧")
+    pcl.set_defaults(func=cmd_connector_list)
+    pca = consub.add_parser("add", help="connector を宣言（追加/更新）")
+    pca.add_argument("--name", required=True, help="小文字スラッグ（例 mail, tasks）")
+    pca.add_argument("--scope", required=True, choices=["cloud", "local"],
+                     help="cloud=担当1台だけが夢を見る / local=各マシンが自分で読む")
+    pca.add_argument("--read", required=True,
+                     help="このソースを cursor 以降どう読むかのエージェント向け自由指示")
+    pca.set_defaults(func=cmd_connector_add)
     return p
 
 

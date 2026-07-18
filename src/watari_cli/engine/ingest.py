@@ -9,8 +9,9 @@ usage: ingest.py --rows FILE [--advance-wsl TS] [--advance-win TS] [--advance-co
     interest/thread は topic 必須、refs.uuid 必須）。
 --advance-*: そのストアの「実際に処理した最後の timestamp」。後退は拒否。
   ストアが読めなかった回は渡さない（カーソル据え置き）。
---advance-ext NAME=TS: 外部ソース（slack/gmail/calendar/linear。許可名の正本は watari_lib.EXT_STORES）の
-  カーソル前進。繰り返し指定可。規則は --advance-* と同じ（後退拒否・読めなかった回は渡さない）。
+--advance-ext NAME=TS: 外部ソース(connector)のカーソル前進。繰り返し指定可。許可名はユーザーが
+  宣言した connector 名（config の connectors。`watari connector add`）。規則は --advance-* と同じ
+  （後退拒否・読めなかった回は渡さない）。未宣言の名前はエラー。
 
 検証に1件でも失敗したら何も書かずに exit 2（原子性）。
 dedup: 既存 log に同 (refs.uuid, kind) があれば黙ってスキップ（正常系）。
@@ -24,7 +25,7 @@ import os
 import sys
 
 from .watari_lib import (
-    DOMAIN_RE, EXT_STORES, KIND_TO_GENRE, MEM,
+    DOMAIN_RE, KIND_TO_GENRE, MEM,
     append_log, atomic_write_json, existing_dedup_keys, fmt_ts,
     load_log, now_utc, parse_ts,
 )
@@ -127,12 +128,19 @@ def apply(rows, *, advance_wsl=None, advance_win=None, advance_codex=None,
                 ("win", "transcripts_win", advance_win),
                 ("codex", "transcripts_codex", advance_codex),
                 ("obsidian", "obsidian", advance_obsidian)]
-    for spec in advance_ext:
-        name, sep, ts = spec.partition("=")
-        if name not in EXT_STORES or not sep or not ts:
-            errors.append(f"--advance-ext は <{'|'.join(EXT_STORES)}>=<UTC ts> 形式: {spec!r}")
-        else:
-            advances.append((f"ext {name}", name, ts))
+    # 外部ソース(connector)の許可名はユーザー宣言（config の connectors）。obsidian/transcript は
+    # 上の専用フラグが担当し、ここは通らない。advance_ext が無ければ config を読まない（副作用最小）。
+    if advance_ext:
+        from watari_cli import config
+        declared = {c.get("name") for c in config.load_connectors() if c.get("name")}
+        for spec in advance_ext:
+            name, sep, ts = spec.partition("=")
+            if not sep or not ts or name not in declared:
+                allowed = "|".join(sorted(declared)) or "宣言なし"
+                errors.append(
+                    f"--advance-ext は宣言済み connector のみ <{allowed}>=<UTC ts>（watari connector add で宣言）: {spec!r}")
+            else:
+                advances.append((f"ext {name}", name, ts))
     for name, key, adv in advances:
         if adv:
             try:
