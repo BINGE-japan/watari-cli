@@ -5,7 +5,6 @@
 
 ジャンルは kind で一意に決まる：`study` → learning、`fact` / `interest` / `thread` → life。
 科目（english, web, math, tech-history, …）はジャンルではなく、learning の log 行が持つ `domain` フィールド（開集合・データ）。
-（2026-06-10 に旧 english / web ジャンルを learning へ統合。）
 
 ## 原則
 - 書き込みは log.jsonl だけ（追記、消さない）。state.json は「log ＋ 再生成時刻 now」から再生成する純粋な派生物。
@@ -24,15 +23,15 @@
  "profile":{"key":"...","value":"..."} (fact任意),"status":"closed" (thread任意),"deadline":"<UTC ISO ...Z>" (thread任意・未来なら age によらず active 固定),
  "tags":["..."],"refs":{"cwd":"...","session":"...","uuid":"..."}}
 ```
-- **判定は行を書く時点で行い、行に記録する**：state はこれらの値を機械的に畳むだけで、内容の判断を後段でやり直さない（2026-07-02 スクリプト化。それ以前の行は旧仕様のままでよい——現在地は reconcile 快照行が持つ）。
+- **判定は行を書く時点で行い、行に記録する**：state はこれらの値を機械的に畳むだけで、内容の判断を後段でやり直さない。
 - `domain`（learning 行のみ・必須）：小文字 ASCII ケバブケース・最も広い安定名。フレームワーク名や流行語は domain にしない（vue は domain ではなく web 内の topic）。追記前に learning/state.json の既存 domains キーを読み、収まるものには必ず寄せる。新設は既存のどれにも収まらない時のみ。
 - `ts` は UTC（…Z）で保存。比較は必ず instant（時刻）として行い、JST と混ぜない。
 - `refs.uuid` は元 transcript メッセージの uuid（dedup の鍵）。`refs.session` は session id。
-- 記憶の根拠は原則 binge 本人（user 発話）。ワタリ(assistant)の発言は binge が採用/同意した事実の確認にのみ使う。
+- 記憶の根拠は原則ユーザー本人（user 発話）。ワタリ(assistant)の発言はユーザーが採用/同意した事実の確認にのみ使う。
   サブエージェント(isSidechain)・ツール出力・メタ行は無視する。
 
 ## 本物の発話の選別（重要 — tool_result 誤取り込みの防止）
-Claude Code の transcript では tool 実行結果も `type:"user"` で記録される。本物の binge 発話だけを取る条件は **すべて満たす行**に限定する：
+Claude Code の transcript では tool 実行結果も `type:"user"` で記録される。本物のユーザー発話だけを取る条件は **すべて満たす行**に限定する：
 - `type == "user"`
 - `message.content` が**文字列**（text のみ。配列＝tool_result ブロックは除外）
 - `toolUseResult` キーを**持たない**
@@ -40,16 +39,16 @@ Claude Code の transcript では tool 実行結果も `type:"user"` で記録�
 - 時刻フィールド名は `timestamp`（UTC・…Z）。`ts` ではない（`ts` は log 側の名前）。
 
 ### Codex セッションの選別（第3の transcript ストア）
-binge は Codex CLI 側からもワタリと話す（`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`）。Codex 形式は Claude Code と違い、
-本物の binge 発話は **`type=="event_msg"` かつ `payload.type=="user_message"`** の行だけに現れる（発話本文は `payload.message`）。
+ユーザーは Codex CLI 側からもワタリと話す（`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`）。Codex 形式は Claude Code と違い、
+本物のユーザー発話は **`type=="event_msg"` かつ `payload.type=="user_message"`** の行だけに現れる（発話本文は `payload.message`）。
 AGENTS.md 注入・`<skill>` 注入・環境コンテキストは `response_item` 側に出るため、この条件で自然に除外される
 （実装は watari_lib.is_genuine_codex_user_message / extract.scan_codex_store）。per-message uuid が無いため
 dedup 鍵は合成 uuid `codex:<session_id>:<timestamp>`。時刻は同じく top-level `timestamp`（UTC …Z）。
 
-## 学習の根拠は binge の発話痕跡（説明された≠学習した）
-- topic・mastery として記録してよいのは、その話題が **binge 自身の発話に現れた**ものだけ。ワタリが説明しただけで binge の反応（質問・言い換え・続きの計算・相づち）が無い内容は、mastery を問わず記録しない。
-- transcript には「ワタリが喋った全文」が残るが、それは「binge が読んで身につけた範囲」ではない。両者を取り違えない。
-- **「ちょっと待って」＋言及**：binge が「ちょっと待って」等で直前メッセージの特定箇所に言及・引用したら、その言及箇所より後ろは binge 未読（ワタリがペースを超えた過剰説明の合図）。言及箇所以降のワタリの説明を学習の根拠にしない。
+## 学習の根拠はユーザーの発話痕跡（説明された≠学習した）
+- topic・mastery として記録してよいのは、その話題が **ユーザー自身の発話に現れた**ものだけ。ワタリが説明しただけでユーザーの反応（質問・言い換え・続きの計算・相づち）が無い内容は、mastery を問わず記録しない。
+- transcript には「ワタリが喋った全文」が残るが、それは「ユーザーが読んで身につけた範囲」ではない。両者を取り違えない。
+- **「ちょっと待って」＋言及**：ユーザーが「ちょっと待って」等で直前メッセージの特定箇所に言及・引用したら、その言及箇所より後ろはユーザー未読（ワタリがペースを超えた過剰説明の合図）。言及箇所以降のワタリの説明を学習の根拠にしない。
 
 ## dedup（live 追記と夜間の二重計上を防ぐ）
 - ワタリがその場で log に足す行は `source:"watari"`、`refs` に `session` と元メッセージ `uuid` を残す。
@@ -57,7 +56,7 @@ dedup 鍵は合成 uuid `codex:<session_id>:<timestamp>`。時刻は同じく to
 - 追記は必ず ingest.py 経由（検証・dedup・カーソル前進・state 再生成が一括で走る。同 (uuid, kind) は黙ってスキップされる）。
 - 補填行（state からの還元・移行時の topic アンカー等）は合成 uuid `reconcile:<domain>/<slug>` を正当な dedup 鍵として使ってよい（元発話が特定できない場合は refs.session 省略可）。
 - Obsidian vault 由来の行（`source:"obsidian"`）は合成 uuid `obsidian:<vault相対パス>@<処理対象更新日YYYY-MM-DD>` を dedup 鍵とする（更新日を含めるのは、後日加筆されたノートから新しい行を書けるようにするため。同一更新分の再処理は dedup される）。`refs.cwd` にノートの vault 相対パスを残す。
-- Linear 由来の行（`source:"linear"`）は合成 uuid `linear:<issue識別子（例 ABC-123）>@<処理対象更新日YYYY-MM-DD>` を dedup 鍵とする（考え方は obsidian と同じ：issue が後日動いたら新しい行を書け、同一更新分の再処理は dedup される）。issue の中身は log に写さず、binge の活動・予定として効く要点だけを書く（中身の正本は Linear）。
+- Linear 由来の行（`source:"linear"`）は合成 uuid `linear:<issue識別子（例 ABC-123）>@<処理対象更新日YYYY-MM-DD>` を dedup 鍵とする（考え方は obsidian と同じ：issue が後日動いたら新しい行を書け、同一更新分の再処理は dedup される）。issue の中身は log に写さず、ユーザーの活動・予定として効く要点だけを書く（中身の正本は Linear）。
 - 同一プロジェクトが Windows / WSL の両ストアに二重に現れることがある。**近接 ts ＋ 同一 `refs.cwd` の同義行は1件に畳む**（先に拾った方を残す）。
 
 ## state.json（現在地・派生物。ジャンルの性質で形が違う）
@@ -105,7 +104,7 @@ dedup 鍵は合成 uuid `codex:<session_id>:<timestamp>`。時刻は同じく to
 - study 行は heat に算入しない（学習中の話題への接触は learning の freshness が持つ）。
 
 ### life.open_threads（経過日数で3層。しきい値は watari_lib.py の DORMANT_DAYS=45 / SINK_DAYS=90）
-- 開く条件：binge が「やりかけ・保留・気になっている」と示した進行中の事項（`kind:thread`）。
+- 開く条件：ユーザーが「やりかけ・保留・気になっている」と示した進行中の事項（`kind:thread`）。
 - `last` からの実経過日数 age（暦時間）で3層に分ける：
   - **active**（`age < DORMANT_DAYS`）：通常どおり open_threads に載る（印なし）。
   - **dormant**（`DORMANT_DAYS <= age < SINK_DAYS`）：**まだ open_threads に載る**が、その dict に `"dormant": true` と `"dormant_days": <age>` を付ける（＝「声かけ待ち」。ワタリが「最近どうなってる？」と確認するトリガ）。
@@ -117,8 +116,8 @@ dedup 鍵は合成 uuid `codex:<session_id>:<timestamp>`。時刻は同じく to
 - `profile:{key,value}` 行の key ごと最新値。恒常的と判断できるものだけ key を付けて書く（profile は変わりにくい人物像のみ。単発の観察には付けない）。
 
 ### learning の mastery（1–3、降格しない）
-- `1` = 紹介され、binge 自身がその話題に発話で触れた（質問・言い換え・相づち・続きの操作など、読んで反応した痕跡がある）。ワタリが説明しただけ・binge が未読のものは記録しない（説明された≠学習した）。
-- `2` = binge が**自分の言葉・成果物で再構成**した（user 発話に本人の英文・コード・自分の言葉での説明/言い換えが現れた）
+- `1` = 紹介され、ユーザー自身がその話題に発話で触れた（質問・言い換え・相づち・続きの操作など、読んで反応した痕跡がある）。ワタリが説明しただけ・ユーザーが未読のものは記録しない（説明された≠学習した）。
+- `2` = ユーザーが**自分の言葉・成果物で再構成**した（user 発話に本人の英文・コード・自分の言葉での説明/言い換えが現れた）
 - `3` = 時間を空けて（別セッションで）**再現・想起できた**
 - mastery は行を書く時点で判定して行に記録し、state は最大値を取る（時間で下げない＝定着）。`freshness` は max(行の freshness または ts)、`note` は note を持つ最新行の値、`related` は全行の和集合（初出順）。復習要否は freshness で判断する。
 
@@ -133,7 +132,7 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
   **時系列叙述を禁止**——「以前は X だったが今は Y」「YYYY-MM-DD に〜事故→こう直した」式は書かない。
   経緯・理由・事件・日付つきの一回性の出来事は log.jsonl に置く（state.note は log を引く手がかり＝地図に徹する）。
 - **希釈を避ける（二重持ちの禁止）**：CLAUDE.md が既に持つ普遍ルール（敬語・確認してから・非迎合・人物評の禁止 等）を state に再掲しない。
-  state は CLAUDE.md にない binge 固有の差分だけを持つ。
+  state は CLAUDE.md にないユーザー固有の差分だけを持つ。
 - **簡潔**：note は原則1〜2文の指示。深さ・履歴・根拠は log を引く。
 - **生成の含意**：state の note は log 行の `note` フィールドから機械的に写される（最新行優先）。
   だから現在形化は log 行の `note` を書く時点の責務。`summary` は経緯・根拠・時系列を持ってよい（log は正本、note は state 用の蒸留）。
@@ -170,7 +169,7 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 - **クラウド源（slack/gmail/calendar/linear）の扱い**：今はこれらのカーソルもマシンごとの host 記録に置く。ただし
   クラウド源は本来どのマシンから取り込んでも同じ位置であるべき（マシン間で共有すべき性質）。その一元化は connector 層の
   将来課題として切り出す（ここでは解かない）。
-- `obsidian` カーソルの対象は binge の Obsidian vault（`C:\Users\BINGE\Workspace\MyDocs`、WSL からは `/mnt/c/Users/BINGE/Workspace/MyDocs`。パス定数の正本は watari_lib.py の VAULT）。ノートは binge 本人の産出物なので、自分の言葉でまとめた内容は mastery 2 の根拠になり得る。知識の中身は log に写さず、到達状態とノートへのポインタ（refs.cwd）だけを書く（ノートの中身の正本は vault）。
+- `obsidian` カーソルの対象はユーザーの Obsidian vault（場所はユーザーが設定する。ワタリ本体はパスを内蔵しない）。ノートはユーザー本人の産出物なので、自分の言葉でまとめた内容は mastery 2 の根拠になり得る。知識の中身は log に写さず、到達状態とノートへのポインタ（refs.cwd）だけを書く（ノートの中身の正本は vault）。
 
 ## 1回の処理上限（初回・差分大の決定論化）
 1回で処理する件数は次の**小さい方**で固定（実装は extract.py。変えるときは本ファイルと watari_lib.py の定数を揃える）：
@@ -181,4 +180,4 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 ## state 再生成と監査
 `watari regen` が log から state を作り直す（`--now` 指定で決定的・冪等。`--check` は書き込まず現 state と比較）。
 `watari audit` が形式・(uuid,kind) 重複・state と log の乖離・宙に浮いた related を検査する（`--coverage` で log に一度も現れないセッションの一覧も出す）。
-同じ log ＋ 同じ now なら必ず同じ state（log が唯一の正本）。2026-07-02 に全 state 項目を reconcile 行として log へ快照済み。
+同じ log ＋ 同じ now なら必ず同じ state（log が唯一の正本）。
