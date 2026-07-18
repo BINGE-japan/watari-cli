@@ -2,7 +2,8 @@
 
 ワタリ本体は記憶を内蔵しない。実行時にここで解決した記憶パスを、エンジン
 (engine.watari_lib)が import 時に読む環境変数 WATARI_HOME へ橋渡しする。
-起動設定(runtime/provider/model)も同じ設定ファイルに永続化し、watari chat が使う。
+起動設定(runtime)も同じ設定ファイルに永続化し、watari chat が使う（AI のプロバイダ/
+モデル選びは watari の関心事ではなく Pi 側に委ねる）。
 
 記憶パスの優先順: --home 引数 > 環境変数 WATARI_HOME > 保存済み設定 > エンジン既定。
 設定ファイルは XDG 準拠: $XDG_CONFIG_HOME/watari/config.json（既定 ~/.config/watari/config.json）。
