@@ -90,20 +90,21 @@ def save_cursors(home: str, cursors: dict) -> dict:
 
 
 def load_cursors(home: str) -> dict:
-    """このマシンの取り込みカーソルを返す（host 記録の "cursors"）。
+    """このマシンの取り込みカーソルを返す（host 記録の "cursors"）。読むだけで書かない。
 
-    host 記録に "cursors" があればそれを返す。無く旧 <home>/cursors.json があれば
-    一度だけ host 記録へ移行して返す（既存のカーソル位置を保全＝checkpoint を失わない
-    ために必須）。cursors.json はリポ外の旧ルーティンがまだ読むので消さずに残す。
-    どちらも無ければ全キー None の既定を返す（この時は書き込まない）。
+    host 記録に "cursors" があればそれを返す。無く旧 <home>/cursors.json があれば、その
+    位置を**メモリ上で**引き継いで返すだけで、ここでは host 記録へ書き込まない。永続化は
+    実際に前進が起きたとき（save_cursors）に行う——status / dream / ingest --dry-run のような
+    読み取り専用パスが副作用を持たない契約を守るため。既存のカーソル位置（checkpoint）は、
+    次の save_cursors がこの戻り値を丸ごと書き戻すので失われない。cursors.json はリポ外の旧
+    ルーティンがまだ読むので消さずに残す。どちらも無ければ全キー None の既定を返す。
     """
     record = _read(host_path(home))
     if record and isinstance(record.get("cursors"), dict):
         return record["cursors"]
     legacy = _read(os.path.join(home, "cursors.json"))
     if isinstance(legacy, dict):
-        save_cursors(home, legacy)  # 旧 cursors.json の位置をこのマシンの host 記録へ取り込む
-        return legacy
+        return legacy  # メモリ上で引き継ぐだけ（永続化は最初の save_cursors が担う）
     return {key: None for key in CURSOR_KEYS}
 
 
