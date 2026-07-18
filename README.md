@@ -20,6 +20,12 @@ Run `watari --help`, or `watari <subcommand> --help`, for the full set of
 subcommands: status/host/dream/recall/ingest/audit/regen/init/install/chat/
 connector.
 
+Memory only grows on demand by default (saying "夢を見て" in a conversation,
+or running `watari dream` by hand). To reproduce the original's automatic
+nightly growth, see
+[`docs/headless-dream.md`](docs/headless-dream.md) for scheduling that
+headless, outside the CLI.
+
 ## Your own reference material
 
 The original hand-rolled Watari kept a `knowledge/` folder of the user's own
