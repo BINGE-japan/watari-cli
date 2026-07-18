@@ -163,8 +163,9 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 - カーソルの前進は ingest.py の `--advance-*` だけが行う（「実際に処理した最後の timestamp」を渡す。後退は拒否される）。
   transcript/obsidian は専用フラグ（`--advance-wsl/win/codex/obsidian`）、外部ソース（slack/gmail/calendar/linear）は
   `--advance-ext <name>=<ts>`（対応キーの正本は watari_lib.py の EXT_STORES）。読めなかった・新着が無かったソースは渡さない（据え置き）。
-- 旧 `cursors.json` からの移行：旧 `<home>/cursors.json` があれば、初回の読み取り（status / ingest / extract）で
-  一度だけ host 記録の `cursors` へ取り込む（既存のカーソル位置を保全＝checkpoint を失わないため）。`cursors.json`
+- 旧 `cursors.json` からの移行：旧 `<home>/cursors.json` があれば、読み取り（status / dream / ingest）は
+  その位置を**メモリ上で**引き継ぐ。host 記録への永続化は実際に前進が起きたとき（`ingest` の save_cursors）に
+  一度だけ行い、読み取り専用パスは何も書かない（既存のカーソル位置は次の前進が丸ごと書き戻すので失われない）。`cursors.json`
   はリポ外の旧ルーティンがまだ読むので消さない（この repo が正本として扱うのをやめるだけ）。実装は host.load_cursors / host.save_cursors。
 - **クラウド源（slack/gmail/calendar/linear）の扱い**：今はこれらのカーソルもマシンごとの host 記録に置く。ただし
   クラウド源は本来どのマシンから取り込んでも同じ位置であるべき（マシン間で共有すべき性質）。その一元化は connector 層の

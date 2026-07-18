@@ -82,20 +82,25 @@ class HostCursorsTest(unittest.TestCase):
             self.assertFalse(os.path.exists(host.host_path(home)))
             self.assertFalse(os.path.isdir(os.path.join(home, "hosts")))
 
-    def test_legacy_cursors_json_migrates_into_host_record_once(self) -> None:
+    def test_legacy_cursors_json_read_free_then_migrates_on_save(self) -> None:
         with tempfile.TemporaryDirectory(prefix="watari-cur-") as home:
             legacy_path = os.path.join(home, "cursors.json")
             with open(legacy_path, "w", encoding="utf-8") as f:
                 json.dump(self.LEGACY, f)
             self.assertFalse(os.path.exists(host.host_path(home)))
-            # 初回読み取りで旧 cursors.json の位置を保全したまま host 記録へ移行
+            # 読み取りは旧 cursors.json の位置を（メモリ上で）引き継ぐが、host 記録は書かない
+            # （status / dream / ingest --dry-run が読むだけで副作用を持たない契約の要）。
             self.assertEqual(host.load_cursors(home), self.LEGACY)
+            self.assertFalse(os.path.exists(host.host_path(home)))        # 読みでは書かない
+            self.assertFalse(os.path.isdir(os.path.join(home, "hosts")))
+            # 実際の前進（save_cursors）で初めて host 記録へ移行する
+            host.save_cursors(home, host.load_cursors(home))
             with open(host.host_path(home), encoding="utf-8") as f:
-                self.assertEqual(json.load(f)["cursors"], self.LEGACY)  # 既存位置を保全
+                self.assertEqual(json.load(f)["cursors"], self.LEGACY)   # 既存位置を保全
             # cursors.json は消さない（リポ外の旧ルーティンがまだ読む）
             with open(legacy_path, encoding="utf-8") as f:
                 self.assertEqual(json.load(f), self.LEGACY)
-            # 2回目以降は host 記録から読む（移行は一度きり）
+            # 移行後は host 記録から読む
             self.assertEqual(host.load_cursors(home), self.LEGACY)
 
     def test_save_cursors_advances_host_and_leaves_legacy_and_facts(self) -> None:
