@@ -114,8 +114,9 @@ def apply(rows, *, advance_wsl=None, advance_win=None, advance_codex=None,
     検証（行・カーソル後退）に1件でも失敗したら ValueError(errors) を送出し、何も書かない。
     """
     errors = validate(rows, allow_new_domain)
-    cursors_path = os.path.join(MEM, "cursors.json")
-    cursors = json.load(open(cursors_path, encoding="utf-8"))
+    # カーソルはマシンごとの host 記録に持つ（遅延 import で循環を回避）。
+    from watari_cli import host
+    cursors = host.load_cursors(MEM)
     advances = [("wsl", "transcripts_wsl", advance_wsl),
                 ("win", "transcripts_win", advance_win),
                 ("codex", "transcripts_codex", advance_codex),
@@ -161,7 +162,7 @@ def apply(rows, *, advance_wsl=None, advance_win=None, advance_codex=None,
         if adv:
             cursors[key] = adv
     cursors["last_run"] = fmt_ts(now)
-    atomic_write_json(cursors_path, cursors)
+    host.save_cursors(MEM, cursors)
     for g, out in regen_state.regen(now).items():
         atomic_write_json(os.path.join(MEM, g, "state.json"), out)
     advanced = " ".join(f"{key}={adv}" for _, key, adv in advances if adv) or "なし"

@@ -31,6 +31,7 @@ def _count_lines(path):
 
 def cmd_status(args) -> int:
     config.apply(args.home)
+    from watari_cli import host
     from watari_cli.engine import watari_lib as wl
 
     home = wl.MEM
@@ -41,7 +42,8 @@ def cmd_status(args) -> int:
     for genre in wl.GENRES:
         n = _count_lines(wl.log_path(genre))
         print(f"  {genre}/log.jsonl: {n if n is not None else '—'} 行")
-    cursors = _load_json(os.path.join(home, "cursors.json")) or {}
+    # カーソルはこのマシンの host 記録から（旧 cursors.json があれば初回に移行して読む）
+    cursors = host.load_cursors(home)
     if cursors:
         print("  cursors:")
         for k, v in cursors.items():
@@ -160,11 +162,8 @@ def _scaffold_empty_memory() -> str:
         path = wl.log_path(genre)
         if not os.path.exists(path):
             open(path, "w", encoding="utf-8").close()
-    cursors = {k: None for k in (
-        "transcripts_win", "transcripts_wsl", "transcripts_codex",
-        "slack", "gmail", "calendar", "linear", "obsidian", "last_run",
-    )}
-    wl.atomic_write_json(os.path.join(home, "cursors.json"), cursors)
+    # カーソルはマシンごとの host 記録に持つ（hosts/<machine_id>.json の "cursors"）。
+    # 初回の advance / status で遅延生成されるので、ここでは作らない。
     # 記憶の git 設定（多マシン追記の union-merge / 派生 state は追跡しない）
     with open(os.path.join(home, ".gitattributes"), "w", encoding="utf-8") as f:
         f.write("*.jsonl merge=union\n")

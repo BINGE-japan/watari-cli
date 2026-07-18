@@ -82,7 +82,10 @@ def load_aliases():
 
 
 def load_cursors():
-    return json.load(open(os.path.join(MEM, "cursors.json"), encoding="utf-8"))
+    # カーソルはマシンごとの host 記録に持つ（host.py が正本）。host は watari_lib を
+    # import するため、循環を避けて遅延 import する。
+    from watari_cli import host
+    return host.load_cursors(MEM)
 
 
 def atomic_write_json(path, obj):

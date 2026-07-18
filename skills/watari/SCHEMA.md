@@ -1,7 +1,7 @@
 # ワタリの記憶スキーマ
 
 ジャンル別フォルダ（life / learning）。各ジャンルに `log.jsonl`（=正本・追記専用）と
-`state.json`（=派生・log ＋再生成時刻 now から再生成）。取り込みカーソルは `memory/cursors.json` に一元化（ストア別に分割）。
+`state.json`（=派生・log ＋再生成時刻 now から再生成）。取り込みカーソルは**マシンごとの host 記録**（`memory/hosts/<machine-id>.json` の `cursors`）にストア別に持つ（記憶は git で全マシン共有されるため）。
 
 ジャンルは kind で一意に決まる：`study` → learning、`fact` / `interest` / `thread` → life。
 科目（english, web, math, tech-history, …）はジャンルではなく、learning の log 行が持つ `domain` フィールド（開集合・データ）。
@@ -12,7 +12,7 @@
   → 書き手が複数（毎晩のルーティン／その場のワタリ）いても全員 log に足すだけ。state は決定的に再生成され競合しない。
 - 決定性・冪等性：同じ log ＋ 同じ now を入力すれば、必ず同じ state が出る。state は「事実（log）」と「いつ再生成したか（now）」だけの関数。
 - 取り込みは「前回処理した時刻（カーソル）以降の差分」だけ。冪等。
-- 痕跡は log に混ぜない：log は事実の正本。対象0件など「走ったが事実は無い」記録は log に書かず、cursors.json の `last_run` に残す。
+- 痕跡は log に混ぜない：log は事実の正本。対象0件など「走ったが事実は無い」記録は log に書かず、カーソルの `last_run`（host 記録内）に残す。
 - 決定論部分（発話の選別・dedup・カーソル前進・state の畳み込み・監査）の正本実装は `skills/watari/scripts/`（extract.py / ingest.py / regen_state.py / audit.py。WSL の python3 で実行、Windows からは `wsl.exe -e python3 …`）。LLM の仕事は「何を記憶するか」の判定と summary/note/mastery/heat の中身だけで、機械処理を手でなぞらない。
 
 ## log.jsonl（1 行 = 1 事実。行き先のジャンルは kind で決まる）
@@ -91,7 +91,7 @@ dedup 鍵は合成 uuid `codex:<session_id>:<timestamp>`。時刻は同じく to
 - `thread` → life.open_threads
 - `fact` → `profile:{key,value}` を持つ行だけが life.profile に畳まれる（key ごと最新値が勝つ）。昇格の判断（複数回の再確認や本人の明示で載せる・単発の観察は載せない）は行を書く時点の責務。profile 無しの fact は log にのみ残る文脈。
 - `study` → learning.domains[domain].topics（domain 欠落の learning 行は不正行として畳み込みからスキップする）
-（痕跡・非事実は log に積まない。走ったが事実0件などの記録は cursors.json の `last_run` が受け皿。かつて `event` kind を痕跡用に置いたが、scripts は受け付けず全面廃止した。）
+（痕跡・非事実は log に積まない。走ったが事実0件などの記録はカーソルの `last_run`（host 記録内）が受け皿。かつて `event` kind を痕跡用に置いたが、scripts は受け付けず全面廃止した。）
 
 ### life.interests の heat（量子化、0–3）
 - `base_heat` = `heat` を持つ最新 interest 行の値（無ければ1）。出現頻度＋本人の熱量語（「ハマってる」「面白い」「やりたい」等）のスコア化は行を書く時点で行い、結果を `heat` に記録する。
@@ -138,7 +138,11 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 - **生成の含意**：state の note は log 行の `note` フィールドから機械的に写される（最新行優先）。
   だから現在形化は log 行の `note` を書く時点の責務。`summary` は経緯・根拠・時系列を持ってよい（log は正本、note は state 用の蒸留）。
 
-## cursors.json（ストア別に分割）
+## カーソル（マシンごとの host 記録に格納・ストア別）
+記憶（WATARI_HOME）は git で全マシンに同期される。単一の共有 `cursors.json` だと、複数マシンが各々
+カーソルを進めたとき衝突する。そこでカーソルは**マシンごとの host 記録**（`hosts/<machine-id>.json` の
+`cursors`。host 記録の詳細は host.py）に持つ——各マシンは自分のファイルだけを書くので衝突せず、git で
+相互に読める。キーとストア別の意味（形は従来どおり）：
 ```
 {
   "transcripts_win": "<最後に処理した Windows store メッセージの UTC ts>",
@@ -160,6 +164,12 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 - カーソルの前進は ingest.py の `--advance-*` だけが行う（「実際に処理した最後の timestamp」を渡す。後退は拒否される）。
   transcript/obsidian は専用フラグ（`--advance-wsl/win/obsidian`）、外部ソース（slack/gmail/calendar/linear）は
   `--advance-ext <name>=<ts>`（対応キーの正本は watari_lib.py の EXT_STORES）。読めなかった・新着が無かったソースは渡さない（据え置き）。
+- 旧 `cursors.json` からの移行：旧 `<home>/cursors.json` があれば、初回の読み取り（status / ingest / extract）で
+  一度だけ host 記録の `cursors` へ取り込む（既存のカーソル位置を保全＝checkpoint を失わないため）。`cursors.json`
+  はリポ外の旧ルーティンがまだ読むので消さない（この repo が正本として扱うのをやめるだけ）。実装は host.load_cursors / host.save_cursors。
+- **クラウド源（slack/gmail/calendar/linear）の扱い**：今はこれらのカーソルもマシンごとの host 記録に置く。ただし
+  クラウド源は本来どのマシンから取り込んでも同じ位置であるべき（マシン間で共有すべき性質）。その一元化は connector 層の
+  将来課題として切り出す（ここでは解かない）。
 - `obsidian` カーソルの対象は binge の Obsidian vault（`C:\Users\BINGE\Workspace\MyDocs`、WSL からは `/mnt/c/Users/BINGE/Workspace/MyDocs`。パス定数の正本は watari_lib.py の VAULT）。ノートは binge 本人の産出物なので、自分の言葉でまとめた内容は mastery 2 の根拠になり得る。知識の中身は log に写さず、到達状態とノートへのポインタ（refs.cwd）だけを書く（ノートの中身の正本は vault）。
 
 ## 1回の処理上限（初回・差分大の決定論化）
