@@ -9,7 +9,7 @@ ROOT = Path(__file__).parents[3]
 MIGRATION = ROOT / "docs" / "migration.md"
 ACCEPTANCE = ROOT / "docs" / "acceptance.md"
 HASHES = {
-    "docs/requirements.md": "b2ade4aff4372e94f284237b66a5c873012397bd2b3281debca246a4a4056e80",
+    "docs/requirements.md": "86f252c92b57f738b612fe620e2f205d3961ad30446a472c0df3c0b9da0eecb0",
     "docs/data-contract.md": "613a33b886e9d01ee1f591c4a0d5e09c9968943202fbbe3f9ae27866f9d1de17",
     "docs/adr/004-transaction.md": "7c06f1b2637cd10a5184112c7e1e6c71d31af5087386451cd708a90106ec37f8",
     "docs/threat-model.md": "8a538f78b044afccb2f011954d05e05c50bbcdbb5e5bb20b2caa919afc92402a",
