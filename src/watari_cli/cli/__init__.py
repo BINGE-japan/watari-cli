@@ -402,7 +402,11 @@ def cmd_regen(args) -> int:
     from watari_cli.engine import regen_state, watari_lib as wl
 
     now = regen_state.parse_ts(args.now) if args.now else regen_state.now_utc()
-    gen = regen_state.regen(now)
+    try:
+        gen = regen_state.regen(now)
+    except FileNotFoundError:
+        sys.stderr.write(f"記憶が見つかりません: {wl.MEM}（先に watari init / watari install）\n")
+        return 1
     if args.check:
         current = {g: json.load(open(wl.state_path(g), encoding="utf-8")) for g in wl.GENRES}
         diffs = regen_state.semantic_diff(current, gen)
@@ -419,12 +423,28 @@ def cmd_regen(args) -> int:
     return 0
 
 
+def _write_validation_errors(error: ValueError) -> int:
+    """ValueError(errors) 契約（args[0]=エラー文字列のリスト）を標準形式で stderr に書く。"""
+    errors = error.args[0] if error.args else [str(error)]
+    sys.stderr.write(f"検証エラー {len(errors)} 件（何も書き込んでいません）:\n")
+    for e in errors:
+        sys.stderr.write(f"  - {e}\n")
+    return 2
+
+
 def cmd_ingest(args) -> int:
     config.apply(args.home)
-    from watari_cli.engine import ingest
+    from watari_cli.engine import ingest, watari_lib as wl
 
     try:
         rows = ingest.load_rows(args.rows)
+    except FileNotFoundError as error:
+        sys.stderr.write(f"rows ファイルが読めません: {error}\n")
+        return 2
+    except ValueError as error:
+        return _write_validation_errors(error)
+
+    try:
         summary = ingest.apply(
             rows,
             advance_wsl=args.advance_wsl, advance_win=args.advance_win,
@@ -432,15 +452,12 @@ def cmd_ingest(args) -> int:
             advance_ext=args.advance_ext or (), allow_new_domain=args.allow_new_domain,
             dry_run=args.dry_run,
         )
-    except FileNotFoundError as error:
-        sys.stderr.write(f"rows ファイルが読めません: {error}\n")
-        return 2
+    except FileNotFoundError:
+        # rows は読めている。記憶(WATARI_HOME)側の log.jsonl が無い＝未初期化のホーム。
+        sys.stderr.write(f"記憶が見つかりません: {wl.MEM}（先に watari init / watari install）\n")
+        return 1
     except ValueError as error:
-        errors = error.args[0] if error.args else [str(error)]
-        sys.stderr.write(f"検証エラー {len(errors)} 件（何も書き込んでいません）:\n")
-        for e in errors:
-            sys.stderr.write(f"  - {e}\n")
-        return 2
+        return _write_validation_errors(error)
     print(summary)
     return 0
 
