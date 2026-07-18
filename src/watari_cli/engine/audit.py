@@ -19,7 +19,7 @@ import sys
 
 from .watari_lib import (
     GENRES, KIND_TO_GENRE, SINK_DAYS, STORES,
-    is_genuine_user_message, load_log, now_utc, parse_ts, sorted_rows, state_path,
+    is_genuine_user_message, load_log, now_utc, parse_ts, state_path,
 )
 from . import regen_state
 

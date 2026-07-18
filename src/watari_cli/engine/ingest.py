@@ -101,7 +101,13 @@ def validate(rows, allow_new_domain):
 
 
 def load_rows(path):
-    rows = json.load(open(path, encoding="utf-8"))
+    try:
+        with open(path, encoding="utf-8") as f:
+            rows = json.load(f)
+    except json.JSONDecodeError as error:
+        # ValueError の args[0] は「エラー文字列のリスト」という取り決め（呼び出し側が len()/反復する）。
+        # JSONDecodeError も ValueError だが args[0] は文字列なので、そのまま流すと1文字ずつ列挙される。
+        raise ValueError([f"rows が不正な JSON: {error}"])
     if not isinstance(rows, list):
         raise ValueError(["rows は JSON 配列"])
     return rows
