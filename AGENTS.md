@@ -1,44 +1,25 @@
 # Watari CLI product repository
 
-This repository contains the installable Watari CLI product. Work follows the
-frozen baseline in `docs/baseline/` and its issue DAG.
-
-## Execution governance
-
-The baseline files remain immutable. Narrow execution-metadata corrections are
-active only when listed in `docs/governance/issue-dag-overlays.jsonl`, bound to
-the exact baseline and overlay byte digests, and explicitly approved by the
-owner named in the registry record. The effective order is:
-
-1. this file's safety boundary and implementation discipline;
-2. the frozen parent implementation plan;
-3. only the fields explicitly enumerated by a validated, activated overlay;
-4. every unmodified field of the frozen issue DAG.
-
-Unknown overlays, fields, operations, wildcard paths, sequence gaps, broken
-hash chains, missing approvals, or digest mismatches fail closed. An overlay
-cannot expand network, credential, live-read, external-write, or review
-authority. `tests/governance/test_issue_dag_overlay.py` is the executable
-validator; an unregistered erratum file has no authority.
+This repository contains the installable Watari CLI product: a memory engine
+(`src/watari_cli/`) and a bundled persona skill (`skills/watari/`). The memory
+schema is specified in `skills/watari/SCHEMA.md`.
 
 ## Safety boundary
 
 - Never modify `~/.claude`, `~/.codex`, `~/.pi`, the live Watari memory tree,
-  schedulers, or external services from ordinary implementation tickets.
-- Use synthetic fixtures only. Never copy credentials, OAuth state, personal
-  transcripts, email, calendar, Slack, Linear, or BINGE memory into this repo.
-- Network, credentials, live reads, and external writes are forbidden unless a
-  specific O/C ticket records its exact Authority and approval ID.
+  schedulers, or external services from ordinary implementation work.
+- Use synthetic data only. Never copy credentials, OAuth state, personal
+  transcripts, email, calendar, Slack, Linear, or user memory into this repo.
+- Network, credentials, live reads, and external writes stay out of the product
+  code unless a change explicitly records why they are needed.
 - Runtime state belongs below an explicit temporary `WATARI_HOME`; it is never
   committed.
 
 ## Implementation discipline
 
-- Complete dependencies before starting a ticket. One ticket has one bounded
-  purpose and an independent reviewer.
 - Add the named failing test first. Do not delete, skip, or weaken tests to make
   an implementation pass.
 - Unknown schema, source, runtime, or state versions fail closed.
 - Use `uv` for Python tooling. Do not use yarn.
-- Do not edit the frozen files under `docs/baseline/`. New product decisions go
-  in the versioned documents referenced by the issue DAG.
+- Keep the shipped code generic and portable. Personal data belongs in the
+  user's own `WATARI_HOME` cartridge, not in this repository.
