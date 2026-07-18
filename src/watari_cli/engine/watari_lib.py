@@ -3,16 +3,16 @@
 
 決定論部分の正本実装。仕様の「なぜ」は SCHEMA.md、ここは「どう」。
 
-パス定数（カセット＝MEM、ソース＝STORES/CODEX_STORE/VAULT）は差込口(config)から
-環境変数で注入する。未設定なら現ライブ・カセットを既定にするため、現ワタリの scripts と
-挙動はバイト単位で同一（差込口を使わない限り従来どおり動く）。
+パス定数（記憶＝MEM、ソース＝STORES/CODEX_STORE/VAULT）は環境変数(config)から
+注入する。未設定なら現ライブの記憶を既定にするため、現ワタリの scripts と
+挙動はバイト単位で同一（環境変数を使わない限り従来どおり動く）。
 """
 import json
 import os
 import re
 from datetime import datetime, timezone
 
-# 差込口: 環境変数で上書き可。既定はここに一元化（現ライブ・カセット/ソース）。
+# 環境変数で上書き可。既定はここに一元化（現ライブの記憶/ソース）。
 MEM = os.environ.get("WATARI_HOME", "/mnt/c/Users/BINGE/.claude/skills/watari/memory")
 STORES = {
     "win": os.environ.get("WATARI_STORE_WIN", "/mnt/c/Users/BINGE/.claude/projects"),

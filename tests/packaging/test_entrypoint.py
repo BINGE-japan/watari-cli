@@ -184,11 +184,11 @@ class EntrypointContractTests(unittest.TestCase):
         )
         self.assertEqual((probe.returncode, probe.stdout, probe.stderr), (97, "", ""))
         snapshot = _snapshot(protected)
-        # 実CLI: status は差込口(WATARI_HOME)の空カセットを読むだけ。exit 0・ネットワーク無し・
-        # カセットの外へ一切書かない（protected スナップショット不変）ことを固定契約とする。
+        # 実CLI: status は WATARI_HOME の記憶を読むだけ。exit 0・ネットワーク無し・
+        # 記憶の外へ一切書かない（protected スナップショット不変）ことを固定契約とする。
         status = _run((str(executable), "status"), protected, invocation_environment)
         self.assertEqual(status.returncode, 0, status.stderr)
-        self.assertIn("cartridge", status.stdout)
+        self.assertIn("記憶", status.stdout)
         self.assertEqual(status.stderr, "")
         self.assertEqual(_snapshot(protected), snapshot)
         self.assertEqual(_snapshot(ROOT, exclude_git=True), self.__class__._repository_snapshot)

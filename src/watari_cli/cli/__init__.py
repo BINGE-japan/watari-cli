@@ -1,9 +1,7 @@
-"""Watari command-line entrypoint（ゲーム機の入口）。
+"""watari コマンドの入口。
 
-カセット＝個人記憶は内蔵せず、--home / WATARI_HOME（差込口）で差し込む。
-現在の一本:
-  watari status          カセットの現在地を読む（読むだけ）
-  watari dream           ソース(会話ログ)から記憶候補を抽出（既定は --dry-run 相当・書き込みなし）
+ワタリ本体は記憶を内蔵せず、--home / 環境変数 WATARI_HOME で指した記憶を読み書きする。
+記憶は会話ログから育つ個人データ（log.jsonl が正本、state.json は派生）。
 """
 from __future__ import annotations
 
@@ -37,9 +35,9 @@ def cmd_status(args) -> int:
 
     home = wl.MEM
     if not os.path.isdir(home):
-        sys.stderr.write(f"カセットが見つかりません: {home}\n")
+        sys.stderr.write(f"記憶が見つかりません: {home}\n")
         return 1
-    print(f"cartridge（カセット）: {home}")
+    print(f"記憶の場所: {home}")
     for genre in wl.GENRES:
         n = _count_lines(wl.log_path(genre))
         print(f"  {genre}/log.jsonl: {n if n is not None else '—'} 行")
@@ -68,10 +66,10 @@ def cmd_dream(args) -> int:
 
     result = extract.run()
     if args.json:
-        # 判定するエージェント(Piで動くワタリ)が消費する生の候補。messages[] を渡す。
+        # 判定するワタリ(エージェント)が消費する生の候補。messages[] を渡す。
         print(json.dumps(result, ensure_ascii=False, indent=1))
         return 0
-    print("dream（ソースを読むだけ・カセットへの書き込みなし）")
+    print("dream（会話ログを読むだけ・記憶への書き込みなし）")
     print(f"  generated: {result['generated']}")
     for store, s in result["stores"].items():
         print(
@@ -79,7 +77,7 @@ def cmd_dream(args) -> int:
             f"max_ts={s['max_ts']} truncated={s['truncated']}"
         )
     print(f"  合計候補: {len(result['messages'])} 件")
-    print("  → 判定は Watari(エージェント)が SCHEMA に沿って行い、watari ingest で書き込む")
+    print("  → 判定はワタリ(エージェント)が SCHEMA に沿って行い、watari ingest で書き込む")
     return 0
 
 
@@ -117,8 +115,8 @@ def cmd_audit(args) -> int:
     return 1 if problems else 0
 
 
-def _scaffold_empty_cartridge() -> str:
-    """WATARI_HOME に空カセットの骨格を作り、そのパスを返す（config.apply 済みで呼ぶ）。"""
+def _scaffold_empty_memory() -> str:
+    """WATARI_HOME に空の記憶の骨格を作り、そのパスを返す（config.apply 済みで呼ぶ）。"""
     from watari_cli.engine import watari_lib as wl
 
     home = wl.MEM
@@ -133,7 +131,7 @@ def _scaffold_empty_cartridge() -> str:
         "slack", "gmail", "calendar", "linear", "obsidian", "last_run",
     )}
     wl.atomic_write_json(os.path.join(home, "cursors.json"), cursors)
-    # カセットの git 設定（多マシン追記の union-merge / 派生 state は追跡しない）
+    # 記憶の git 設定（多マシン追記の union-merge / 派生 state は追跡しない）
     with open(os.path.join(home, ".gitattributes"), "w", encoding="utf-8") as f:
         f.write("*.jsonl merge=union\n")
     with open(os.path.join(home, ".gitignore"), "w", encoding="utf-8") as f:
@@ -158,16 +156,16 @@ def cmd_init(args) -> int:
     if os.path.isdir(home) and os.listdir(home) and not args.force:
         sys.stderr.write(f"既にファイルがあります: {home}（空でない）。--force で続行。\n")
         return 1
-    _scaffold_empty_cartridge()
-    print(f"空のカセットを用意しました: {home}")
+    _scaffold_empty_memory()
+    print(f"空の記憶を用意しました: {home}")
     print("  次: この場所を WATARI_HOME に。会話ログから育てるなら dream→(判定)→ingest。")
-    print("  可搬化: このディレクトリを private git リポにして別マシンで clone すれば記憶ごと再現。")
+    print("  持ち運び: このフォルダを private git リポにして別マシンで clone すれば記憶ごと再現。")
     return 0
 
 
-def _default_cartridge_dir() -> str:
+def _default_memory_dir() -> str:
     base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-    return os.path.join(base, "watari", "cartridge")
+    return os.path.join(base, "watari", "memory")
 
 
 PROVIDER_MODELS = {
@@ -182,45 +180,45 @@ PROVIDER_KEY_ENV = {
 }
 
 
-def _setup_cartridge(mode: str, home: str, url: str | None) -> tuple[str, str]:
-    """mode='clone'|'adopt'|'new'。home にカセットを用意し state を再生成。(絶対home, 説明) を返す。"""
+def _prepare_memory(mode: str, home: str, url: str | None) -> tuple[str, str]:
+    """mode='clone'|'adopt'|'new'。home に記憶を用意し state を再生成。(絶対home, 説明) を返す。"""
     import subprocess
 
     home = os.path.abspath(os.path.expanduser(home))
     if mode == "clone":
         if os.path.exists(home) and os.listdir(home):
-            raise RuntimeError(f"クローン先が空ではありません: {home}")
+            raise RuntimeError(f"復元先が空ではありません: {home}")
         os.makedirs(os.path.dirname(home) or ".", exist_ok=True)
         clone = subprocess.run(["git", "clone", url, home], capture_output=True, text=True)
         if clone.returncode != 0:
             raise RuntimeError(f"git clone 失敗:\n{clone.stderr}")
         config.apply(home)
         _rebuild_state()
-        return home, "クローン＋state再生成（記憶を継承）"
+        return home, "バックアップから復元（記憶を継承）"
     config.apply(home)
     if mode == "adopt":
         if not (os.path.isdir(home) and os.listdir(home)):
-            raise RuntimeError(f"既存カセットが見つかりません: {home}")
+            raise RuntimeError(f"記憶が見つかりません: {home}")
         _rebuild_state()
-        return home, "既存カセットを採用＋state再生成"
+        return home, "既存の記憶を使う"
     if os.path.isdir(home) and os.listdir(home):
         raise RuntimeError(f"空ではありません: {home}")
-    _scaffold_empty_cartridge()
-    return home, "空カセットを新規作成"
+    _scaffold_empty_memory()
+    return home, "新しい記憶を作成"
 
 
 def _install_wizard(args) -> dict:
     """インストール体験（UX）だけ。質問して選択を plan(dict) にして返す。副作用なし。
 
-    ここが「コンポーネント」。--dry-run はこれだけを回す。実行は _setup_cartridge が担う。
+    ここが調整対象のコンポーネント。--dry-run はこれだけを回す。実行は _prepare_memory が担う。
     フラグを渡せばその質問は飛ばす。--yes で全部既定。prompts.Cancelled を送出しうる。
     """
     from watari_cli import prompts
 
-    default_dir = _default_cartridge_dir()
+    default_dir = _default_memory_dir()
     live = os.path.join(os.path.expanduser("~"), ".claude", "skills", "watari", "memory")
 
-    # 1) カセット
+    # 1) 記憶の始め方
     if args.from_url:
         mode, home, url = "clone", (args.home or default_dir), args.from_url
     elif args.home:
@@ -229,53 +227,55 @@ def _install_wizard(args) -> dict:
     elif args.yes:
         mode, home, url = "new", default_dir, None
     else:
-        kind = prompts.select("記憶（カセット）をどうしますか？", [
-            ("まっさら新規作成（自分のワタリを一から育てる）", "new"),
-            ("このマシンにある既存カセットを使う", "adopt"),
-            ("既存のワタリ記憶を git から引き継ぐ（別マシン再現・共有）", "clone"),
+        print("\nワタリのセットアップ")
+        print("会話からあなたを少しずつ覚えていく相棒「ワタリ」を用意します。\n")
+        kind = prompts.select("ワタリの記憶を、どこから始めますか？", [
+            ("新しく始める（何も覚えていない状態から育てる）", "new"),
+            ("このパソコンにある記憶を引き継ぐ", "adopt"),
+            ("別の場所のバックアップから復元する", "clone"),
         ], default=0)
         if kind == "clone":
-            url = prompts.text("カセットの git URL")
-            home = prompts.text("取り込み先", default=default_dir)
+            url = prompts.text("バックアップの場所（git URL）")
+            home = prompts.text("復元先のフォルダ", default=default_dir)
         elif kind == "adopt":
-            home = prompts.text("カセットのパス", default=(live if os.path.isdir(live) else default_dir))
+            home = prompts.text("記憶のあるフォルダ", default=(live if os.path.isdir(live) else default_dir))
             url = None
         else:
-            home = prompts.text("作成先", default=default_dir)
+            home = prompts.text("記憶の保存先フォルダ", default=default_dir)
             url = None
         mode = kind
 
-    # 2) プロバイダ / モデル（ウィザード時のみ尋ねる）
+    # 2) 使う AI（ウィザード時のみ尋ねる）
     provider = args.provider
     wizard = not (args.from_url or args.home or args.yes)
     if provider is None and wizard:
-        provider = prompts.select("モデルプロバイダは？（Pi で使う。後で変更可）", [
-            ("OpenRouter（安価モデルを横断）", "openrouter"),
+        provider = prompts.select("ワタリを動かす AI サービスは？（あとで変えられます）", [
+            ("OpenRouter（安価なモデルを横断して使える）", "openrouter"),
             ("Anthropic（Claude）", "anthropic"),
-            ("Google（Pi 既定）", "google"),
+            ("Google（Gemini）", "google"),
             ("OpenAI", "openai"),
         ], default=0)
     model = args.model
     if model is None and wizard and provider is not None:
-        model = prompts.text("モデル（空Enterで既定）", default=PROVIDER_MODELS.get(provider, "")) or None
+        model = prompts.text("モデル名（Enter で既定のまま）", default=PROVIDER_MODELS.get(provider, "")) or None
 
     return {"mode": mode, "home": home, "url": url,
             "provider": provider, "model": model, "runtime": args.runtime}
 
 
 def _install_done_lines(home: str, desc: str, plan: dict) -> list[str]:
-    lines = [f"✓ インストール完了（{desc}）", f"  カセット: {home}"]
+    lines = [f"✓ セットアップ完了（{desc}）", f"  記憶の場所: {home}"]
     if plan["provider"] or plan["model"]:
-        lines.append(f"  ランタイム: provider={plan['provider'] or '既定'} model={plan['model'] or '既定'}")
+        lines.append(f"  AI: provider={plan['provider'] or '既定'} model={plan['model'] or '既定'}")
     lines.append("  起動:  watari chat")
     key_env = PROVIDER_KEY_ENV.get(plan["provider"] or "")
     if key_env and not os.environ.get(key_env):
-        lines.append(f"  ※ モデルのキー未設定。一度だけ: export {key_env}=...")
+        lines.append(f"  ※ AI のキー未設定。一度だけ: export {key_env}=...")
     return lines
 
 
 def cmd_install(args) -> int:
-    """初回セットアップ。UX(_install_wizard) と実行(_setup_cartridge/保存) を分離。
+    """初回セットアップ。UX(_install_wizard) と実行(_prepare_memory/保存) を分離。
 
     --dry-run で UX だけを何度でも試せる（副作用ゼロ）。フラグ全指定/--yes で非対話。
     """
@@ -289,18 +289,18 @@ def cmd_install(args) -> int:
 
     if args.dry_run:
         target = os.path.abspath(os.path.expanduser(plan["home"]))
-        act = {"new": "空カセットを新規作成", "adopt": "既存カセットを採用",
-               "clone": f"git clone {plan['url']}"}[plan["mode"]]
+        act = {"new": "新しい記憶を作成", "adopt": "既存の記憶を使う",
+               "clone": f"バックアップから復元（{plan['url']}）"}[plan["mode"]]
         print("\n── プレビュー（--dry-run：実際には何も変更していません）──")
-        print(f"  カセット: {act} → {target}")
-        print("  実行時: カセット用意 → state 再生成 → 設定保存(config.json)")
+        print(f"  記憶: {act} → {target}")
+        print("  実行時: 記憶を用意 → state 再生成 → 設定保存(config.json)")
         print("  完了時の表示 ↓")
         for line in _install_done_lines(target, act, plan):
             print("    " + line)
         return 0
 
     try:
-        home, desc = _setup_cartridge(plan["mode"], plan["home"], plan["url"])
+        home, desc = _prepare_memory(plan["mode"], plan["home"], plan["url"])
     except RuntimeError as error:
         sys.stderr.write(f"{error}\n")
         return 1
@@ -343,7 +343,7 @@ def _runtime_base(runtime: str) -> list[str]:
 
 
 def cmd_chat(args) -> int:
-    """ワタリを起動する。スキル・カセット・モデルを自動で渡すランチャー。
+    """ワタリを起動する。スキル・記憶・モデルを自動で渡すランチャー。
 
     ユーザーは長い pi コマンドを覚えなくてよい: watari chat だけでワタリが立ち上がる。
     """
@@ -355,7 +355,7 @@ def cmd_chat(args) -> int:
 
     home = wl.MEM
     if not os.path.isdir(home):
-        sys.stderr.write(f"カセットが見つかりません: {home}\n  先に `watari install` を実行してください。\n")
+        sys.stderr.write(f"記憶が見つかりません: {home}\n  先に `watari install` を実行してください。\n")
         return 1
     skill = _find_skill_dir()
     if not skill:
@@ -375,7 +375,7 @@ def cmd_chat(args) -> int:
     cmd += args.extra
 
     env = dict(os.environ)
-    env["WATARI_HOME"] = home  # ランタイムの bash ツールが watari CLI で同じカセットを読めるように
+    env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
 
     if args.show:
         print(f"WATARI_HOME={home}")
@@ -440,7 +440,7 @@ def cmd_ingest(args) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="watari", description="Watari CLI — ゲーム機")
+    p = argparse.ArgumentParser(prog="watari", description="ワタリ — 会話からあなたを覚えていく相棒")
     try:
         from importlib.metadata import version
 
@@ -449,58 +449,58 @@ def _build_parser() -> argparse.ArgumentParser:
         pass
     sub = p.add_subparsers(dest="command", required=True)
 
-    ps = sub.add_parser("status", help="カセット(個人記憶)の現在地を読む")
-    ps.add_argument("--home", help="カセットのパス（既定: WATARI_HOME か現ライブ・カセット）")
+    ps = sub.add_parser("status", help="ワタリの記憶の現在地を読む")
+    ps.add_argument("--home", help="記憶の場所（既定: WATARI_HOME か保存済み設定）")
     ps.set_defaults(func=cmd_status)
 
-    pd = sub.add_parser("dream", help="ソース(会話ログ)から記憶候補を抽出（読むだけ）")
-    pd.add_argument("--home", help="カセットのパス")
+    pd = sub.add_parser("dream", help="会話ログから記憶の候補を抽出（読むだけ）")
+    pd.add_argument("--home", help="記憶の場所")
     pd.add_argument("--json", action="store_true", help="判定用に生の候補(messages[])をJSON出力")
     pd.set_defaults(func=cmd_dream)
 
-    pr = sub.add_parser("recall", help="カセットの現在地(life/learning state)をJSONで読む")
-    pr.add_argument("--home", help="カセットのパス")
+    pr = sub.add_parser("recall", help="記憶の現在地(life/learning state)をJSONで読む")
+    pr.add_argument("--home", help="記憶の場所")
     pr.set_defaults(func=cmd_recall)
 
     pa = sub.add_parser("audit", help="記憶の健全性を監査（決定論・形式・乖離）")
-    pa.add_argument("--home", help="カセットのパス")
+    pa.add_argument("--home", help="記憶の場所")
     pa.add_argument("--coverage", action="store_true", help="log に現れないセッションも列挙")
     pa.set_defaults(func=cmd_audit)
 
-    pn = sub.add_parser("init", help="空のカセットを新規作成（他人が自分のワタリを始める口）")
+    pn = sub.add_parser("init", help="空の記憶を新規作成")
     pn.add_argument("--home", help="作成先のパス（既定: WATARI_HOME）")
     pn.add_argument("--force", action="store_true", help="空でない場所でも続行")
     pn.set_defaults(func=cmd_init)
 
     pg = sub.add_parser("regen", help="log から state を再生成（clone 直後の復元・派生の作り直し）")
-    pg.add_argument("--home", help="カセットのパス")
+    pg.add_argument("--home", help="記憶の場所")
     pg.add_argument("--now", help="再生成時刻(UTC ISO)。省略時は現在時刻")
     pg.add_argument("--check", action="store_true", help="書き込まず現 state と比較")
     pg.set_defaults(func=cmd_regen)
 
-    pinst = sub.add_parser("install", help="初回セットアップ（カセット用意＋設定保存。--from でgit継承）")
-    pinst.add_argument("--home", help="カセットの場所（既定: XDG_DATA_HOME/watari/cartridge）")
+    pinst = sub.add_parser("install", help="初回セットアップ（対話。記憶を用意して設定を保存）")
+    pinst.add_argument("--home", help="記憶の場所（既定: XDG_DATA_HOME/watari/memory）")
     pinst.add_argument("--from", dest="from_url", metavar="GIT_URL",
-                       help="既存カセットの git リポをクローンして記憶を継承する")
+                       help="バックアップ(git)から記憶を復元する")
     pinst.add_argument("--runtime", help="起動ランタイム（既定 pi）。watari chat が使う")
-    pinst.add_argument("--provider", help="モデルプロバイダ（例 openrouter, google, anthropic）")
-    pinst.add_argument("--model", help="モデル（例 anthropic/claude-... や provider 既定）")
+    pinst.add_argument("--provider", help="使う AI サービス（例 openrouter, google, anthropic）")
+    pinst.add_argument("--model", help="モデル名（例 anthropic/claude-... など）")
     pinst.add_argument("--yes", "-y", action="store_true", help="質問せず既定のまま（コマンド一発）")
     pinst.add_argument("--dry-run", action="store_true", help="UX だけ試す（何も変更しない・何度でも）")
     pinst.set_defaults(func=cmd_install)
 
-    pc = sub.add_parser("chat", help="ワタリを起動（スキル/カセット/モデルを自動で渡す）")
-    pc.add_argument("--home", help="カセットのパス")
+    pc = sub.add_parser("chat", help="ワタリを起動（スキル/記憶/モデルを自動で渡す）")
+    pc.add_argument("--home", help="記憶の場所")
     pc.add_argument("--runtime", help="起動ランタイム（既定: 保存値か pi）")
-    pc.add_argument("--provider", help="モデルプロバイダ（保存値を上書き）")
-    pc.add_argument("--model", help="モデル（保存値を上書き）")
+    pc.add_argument("--provider", help="使う AI サービス（保存値を上書き）")
+    pc.add_argument("--model", help="モデル名（保存値を上書き）")
     pc.add_argument("--show", action="store_true", help="起動せず、実行するコマンドだけ表示")
     pc.add_argument("extra", nargs="*", help="ランタイムへ素通しする追加引数")
     pc.set_defaults(func=cmd_chat)
 
-    pi = sub.add_parser("ingest", help="判定済みの記憶行(JSON)をカセットへ書き込む")
+    pi = sub.add_parser("ingest", help="判定済みの記憶行(JSON)を記憶へ書き込む")
     pi.add_argument("--rows", required=True, help="log 行の JSON 配列ファイル(SCHEMA 準拠)")
-    pi.add_argument("--home", help="カセットのパス")
+    pi.add_argument("--home", help="記憶の場所")
     pi.add_argument("--advance-wsl")
     pi.add_argument("--advance-win")
     pi.add_argument("--advance-codex")
