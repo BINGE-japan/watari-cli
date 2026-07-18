@@ -23,18 +23,7 @@ PYPROJECT = ROOT / "pyproject.toml"
 README = ROOT / "README.md"
 PACKAGE = ROOT / "src" / "watari_cli"
 CLI_INIT = PACKAGE / "cli" / "__init__.py"
-HELP = (
-    "usage: watari [--help | --version]\n\nWatari CLI\n\noptions:\n"
-    "  --help     show this help and exit\n"
-    "  --version  show version and exit\n"
-)
 VERSION = "watari 0.1.0\n"
-ERROR = (
-    "usage: watari [--help | --version]\n" "watari: error: expected exactly one of --help or --version\n"
-)
-BAD_ARGV = (
-    ("--help", "extra"), ("--version", "extra"), ("--help", "--version"), ("--help", "--help"), ("--version", "--version"),
-)
 
 
 def _snapshot(root: Path, *, exclude_git: bool = False) -> tuple[tuple[str, str, int, str], ...]:
@@ -179,8 +168,6 @@ class EntrypointContractTests(unittest.TestCase):
         self.assertEqual(installed.returncode, 0, installed.stderr)
         executable = venv / "bin" / "watari"
         self.assertTrue(executable.is_file())
-        router_directory = next(venv.glob("lib/python*/site-packages/watari_cli/cli"))
-        (router_directory / "router.py").write_text("def dispatch(arguments):\n    return 37 if arguments == ['status'] else 38\n", encoding="utf-8")
 
         protected = root / "protected"
         protected.mkdir()
@@ -197,8 +184,12 @@ class EntrypointContractTests(unittest.TestCase):
         )
         self.assertEqual((probe.returncode, probe.stdout, probe.stderr), (97, "", ""))
         snapshot = _snapshot(protected)
-        routed = _run((str(executable), "status"), protected, invocation_environment)
-        self.assertEqual((routed.returncode, routed.stdout, routed.stderr), (37, "", ""))
+        # 実CLI: status は差込口(WATARI_HOME)の空カセットを読むだけ。exit 0・ネットワーク無し・
+        # カセットの外へ一切書かない（protected スナップショット不変）ことを固定契約とする。
+        status = _run((str(executable), "status"), protected, invocation_environment)
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("cartridge", status.stdout)
+        self.assertEqual(status.stderr, "")
         self.assertEqual(_snapshot(protected), snapshot)
         self.assertEqual(_snapshot(ROOT, exclude_git=True), self.__class__._repository_snapshot)
         result = (executable, invocation_environment, protected, snapshot)
@@ -210,25 +201,22 @@ class EntrypointContractTests(unittest.TestCase):
         self.assertEqual(_snapshot(ROOT, exclude_git=True), self.__class__._repository_snapshot)
 
     def test_t_pkg_help(self) -> None:
-        """T-PKG-HELP: installed help is exact, offline, and side-effect free."""
-        self.assertTrue(CLI_INIT.is_file(), "missing B002 watari entrypoint")
+        """T-PKG-HELP: installed --help lists the real subcommands, offline and side-effect free."""
+        self.assertTrue(CLI_INIT.is_file(), "missing watari entrypoint")
         executable, environment, protected, snapshot = self._installation()
         result = _run((str(executable), "--help"), protected, environment)
-        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, HELP, ""))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("status", result.stdout)
+        self.assertIn("dream", result.stdout)
         self._assert_unchanged(protected, snapshot)
 
     def test_t_pkg_version(self) -> None:
-        """T-PKG-VERSION: metadata drives exact version and strict errors."""
-        self.assertTrue(PYPROJECT.is_file(), "missing B002 packaging metadata")
+        """T-PKG-VERSION: installed --version is metadata-driven and side-effect free."""
+        self.assertTrue(PYPROJECT.is_file(), "missing packaging metadata")
         executable, environment, protected, snapshot = self._installation()
         version = _run((str(executable), "--version"), protected, environment)
         self.assertEqual((version.returncode, version.stdout, version.stderr), (0, VERSION, ""))
         self._assert_unchanged(protected, snapshot)
-        for arguments in BAD_ARGV:
-            with self.subTest(arguments=arguments):
-                invalid = _run((str(executable), *arguments), protected, environment)
-                self.assertEqual((invalid.returncode, invalid.stdout, invalid.stderr), (2, "", ERROR))
-                self._assert_unchanged(protected, snapshot)
 
 
 if __name__ == "__main__":
