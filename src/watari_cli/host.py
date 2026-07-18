@@ -19,6 +19,14 @@ from watari_cli.engine import watari_lib as wl
 # 存在すれば ai_clis に載せる AI CLI（自動検出のみ・これ以上は増やさない）
 AI_CLIS = ("claude", "codex", "pi")
 
+# 取り込みカーソルのキー（このマシンの host 記録の "cursors" に格納。空の既定は全て None）。
+# 記憶（WATARI_HOME）は git で全マシン共有されるため、カーソルは共有 cursors.json ではなく
+# マシンごとの host 記録に持つ（各マシンは自分のファイルだけ書くので衝突しない）。
+CURSOR_KEYS = (
+    "transcripts_win", "transcripts_wsl", "transcripts_codex",
+    "slack", "gmail", "calendar", "linear", "obsidian", "last_run",
+)
+
 
 def machine_id() -> str:
     """このマシンの安定した（乱数を使わない）ファイル名安全なスラッグ。"""
@@ -71,6 +79,32 @@ def set_fact(home: str, key: str, value) -> dict:
     record["facts"][key] = value
     wl.atomic_write_json(host_path(home), record)
     return record
+
+
+def save_cursors(home: str, cursors: dict) -> dict:
+    """このマシンの host 記録に取り込みカーソルを書き込む（自動情報を最新化し facts は保つ）。"""
+    record = refresh(home)
+    record["cursors"] = cursors
+    wl.atomic_write_json(host_path(home), record)
+    return record
+
+
+def load_cursors(home: str) -> dict:
+    """このマシンの取り込みカーソルを返す（host 記録の "cursors"）。
+
+    host 記録に "cursors" があればそれを返す。無く旧 <home>/cursors.json があれば
+    一度だけ host 記録へ移行して返す（既存のカーソル位置を保全＝checkpoint を失わない
+    ために必須）。cursors.json はリポ外の旧ルーティンがまだ読むので消さずに残す。
+    どちらも無ければ全キー None の既定を返す（この時は書き込まない）。
+    """
+    record = _read(host_path(home))
+    if record and isinstance(record.get("cursors"), dict):
+        return record["cursors"]
+    legacy = _read(os.path.join(home, "cursors.json"))
+    if isinstance(legacy, dict):
+        save_cursors(home, legacy)  # 旧 cursors.json の位置をこのマシンの host 記録へ取り込む
+        return legacy
+    return {key: None for key in CURSOR_KEYS}
 
 
 def all_hosts(home: str) -> list:
