@@ -1,0 +1,282 @@
+{
+  "schema_version": 1,
+  "overlay_id": "issue-dag-erratum-0003",
+  "sequence": 3,
+  "baseline": {
+    "manifest_sha256": "fb7c6866229a17faec8b65d84a70390d94a2bbde7799cfb89d2d0cc99cda6832",
+    "implementation_plan_sha256": "3cc65da6a333271d6efed00cdf13f419249d40692126c87ae02096f6bfb6d4de",
+    "issue_dag_sha256": "b12d22906422da41a69e98b16e93f81c86fe570dc81fb5c8e17b5999920d4be4"
+  },
+  "activation": {
+    "mode": "registered-owner-approval-only",
+    "owner": "BINGE-japan",
+    "review_class": "O",
+    "existing_approval_reuse": "forbidden",
+    "approval_binding": "registry-record-must-bind-raw-overlay-sha256"
+  },
+  "patches": [
+    {
+      "operation": "activate-overlay-governance",
+      "ticket_id": "GOV-003",
+      "dependencies": [
+        "GOV-002"
+      ],
+      "activation_base_commit": "051fe25850361b20497d652ac48c2542fa9d1b14",
+      "predecessor": {
+        "overlay_id": "issue-dag-erratum-0002",
+        "sequence": 2,
+        "record_digest": "watari-overlay-record-v1:607dc1957d76fc1dcc4c535858f0b1c76dee3f57b57aa4fe24e764a1670a2a8f"
+      },
+      "changed_paths": [
+        "docs/governance/errata/0003.json",
+        "docs/governance/issue-dag-overlays.jsonl",
+        "tests/governance/test_issue_dag_overlay.py"
+      ],
+      "activation_validation_contract": {
+        "erratum_paths": [
+          "docs/governance/errata/0001.json",
+          "docs/governance/errata/0002.json",
+          "docs/governance/errata/0003.json"
+        ],
+        "erratum_count": 3,
+        "registry_record_count": 3,
+        "registry_serialization": "exactly three non-empty lines in sequence order; each line is canonical json.dumps(record,ensure_ascii=True,separators=(\",\",\":\"),sort_keys=True); file has one terminal LF",
+        "sequence_contract": "sequences are exactly integer 1, integer 2, then integer 3; bool and float are rejected",
+        "identity_contract": "overlay ID, overlay path, raw overlay SHA-256, and approval ID are non-empty and unique across all three records",
+        "approval_contract": "sequence three uses one new BINGE-japan approval bound only to the exact raw 0003 bytes; sequence-one and sequence-two approvals are not reused; approval_evidence_locator is exactly current-thread:user-message:<approval_id>",
+        "chain_contract": "sequence one previous_record_digest is null; sequence two previous_record_digest equals the verified canonical sequence-one record_digest; sequence three previous_record_digest equals watari-overlay-record-v1:607dc1957d76fc1dcc4c535858f0b1c76dee3f57b57aa4fe24e764a1670a2a8f and the verified canonical sequence-two record_digest",
+        "digest_contract": "all three raw erratum hashes match their records; all three canonical record digests verify; all three frozen baseline hashes match files, overlays, and records",
+        "closed_contract": "all three overlay schemas, patch schemas, operations, exact paths, dependencies, review contracts, diff budgets, preservation locks, artifact hashes, test contracts, and none-valued safety authorities are validated with unknown members rejected",
+        "prior_artifact_contract": "raw 0001, raw 0002, registry records one and two, and their canonical record digests remain byte-identical",
+        "mutation_requirement": "reject missing, extra, reordered, duplicated, unknown, type-confused, digest-mismatched, approval-reused, chain-broken, wildcard-path, authority-expanded, review-weakened, budget-expanded, preservation-lock-mutated, artifact-hash-mutated, and test-count-mutated values independently"
+      },
+      "self_activation_protocol": [
+        "01: verify a clean isolated worktree at exact commit 051fe25850361b20497d652ac48c2542fa9d1b14 and pass the committed sequence-two validator before creating 0003",
+        "02: create only the unregistered 0003 draft in that isolated worktree; it grants no execution authority and main remains unchanged",
+        "03: strict-parse and independently review the complete trailing-LF raw bytes, then calculate and publish their SHA-256",
+        "04: obtain one new BINGE-japan approval that names issue-dag-erratum-0003 and the exact raw SHA-256; do not reuse either prior approval",
+        "05: construct the sequence-three canonical registry record and candidate validator so the candidate diff contains exactly the three GOV-003 changed_paths",
+        "06: before commit, run an independent temporary bootstrap verifier outside the three tracked artifacts against all raw overlays, all canonical registry records, the complete hash chain, approvals, closed schemas, exact paths, budgets, preservation locks, artifact hashes, review requirements, and none-valued safety authorities; retain no generated artifact",
+        "07: run the candidate validator with python, python3, and uv run --offline python; all six cases must pass in every runner",
+        "08: from the exact clean base, commit exactly the three GOV-003 changed_paths in one non-amended commit, then re-run the committed validator and verify diff scope, raw hashes, registry digest chain, and clean worktree",
+        "09: do not change or commit D001-R2 until the GOV-003 commit has passed an independent O review",
+        "10: after GOV-003 review, apply only the exact D001-R2 target locked here; require both its independent O review and the additional independent D012 H review before integration; do not begin B001 until D001-R2, D002-R1, and the full Gate D re-audit pass"
+      ],
+      "test_contract": {
+        "test_path": "tests/governance/test_issue_dag_overlay.py",
+        "command": "uv run --offline python tests/governance/test_issue_dag_overlay.py",
+        "expected_exit": 0,
+        "expected_test_count": 6,
+        "case_ids": [
+          "test_t_gov_baseline_digest",
+          "test_t_gov_overlay_closed",
+          "test_t_gov_approval_binding",
+          "test_t_gov_design_test_scope",
+          "test_t_gov_mutation_corpus",
+          "test_t_gov_entrypoint_precedence"
+        ]
+      },
+      "diff_guideline_exception": {
+        "baseline_guideline_added_lines": 300,
+        "maximum_added_lines": 650,
+        "maximum_deleted_lines": 200,
+        "maximum_changed_files": 3,
+        "reason": "one closed sequence-three overlay plus exact three-record registry and mutation validator",
+        "applies_only_to_ticket": "GOV-003"
+      },
+      "review_class": "O",
+      "network": "none",
+      "credentials": "none",
+      "live_data": "none",
+      "external_write": "none",
+      "safety_authority_change": "none"
+    },
+    {
+      "operation": "replace-ticket-execution-metadata",
+      "ticket_id": "D001-R2",
+      "source_overlay": {
+        "overlay_id": "issue-dag-erratum-0002",
+        "raw_sha256": "2ba62da46e29b1c6cde8dad35c00dca793540df15ae7404366a464f35371a7b2",
+        "record_digest": "watari-overlay-record-v1:607dc1957d76fc1dcc4c535858f0b1c76dee3f57b57aa4fe24e764a1670a2a8f",
+        "patch_ticket_id": "D001-R2"
+      },
+      "dependencies_before": [
+        "GOV-002",
+        "D001",
+        "D001-R1"
+      ],
+      "dependencies_after": [
+        "GOV-002",
+        "GOV-003",
+        "D001",
+        "D001-R1",
+        "D012"
+      ],
+      "changed_paths_before": [
+        "docs/requirements.md",
+        "tests/contracts/test_requirements_trace.py"
+      ],
+      "changed_paths_after": [
+        "docs/requirements.md",
+        "tests/contracts/test_requirements_trace.py",
+        "tests/migration/spec/test_invariants.py"
+      ],
+      "inherited_contract_preservation": {
+        "fields": [
+          "document_contract",
+          "mapping_contract",
+          "test_contract"
+        ],
+        "projection_shape": "one object with exactly the listed field names as members and each value copied from the D001-R2 patch in the exact raw issue-dag-erratum-0002",
+        "canonicalization": "json.dumps(projection,ensure_ascii=True,separators=(\",\",\":\"),sort_keys=True).encode(\"utf-8\"); no trailing LF",
+        "canonical_byte_count": 2973,
+        "canonical_sha256": "861551d42b4e9b97c3b8d2f5746ff6af68151508f282a9db22c22a1bace6d885",
+        "source_raw_overlay_change": "forbidden",
+        "field_bytes_change": "forbidden",
+        "field_semantics_change": "forbidden"
+      },
+      "candidate_artifact_lock": {
+        "pre_activation_derivation_base_commit": "051fe25850361b20497d652ac48c2542fa9d1b14",
+        "final_execution_base": "the exact activated-and-independently-O-reviewed GOV-003 commit resolved only after activation",
+        "reapply_or_rebase_contract": "after GOV-003 activation and independent O review, reproduce the locked three-file target byte-identically on the final_execution_base and re-run every validation contract before commit",
+        "preapproval_candidate_classification": "derivation evidence only; it is not compliant execution and activation does not reclassify it",
+        "requirements_target": {
+          "path": "docs/requirements.md",
+          "byte_count": 17630,
+          "sha256": "86f252c92b57f738b612fe620e2f205d3961ad30446a472c0df3c0b9da0eecb0"
+        },
+        "requirements_test_target": {
+          "path": "tests/contracts/test_requirements_trace.py",
+          "sha256": "f38d4c77121a7f453ad1e4c2adf84c2290f8f09d5e0d84b8af4c3af765e9e362"
+        },
+        "before_dependent_digest_update": {
+          "changed_file_count": 2,
+          "added_lines": 197,
+          "deleted_lines": 16
+        },
+        "after_dependent_digest_update": {
+          "changed_file_count": 3,
+          "added_lines": 198,
+          "deleted_lines": 17
+        },
+        "all_other_candidate_bytes_change": "forbidden"
+      },
+      "dependent_digest_update_contract": {
+        "path": "tests/migration/spec/test_invariants.py",
+        "dependency_scope": "the complete D012 migration invariant artifact, not a data-row-only subset",
+        "source_file_sha256": "31cb1cc5854f34962e6addb983c3dfdb35441e1119f61ad1d55db923d07bf70e",
+        "source_byte_count": 14985,
+        "old_requirements_sha256": "b2ade4aff4372e94f284237b66a5c873012397bd2b3281debca246a4a4056e80",
+        "old_literal_occurrence_count": 1,
+        "old_literal_byte_offset_hex": "0xf3",
+        "new_requirements_sha256": "86f252c92b57f738b612fe620e2f205d3961ad30446a472c0df3c0b9da0eecb0",
+        "permitted_change": "replace the one exact old_requirements_sha256 occurrence with the exact new_requirements_sha256 and make no other byte change",
+        "changed_hex_character_positions": 61,
+        "target_file_sha256": "d2a6174c880d863ac994ee25525346cbbccb865d242755829c3dd499a08178c0",
+        "target_byte_count": 14985,
+        "git_added_lines": 1,
+        "git_deleted_lines": 1,
+        "all_other_file_bytes_change": "forbidden",
+        "all_other_d012_semantics_change": "forbidden",
+        "separate_d012_repair_ticket": "forbidden"
+      },
+      "validation_contract": {
+        "runner_prefixes": [
+          "python",
+          "python3",
+          "uv run --offline python"
+        ],
+        "d001_primary": {
+          "path": "tests/contracts/test_requirements_trace.py",
+          "expected_exit": 0,
+          "expected_test_count": 8,
+          "case_ids": [
+            "T-REQ-TRACE-001",
+            "T-REQ-TRACE-002",
+            "T-REQ-TRACE-003",
+            "T-REQ-TRACE-004",
+            "T-REQ-TRACE-005",
+            "T-REQ-TRACE-006",
+            "T-REQ-TRACE-007",
+            "T-REQ-TRACE-008"
+          ]
+        },
+        "d012_migration": {
+          "path": "tests/migration/spec/test_invariants.py",
+          "expected_exit": 0,
+          "expected_test_count": 8,
+          "case_ids": [
+            "test_t_migration_001_schema_trace_and_dependency_hashes",
+            "test_t_migration_002_scope_capsule_lossless_and_source_immutable",
+            "test_t_migration_003_mapping_exclusion_and_review_defaults",
+            "test_t_migration_004_import_parity_quarantine_and_checkpoint_binding",
+            "test_t_migration_005_final_delta_and_one_shot_stop_attestation",
+            "test_t_migration_006_feature_parity_evidence_or_snapshot_waiver",
+            "test_t_migration_007_clean_room_restore_and_rollback_boundary",
+            "test_t_migration_008_authority_owner_decisions_and_no_qualification_claim"
+          ]
+        },
+        "full_suite": {
+          "discovery_roots": [
+            "tests/contracts",
+            "tests/contracts/interfaces",
+            "tests/governance",
+            "tests/unit",
+            "tests/migration/spec",
+            "tests/security/spec"
+          ],
+          "pattern": "test*.py",
+          "loader_contract": "combine one fresh unittest.TestLoader().discover(root,pattern) result per discovery root into one unittest.TestSuite",
+          "expected_exit": 0,
+          "expected_test_count": 120
+        }
+      },
+      "diff_budget_before": {
+        "maximum_added_lines": 260,
+        "maximum_deleted_lines": 100,
+        "maximum_changed_files": 2
+      },
+      "diff_budget_after": {
+        "maximum_added_lines": 260,
+        "maximum_deleted_lines": 100,
+        "maximum_changed_files": 3
+      },
+      "review_class": "O",
+      "review_contract": {
+        "d001_r2_review": "independent O-class review required",
+        "d012_artifact_review": "independent H-class technical review by a reviewer who is not the author required",
+        "both_reviews_required_before_integration": true,
+        "gov003_owner_approval_substitution": "forbidden"
+      },
+      "network": "none",
+      "credentials": "none",
+      "live_data": "none",
+      "external_write": "none",
+      "safety_authority_change": "none"
+    }
+  ],
+  "unchanged_invariants": [
+    "baseline-files-remain-byte-identical",
+    "issue-dag-erratum-0001-and-issue-dag-erratum-0002-remain-byte-identical",
+    "registry-records-one-and-two-remain-byte-identical-and-cumulatively-authoritative",
+    "all-unlisted-issue-dag-and-prior-overlay-fields-remain-authoritative",
+    "unknown-overlay-field-operation-ticket-or-contract-fails-closed",
+    "overlay-sequence-and-hash-chain-are-contiguous",
+    "approval-is-new-and-bound-to-the-exact-raw-sequence-three-overlay-sha256",
+    "D001-R2-depends-on-GOV-003-as-the-authority-for-this-execution-metadata-replacement",
+    "D001-R2-document-mapping-and-primary-test-contracts-remain-byte-and-semantically-identical",
+    "the-complete-eight-test-D012-migration-invariant-artifact-remains-authoritative-except-for-the-one-exact-dependent-document-digest-replacement",
+    "D012-dependency-is-not-weakened-to-a-data-row-only-pin-and-no-separate-D012-R1-is-created",
+    "network-credential-live-read-and-external-write-authority-do-not-expand",
+    "ticket-review-classes-and-independent-review-requirements-do-not-weaken",
+    "main-receives-no-D001-R2-or-B001-implementation-before-GOV-003-activation-and-review",
+    "B001-remains-blocked-until-D001-R2-D002-R1-and-the-full-gate-D-reaudit-pass"
+  ],
+  "observed_process_deviations": [
+    "GOV-002-omitted-the-D012-migration-test-that-consumes-the-D001-R2-requirements-document-digest-from-D001-R2-dependencies-and-changed-paths",
+    "the-omission-was-observed-by-the-full-suite-before-D001-R2-was-committed",
+    "no-unauthorized-D001-R2-or-D012-edit-or-commit-occurred-before-this-overlay",
+    "test-first-ordering-cannot-be-retroactively-restored",
+    "activation-does-not-reclassify-past-work-as-compliant"
+  ]
+}
