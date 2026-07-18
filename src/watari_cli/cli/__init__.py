@@ -60,6 +60,40 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_host(args) -> int:
+    config.apply(args.home)
+    from watari_cli import host
+    from watari_cli.engine import watari_lib as wl
+
+    home = wl.MEM
+    if not os.path.isdir(home):
+        sys.stderr.write(f"記憶が見つかりません: {home}\n")
+        return 1
+    for pair in args.set:
+        if "=" not in pair:
+            sys.stderr.write(f"--set は KEY=VALUE 形式で指定してください: {pair}\n")
+            return 2
+        key, value = pair.split("=", 1)
+        host.set_fact(home, key, value)
+    record = host.refresh(home)
+    print(f"このマシン: {record['machine_id']}")
+    print(f"  hostname: {record['hostname']}")
+    print(f"  platform: {record['platform']} / python {record['python']}")
+    print(f"  shell: {record['shell'] or '—'}")
+    print(f"  ai_clis: {', '.join(record['ai_clis']) or '—'}")
+    for key, value in record["facts"].items():
+        print(f"  fact {key}: {value}")
+    others = [r for r in host.all_hosts(home) if r.get("machine_id") != record["machine_id"]]
+    if others:
+        print("他のマシン:")
+        for r in others:
+            facts = " ".join(f"{k}={v}" for k, v in (r.get("facts") or {}).items())
+            clis = ",".join(r.get("ai_clis") or []) or "—"
+            line = f"  {r.get('machine_id')}: {r.get('platform')} clis={clis}"
+            print(line + (f" [{facts}]" if facts else ""))
+    return 0
+
+
 def cmd_dream(args) -> int:
     config.apply(args.home)
     from watari_cli.engine import extract
@@ -452,6 +486,12 @@ def _build_parser() -> argparse.ArgumentParser:
     ps = sub.add_parser("status", help="ワタリの記憶の現在地を読む")
     ps.add_argument("--home", help="記憶の場所（既定: WATARI_HOME か保存済み設定）")
     ps.set_defaults(func=cmd_status)
+
+    ph = sub.add_parser("host", help="このマシンの環境を記録し、他マシンの記録も一覧")
+    ph.add_argument("--home", help="記憶の場所（既定: WATARI_HOME か保存済み設定）")
+    ph.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                    help="自由記述の事実を記録（例 terminal=Ghostty）。繰り返し可")
+    ph.set_defaults(func=cmd_host)
 
     pd = sub.add_parser("dream", help="会話ログから記憶の候補を抽出（読むだけ）")
     pd.add_argument("--home", help="記憶の場所")
