@@ -51,7 +51,9 @@ def _read(path: str) -> dict | None:
 def refresh(home: str) -> dict:
     """このマシンの host ファイルを最新化して返す。
 
-    自動検出の基本情報だけを更新し、自由記述の facts は消さずに引き継ぐ。
+    自動検出の基本情報だけを更新し、自由記述の facts と取り込みカーソル(cursors)は
+    消さずに引き継ぐ（cmd_host のような読み取り専用ビューがこれを呼ぶだけで
+    save_cursors 済みのカーソルを消してしまわないよう、facts と全く同じ扱いにする）。
     """
     existing = _read(host_path(home)) or {}
     facts = existing.get("facts")
@@ -67,6 +69,9 @@ def refresh(home: str) -> dict:
         "facts": facts,
         "updated": wl.fmt_ts(wl.now_utc()),
     }
+    cursors = existing.get("cursors")
+    if isinstance(cursors, dict):
+        record["cursors"] = cursors
     path = host_path(home)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     wl.atomic_write_json(path, record)

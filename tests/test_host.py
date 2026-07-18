@@ -121,6 +121,29 @@ class HostCursorsTest(unittest.TestCase):
             with open(legacy_path, encoding="utf-8") as f:
                 self.assertEqual(json.load(f)["transcripts_wsl"], self.LEGACY["transcripts_wsl"])
 
+    def test_refresh_does_not_drop_cursors_set_by_save_cursors(self) -> None:
+        # 回帰: watari host（--set 無し）や watari status は host.refresh() を呼ぶだけの
+        # 読み取り専用ビューのはずが、以前は facts だけ引き継いで cursors を丸ごと落として
+        # いた（次の dream が全件再走査になり、後退拒否も last_run も失われる致命的バグ）。
+        with tempfile.TemporaryDirectory(prefix="watari-cur-") as home:
+            host.save_cursors(home, dict(self.LEGACY))
+            record = host.refresh(home)  # 例: `watari host` の表示直前の呼び出しと同じ
+            self.assertEqual(record["cursors"], self.LEGACY)
+            with open(host.host_path(home), encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["cursors"], self.LEGACY)
+            # 読み直し(load_cursors)でも消えていない
+            self.assertEqual(host.load_cursors(home), self.LEGACY)
+
+    def test_set_fact_after_save_cursors_keeps_cursors(self) -> None:
+        # set_fact も内部で refresh() を呼ぶため、同じ経路でカーソルを壊さないことを確認。
+        with tempfile.TemporaryDirectory(prefix="watari-cur-") as home:
+            host.save_cursors(home, dict(self.LEGACY))
+            host.set_fact(home, "terminal", "Ghostty")
+            with open(host.host_path(home), encoding="utf-8") as f:
+                record = json.load(f)
+            self.assertEqual(record["cursors"], self.LEGACY)      # cursors は無傷
+            self.assertEqual(record["facts"]["terminal"], "Ghostty")
+
 
 if __name__ == "__main__":
     unittest.main()
