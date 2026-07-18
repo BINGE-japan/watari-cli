@@ -81,6 +81,32 @@ def cmd_dream(args) -> int:
     return 0
 
 
+def cmd_ingest(args) -> int:
+    config.apply(args.home)
+    from watari_cli.engine import ingest
+
+    try:
+        rows = ingest.load_rows(args.rows)
+        summary = ingest.apply(
+            rows,
+            advance_wsl=args.advance_wsl, advance_win=args.advance_win,
+            advance_codex=args.advance_codex, advance_obsidian=args.advance_obsidian,
+            advance_ext=args.advance_ext or (), allow_new_domain=args.allow_new_domain,
+            dry_run=args.dry_run,
+        )
+    except FileNotFoundError as error:
+        sys.stderr.write(f"rows ファイルが読めません: {error}\n")
+        return 2
+    except ValueError as error:
+        errors = error.args[0] if error.args else [str(error)]
+        sys.stderr.write(f"検証エラー {len(errors)} 件（何も書き込んでいません）:\n")
+        for e in errors:
+            sys.stderr.write(f"  - {e}\n")
+        return 2
+    print(summary)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="watari", description="Watari CLI — ゲーム機")
     try:
@@ -99,6 +125,18 @@ def _build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--home", help="カセットのパス")
     pd.add_argument("--execute", action="store_true", help="(未接続) 実際に記憶へ取り込む")
     pd.set_defaults(func=cmd_dream)
+
+    pi = sub.add_parser("ingest", help="判定済みの記憶行(JSON)をカセットへ書き込む")
+    pi.add_argument("--rows", required=True, help="log 行の JSON 配列ファイル(SCHEMA 準拠)")
+    pi.add_argument("--home", help="カセットのパス")
+    pi.add_argument("--advance-wsl")
+    pi.add_argument("--advance-win")
+    pi.add_argument("--advance-codex")
+    pi.add_argument("--advance-obsidian")
+    pi.add_argument("--advance-ext", action="append", default=[], metavar="NAME=TS")
+    pi.add_argument("--allow-new-domain", action="store_true")
+    pi.add_argument("--dry-run", action="store_true", help="検証と件数だけ（書き込みなし）")
+    pi.set_defaults(func=cmd_ingest)
     return p
 
 
