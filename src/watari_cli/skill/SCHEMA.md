@@ -131,8 +131,8 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 - **現在形・絶対形のみ**：profile / interests / open_threads / topics.note 等は「今効く指示・現在地」だけを断定で書く。
   **時系列叙述を禁止**——「以前は X だったが今は Y」「YYYY-MM-DD に〜事故→こう直した」式は書かない。
   経緯・理由・事件・日付つきの一回性の出来事は log.jsonl に置く（state.note は log を引く手がかり＝地図に徹する）。
-- **希釈を避ける（二重持ちの禁止）**：CLAUDE.md が既に持つ普遍ルール（敬語・確認してから・非迎合・人物評の禁止 等）を state に再掲しない。
-  state は CLAUDE.md にないユーザー固有の差分だけを持つ。
+- **希釈を避ける（二重持ちの禁止）**：SKILL.md が既に持つ普遍ルール（人格セクションの敬語・確認してから・一元管理 等）を state に再掲しない。
+  state は SKILL.md にないユーザー固有の差分だけを持つ。
 - **簡潔**：note は原則1〜2文の指示。深さ・履歴・根拠は log を引く。
 - **生成の含意**：state の note は log 行の `note` フィールドから機械的に写される（最新行優先）。
   だから現在形化は log 行の `note` を書く時点の責務。`summary` は経緯・根拠・時系列を持ってよい（log は正本、note は state 用の蒸留）。
@@ -141,18 +141,15 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 記憶（WATARI_HOME）は git で全マシンに同期される。単一の共有 `cursors.json` だと、複数マシンが各々
 カーソルを進めたとき衝突する。そこでカーソルは**マシンごとの host 記録**（`hosts/<machine-id>.json` の
 `cursors`。host 記録の詳細は host.py）に持つ——各マシンは自分のファイルだけを書くので衝突せず、git で
-相互に読める。キーとストア別の意味（形は従来どおり）：
+相互に読める。組み込みキーとストア別の意味：
 ```
 {
   "transcripts_win": "<最後に処理した Windows store メッセージの UTC ts>",
   "transcripts_wsl": "<最後に処理した WSL store メッセージの UTC ts>",
   "transcripts_codex": "<最後に処理した Codex セッションの UTC ts>",
-  "slack": "<ts>",
-  "gmail": "<ts>",
-  "calendar": "<ts>",
-  "linear": "<最後に処理した issue の更新時刻（UTC ts）>",
   "obsidian": "<最後に処理した vault ノートの更新時刻（UTC ts）>",
-  "last_run": "<このルーティンが最後に走った UTC ts>"
+  "last_run": "<このルーティンが最後に走った UTC ts>",
+  "<connector名>": "<宣言した connector ごとに --advance-ext で動的に追加されるカーソル（例 linear なら issue の更新時刻、gmail なら受信時刻 等。意味は各 connector の read 指示が決める）>"
 }
 ```
 - transcript ストアは **Windows・WSL・Codex で別カーソル**（`transcripts_win` / `transcripts_wsl` / `transcripts_codex`）。各ストアを読めた分だけ、そのカーソルを前進。
