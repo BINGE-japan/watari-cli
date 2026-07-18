@@ -4,6 +4,33 @@ Watari CLI is a pull-only personal-agent harness. It is intended to appear only
 when `watari` is invoked while keeping user-owned profile and memory portable
 across supported AI runtimes.
 
+## Getting started
+
+    uv tool install .
+    watari install
+    watari chat
+
+`watari install` sets up (or adopts an existing cartridge, or restores one
+from a git backup) a memory cartridge and remembers where it lives. `watari
+chat` then launches the bundled skill inside your AI runtime (Pi by default;
+pass `--show` to print the command instead of running it, or extra arguments
+to pass straight through to the runtime).
+
+Run `watari --help`, or `watari <subcommand> --help`, for the full set of
+subcommands: status/host/dream/recall/ingest/audit/regen/init/install/chat/
+connector.
+
+## Your own reference material
+
+The original hand-rolled Watari kept a `knowledge/` folder of the user's own
+reference notes (style guides, glossaries, and the like) that the assistant
+read on demand for specific topics. watari-cli does not ship or hardcode a
+directory for this — keep such material wherever suits you (a synced notes
+vault, a project's own docs, ...), and let Watari know where: declare it as a
+`connector` (`watari connector add`) if it should be scanned automatically
+during dream, or just mention the location in conversation so it lands as an
+ordinary recorded fact through the normal ingest flow.
+
 Status: the `watari` CLI is implemented — memory engine (`src/watari_cli/`) and
 bundled persona skill (`src/watari_cli/skill/`, shipped as package data in the
 wheel), with subcommands status/host/dream/recall/ingest/audit/regen/init/
