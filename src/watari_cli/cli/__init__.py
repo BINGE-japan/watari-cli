@@ -117,14 +117,11 @@ def cmd_audit(args) -> int:
     return 1 if problems else 0
 
 
-def cmd_init(args) -> int:
-    config.apply(args.home)
-    from watari_cli.engine import regen_state, watari_lib as wl
+def _scaffold_empty_cartridge() -> str:
+    """WATARI_HOME に空カセットの骨格を作り、そのパスを返す（config.apply 済みで呼ぶ）。"""
+    from watari_cli.engine import watari_lib as wl
 
     home = wl.MEM
-    if os.path.isdir(home) and os.listdir(home) and not args.force:
-        sys.stderr.write(f"既にファイルがあります: {home}（空でない）。--force で続行。\n")
-        return 1
     for sub in ("life", "learning"):
         os.makedirs(os.path.join(home, sub), exist_ok=True)
     for genre in ("life", "learning"):
@@ -141,12 +138,94 @@ def cmd_init(args) -> int:
         f.write("*.jsonl merge=union\n")
     with open(os.path.join(home, ".gitignore"), "w", encoding="utf-8") as f:
         f.write("*/state.json\n")
+    _rebuild_state()
+    return home
+
+
+def _rebuild_state() -> None:
+    """log から state.json を再生成する（config.apply 済みで呼ぶ）。"""
+    from watari_cli.engine import regen_state, watari_lib as wl
+
     for genre, out in regen_state.regen(wl.now_utc()).items():
         wl.atomic_write_json(wl.state_path(genre), out)
+
+
+def cmd_init(args) -> int:
+    config.apply(args.home)
+    from watari_cli.engine import watari_lib as wl
+
+    home = wl.MEM
+    if os.path.isdir(home) and os.listdir(home) and not args.force:
+        sys.stderr.write(f"既にファイルがあります: {home}（空でない）。--force で続行。\n")
+        return 1
+    _scaffold_empty_cartridge()
     print(f"空のカセットを用意しました: {home}")
     print("  次: この場所を WATARI_HOME に。会話ログから育てるなら dream→(判定)→ingest。")
     print("  可搬化: このディレクトリを private git リポにして別マシンで clone すれば記憶ごと再現。")
     return 0
+
+
+def _default_cartridge_dir() -> str:
+    base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, "watari", "cartridge")
+
+
+def cmd_install(args) -> int:
+    """初回セットアップ: カセットを用意し、その位置を永続化する。
+
+    3モード: --from <git> でクローンして記憶を継承 / 既存カセットを採用 / まっさら新規作成。
+    いずれも state を再生成し、WATARI_HOME を保存する。
+    """
+    import subprocess
+
+    target = os.path.abspath(os.path.expanduser(args.home or _default_cartridge_dir()))
+
+    if args.from_url:
+        if os.path.exists(target) and os.listdir(target):
+            sys.stderr.write(f"クローン先が空ではありません: {target}\n")
+            return 1
+        os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+        clone = subprocess.run(["git", "clone", args.from_url, target],
+                               capture_output=True, text=True)
+        if clone.returncode != 0:
+            sys.stderr.write(f"git clone 失敗:\n{clone.stderr}")
+            return 1
+        config.apply(target)
+        _rebuild_state()
+        mode = "クローン＋state再生成（記憶を継承）"
+    elif os.path.isdir(target) and os.listdir(target):
+        config.apply(target)
+        _rebuild_state()
+        mode = "既存カセットを採用＋state再生成"
+    else:
+        config.apply(target)
+        _scaffold_empty_cartridge()
+        mode = "空カセットを新規作成"
+
+    saved = config.save_home(target)
+    print(f"インストール完了（{mode}）")
+    print(f"  カセット: {saved}")
+    print(f"  この位置を保存しました（--home 省略時この カセットを使う）。")
+    skill = _find_skill_dir()
+    if skill:
+        print(f"  次: ランタイム(Pi 等)に次のワタリ・スキルを読ませて起動 → {skill}")
+    else:
+        print("  次: ランタイム(Pi 等)に watari-cli リポの skills/watari を読ませて起動。")
+    return 0
+
+
+def _find_skill_dir() -> str | None:
+    """同梱スキル skills/watari の場所を最善努力で探す（リポ実行時に見つかる）。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(os.getcwd(), "skills", "watari"),
+        os.path.join(here, "..", "..", "..", "skills", "watari"),
+    ]
+    for path in candidates:
+        resolved = os.path.abspath(path)
+        if os.path.isfile(os.path.join(resolved, "SKILL.md")):
+            return resolved
+    return None
 
 
 def cmd_regen(args) -> int:
@@ -235,6 +314,12 @@ def _build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--now", help="再生成時刻(UTC ISO)。省略時は現在時刻")
     pg.add_argument("--check", action="store_true", help="書き込まず現 state と比較")
     pg.set_defaults(func=cmd_regen)
+
+    pinst = sub.add_parser("install", help="初回セットアップ（カセット用意＋位置保存。--from でgit継承）")
+    pinst.add_argument("--home", help="カセットの場所（既定: XDG_DATA_HOME/watari/cartridge）")
+    pinst.add_argument("--from", dest="from_url", metavar="GIT_URL",
+                       help="既存カセットの git リポをクローンして記憶を継承する")
+    pinst.set_defaults(func=cmd_install)
 
     pi = sub.add_parser("ingest", help="判定済みの記憶行(JSON)をカセットへ書き込む")
     pi.add_argument("--rows", required=True, help="log 行の JSON 配列ファイル(SCHEMA 準拠)")
