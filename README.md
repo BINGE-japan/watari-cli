@@ -4,7 +4,9 @@ Watari CLI is a pull-only personal-agent harness. It is intended to appear only
 when `watari` is invoked while keeping user-owned profile and memory portable
 across supported AI runtimes.
 
-Status: repository bootstrap complete; product implementation has not started.
+Status: the `watari` CLI is implemented — memory engine (`src/watari_cli/`) and
+bundled persona skill (`skills/watari/`), with subcommands status/host/dream/
+recall/ingest/audit/regen/init/install/chat.
 
 The frozen implementation and migration specification is stored in
 [`docs/baseline/implementation-plan.md`](docs/baseline/implementation-plan.md).
