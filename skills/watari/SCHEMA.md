@@ -5,7 +5,7 @@
 
 ジャンルは kind で一意に決まる：`study` → learning、`fact` / `interest` / `thread` → life。
 科目（english, web, math, tech-history, …）はジャンルではなく、learning の log 行が持つ `domain` フィールド（開集合・データ）。
-（2026-06-10 に旧 english / web ジャンルを learning へ統合。経緯と理由は DESIGN.md 末尾。）
+（2026-06-10 に旧 english / web ジャンルを learning へ統合。）
 
 ## 原則
 - 書き込みは log.jsonl だけ（追記、消さない）。state.json は「log ＋ 再生成時刻 now」から再生成する純粋な派生物。
@@ -13,7 +13,7 @@
 - 決定性・冪等性：同じ log ＋ 同じ now を入力すれば、必ず同じ state が出る。state は「事実（log）」と「いつ再生成したか（now）」だけの関数。
 - 取り込みは「前回処理した時刻（カーソル）以降の差分」だけ。冪等。
 - 痕跡は log に混ぜない：log は事実の正本。対象0件など「走ったが事実は無い」記録は log に書かず、カーソルの `last_run`（host 記録内）に残す。
-- 決定論部分（発話の選別・dedup・カーソル前進・state の畳み込み・監査）の正本実装は `skills/watari/scripts/`（extract.py / ingest.py / regen_state.py / audit.py。WSL の python3 で実行、Windows からは `wsl.exe -e python3 …`）。LLM の仕事は「何を記憶するか」の判定と summary/note/mastery/heat の中身だけで、機械処理を手でなぞらない。
+- 決定論部分（発話の選別・dedup・カーソル前進・state の畳み込み・監査）の正本実装は `src/watari_cli/engine/`（extract.py / ingest.py / regen_state.py / audit.py / watari_lib.py）で、`watari` CLI（`watari dream` / `watari ingest` / `watari regen` / `watari audit`）から呼ぶ。LLM の仕事は「何を記憶するか」の判定と summary/note/mastery/heat の中身だけで、機械処理を手でなぞらない。
 
 ## log.jsonl（1 行 = 1 事実。行き先のジャンルは kind で決まる）
 ```
@@ -84,7 +84,7 @@ dedup 鍵は合成 uuid `codex:<session_id>:<timestamp>`。時刻は同じく to
 - 別名修復：`learning/aliases.json`（任意・無ければ空とみなす）に `{"<誤domain>":"<正domain>"}` を置けば、再生成時に正規名へ写してから畳む。state = f(log, aliases, now) で決定性は保たれる。
 
 ## log → state の畳み込み仕様（決定論の核）
-実装の正本は scripts/regen_state.py。log を ts 昇順（同時刻は refs.uuid 順）に畳み、再生成時刻 now を入力に取る。kind → state フィールドの写像と算出規則：
+実装の正本は engine/regen_state.py（`watari regen`）。log を ts 昇順（同時刻は refs.uuid 順）に畳み、再生成時刻 now を入力に取る。kind → state フィールドの写像と算出規則：
 
 ### kind → フィールド
 - `interest` → life.interests
@@ -162,7 +162,7 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 - 各カーソルは「**実際に処理した最後の `timestamp`**」に厳密に進める（未処理区間を飛び越えない）。
 - `last_run` は痕跡用。log に非事実行を積まないための受け皿。
 - カーソルの前進は ingest.py の `--advance-*` だけが行う（「実際に処理した最後の timestamp」を渡す。後退は拒否される）。
-  transcript/obsidian は専用フラグ（`--advance-wsl/win/obsidian`）、外部ソース（slack/gmail/calendar/linear）は
+  transcript/obsidian は専用フラグ（`--advance-wsl/win/codex/obsidian`）、外部ソース（slack/gmail/calendar/linear）は
   `--advance-ext <name>=<ts>`（対応キーの正本は watari_lib.py の EXT_STORES）。読めなかった・新着が無かったソースは渡さない（据え置き）。
 - 旧 `cursors.json` からの移行：旧 `<home>/cursors.json` があれば、初回の読み取り（status / ingest / extract）で
   一度だけ host 記録の `cursors` へ取り込む（既存のカーソル位置を保全＝checkpoint を失わないため）。`cursors.json`
@@ -179,6 +179,6 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 処理した最後の timestamp までカーソルを進め、残りは次回に回す。
 
 ## state 再生成と監査
-`python3 scripts/regen_state.py` が log から state を作り直す（`--now` 指定で決定的・冪等。`--check` は書き込まず現 state と比較）。
-`python3 scripts/audit.py` が形式・(uuid,kind) 重複・state と log の乖離・宙に浮いた related を検査する（`--coverage` で log に一度も現れないセッションの一覧も出す）。
+`watari regen` が log から state を作り直す（`--now` 指定で決定的・冪等。`--check` は書き込まず現 state と比較）。
+`watari audit` が形式・(uuid,kind) 重複・state と log の乖離・宙に浮いた related を検査する（`--coverage` で log に一度も現れないセッションの一覧も出す）。
 同じ log ＋ 同じ now なら必ず同じ state（log が唯一の正本）。2026-07-02 に全 state 項目を reconcile 行として log へ快照済み。
