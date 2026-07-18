@@ -1,8 +1,9 @@
 # Watari CLI product repository
 
 This repository contains the installable Watari CLI product: a memory engine
-(`src/watari_cli/`) and a bundled persona skill (`skills/watari/`). The memory
-schema is specified in `skills/watari/SCHEMA.md`.
+(`src/watari_cli/`) and a bundled persona skill (`src/watari_cli/skill/`,
+shipped as package data in the wheel). The memory schema is specified in
+`src/watari_cli/skill/SCHEMA.md`.
 
 ## Safety boundary
 
