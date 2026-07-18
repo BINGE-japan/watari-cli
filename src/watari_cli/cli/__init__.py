@@ -201,18 +201,6 @@ def _default_memory_dir() -> str:
     return os.path.join(base, "watari", "memory")
 
 
-PROVIDER_MODELS = {
-    "openrouter": "deepseek/deepseek-chat",
-    "anthropic": "anthropic/claude-sonnet-5",
-    "google": "",
-    "openai": "openai/gpt-5",
-}
-PROVIDER_KEY_ENV = {
-    "openrouter": "OPENROUTER_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
-    "google": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY",
-}
-
-
 def _prepare_memory(mode: str, home: str, url: str | None) -> tuple[str, str]:
     """mode='clone'|'adopt'|'new'。home に記憶を用意し state を再生成。(絶対home, 説明) を返す。"""
     import subprocess
@@ -278,21 +266,12 @@ def _install_wizard(args) -> dict:
             url = None
         mode = kind
 
-    # AI（プロバイダ/モデル）は Pi 側で選ぶもの。install では尋ねない（アプリはモデル非依存）。
-    # 明示フラグ（--provider/--model）が来た時だけ保存する（上級者向け）。
-    return {"mode": mode, "home": home, "url": url,
-            "provider": args.provider, "model": args.model, "runtime": args.runtime}
+    # AI（プロバイダ/モデル）は Pi 側で選ぶもの。install はモデル非依存に徹する（尋ねない・保存しない）。
+    return {"mode": mode, "home": home, "url": url, "runtime": args.runtime}
 
 
-def _install_done_lines(home: str, desc: str, plan: dict) -> list[str]:
-    lines = [f"✓ セットアップ完了（{desc}）", f"  記憶の場所: {home}"]
-    if plan["provider"] or plan["model"]:
-        lines.append(f"  AI: provider={plan['provider'] or '既定'} model={plan['model'] or '既定'}")
-    lines.append("  起動:  watari chat")
-    key_env = PROVIDER_KEY_ENV.get(plan["provider"] or "")
-    if key_env and not os.environ.get(key_env):
-        lines.append(f"  ※ AI のキー未設定。一度だけ: export {key_env}=...")
-    return lines
+def _install_done_lines(home: str, desc: str) -> list[str]:
+    return [f"✓ セットアップ完了（{desc}）", f"  記憶の場所: {home}", "  起動:  watari chat"]
 
 
 def cmd_install(args) -> int:
@@ -316,7 +295,7 @@ def cmd_install(args) -> int:
         print(f"  記憶: {act} → {target}")
         print("  実行時: 記憶を用意 → state 再生成 → 設定保存(config.json)")
         print("  完了時の表示 ↓")
-        for line in _install_done_lines(target, act, plan):
+        for line in _install_done_lines(target, act):
             print("    " + line)
         return 0
 
@@ -326,9 +305,9 @@ def cmd_install(args) -> int:
         sys.stderr.write(f"{error}\n")
         return 1
     saved = config.save_home(home)
-    config.save_config(runtime=plan["runtime"], provider=plan["provider"], model=plan["model"])
+    config.save_config(runtime=plan["runtime"])
     print()
-    for line in _install_done_lines(saved, desc, plan):
+    for line in _install_done_lines(saved, desc):
         print(line)
     return 0
 
@@ -377,7 +356,7 @@ def _runtime_base(runtime: str) -> list[str]:
 
 
 def cmd_chat(args) -> int:
-    """ワタリを起動する。スキル・記憶・モデルを自動で渡すランチャー。
+    """ワタリを起動する。スキル・記憶を自動で渡すランチャー（モデルは Pi 側の関心事）。
 
     ユーザーは長い pi コマンドを覚えなくてよい: watari chat だけでワタリが立ち上がる。
     """
@@ -398,15 +377,8 @@ def cmd_chat(args) -> int:
 
     settings = config.load_config()
     runtime = args.runtime or settings.get("runtime") or "pi"
-    provider = args.provider or settings.get("provider")
-    model = args.model or settings.get("model")
 
-    cmd = _runtime_base(runtime) + ["--skill", skill]
-    if provider:
-        cmd += ["--provider", provider]
-    if model:
-        cmd += ["--model", model]
-    cmd += args.extra
+    cmd = _runtime_base(runtime) + ["--skill", skill] + args.extra
 
     env = dict(os.environ)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
@@ -550,8 +522,6 @@ def _build_parser() -> argparse.ArgumentParser:
     pinst.add_argument("--from", dest="from_url", metavar="GIT_URL",
                        help="バックアップ(git)から記憶を復元する")
     pinst.add_argument("--runtime", help="起動ランタイム（既定 pi）。watari chat が使う")
-    pinst.add_argument("--provider", help="使う AI サービス（例 openrouter, google, anthropic）")
-    pinst.add_argument("--model", help="モデル名（例 anthropic/claude-... など）")
     pinst.add_argument("--yes", "-y", action="store_true", help="質問せず既定のまま（コマンド一発）")
     pinst.add_argument("--dry-run", action="store_true", help="UX だけ試す（何も変更しない・何度でも）")
     pinst.set_defaults(func=cmd_install)
@@ -559,8 +529,6 @@ def _build_parser() -> argparse.ArgumentParser:
     pc = sub.add_parser("chat", help="ワタリを起動（スキル/記憶/モデルを自動で渡す）")
     pc.add_argument("--home", help="記憶の場所")
     pc.add_argument("--runtime", help="起動ランタイム（既定: 保存値か pi）")
-    pc.add_argument("--provider", help="使う AI サービス（保存値を上書き）")
-    pc.add_argument("--model", help="モデル名（保存値を上書き）")
     pc.add_argument("--show", action="store_true", help="起動せず、実行するコマンドだけ表示")
     pc.add_argument("extra", nargs="*", help="ランタイムへ素通しする追加引数")
     pc.set_defaults(func=cmd_chat)
