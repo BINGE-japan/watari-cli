@@ -3,26 +3,29 @@
 
 決定論部分の正本実装。仕様の「なぜ」は SCHEMA.md、ここは「どう」。
 
-パス定数（記憶＝MEM、ソース＝STORES/CODEX_STORE/VAULT）は環境変数(config)から
-注入する。未設定なら現ライブの記憶を既定にするため、現ワタリの scripts と
-挙動はバイト単位で同一（環境変数を使わない限り従来どおり動く）。
+パス定数（記憶＝MEM、ソース＝STORES/CODEX_STORE）は環境変数(config)から注入する。
+未設定時の既定はどのマシンでも動く標準の場所に解決する（記憶は XDG_DATA_HOME 配下、
+transcript ストアは ~/.claude/projects と ~/.codex/sessions）。通常は install が保存した
+WATARI_HOME（config 経由）がこれらを上書きするので、既定はあくまで無設定時の受け皿。
 """
 import json
 import os
 import re
 from datetime import datetime, timezone
 
-# 環境変数で上書き可。既定はここに一元化（現ライブの記憶/ソース）。
-MEM = os.environ.get("WATARI_HOME", "/mnt/c/Users/BINGE/.claude/skills/watari/memory")
+# 環境変数で上書き可。既定は標準の場所に一元化（通常は config 経由の WATARI_HOME が上書きする）。
+MEM = os.environ.get("WATARI_HOME", os.path.join(
+    os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "watari", "memory"))
 STORES = {
-    "win": os.environ.get("WATARI_STORE_WIN", "/mnt/c/Users/BINGE/.claude/projects"),
-    "wsl": os.environ.get("WATARI_STORE_WSL", "/home/binge/.claude/projects"),
+    # win は Windows/WSL 併用者向けのオプトイン。既定は空文字＝この store は無し
+    # （scan_store は存在しないパスを readable=False で扱うので空既定でも安全）。
+    "win": os.environ.get("WATARI_STORE_WIN", ""),
+    "wsl": os.environ.get("WATARI_STORE_WSL", os.path.expanduser("~/.claude/projects")),
 }
-# Codex CLI のセッション（WSL 側 ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl）。
+# Codex CLI のセッション（~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl）。
 # Codex 側でワタリと話した内容も consolidate が拾えるようにする第3の transcript ストア。
 # 形式は Claude Code と異なる（下の is_genuine_codex_user_message 参照）。カーソルは transcripts_codex。
-CODEX_STORE = os.environ.get("WATARI_STORE_CODEX", "/home/binge/.codex/sessions")
-VAULT = os.environ.get("WATARI_VAULT", "/mnt/c/Users/BINGE/Workspace/MyDocs")  # Obsidian vault
+CODEX_STORE = os.environ.get("WATARI_STORE_CODEX", os.path.expanduser("~/.codex/sessions"))
 EXT_STORES = ("slack", "gmail", "calendar", "linear")  # 外部ソースのカーソルキー（ingest.py --advance-ext の許可名）
 GENRES = ("life", "learning")
 KIND_TO_GENRE = {"study": "learning", "fact": "life", "interest": "life", "thread": "life"}
@@ -115,7 +118,7 @@ def existing_dedup_keys():
 
 
 def is_genuine_user_message(d):
-    """transcript の1行が「本物の binge 発話」か（SCHEMA『本物の発話の選別』の実装）。"""
+    """transcript の1行が「本物のユーザー発話」か（SCHEMA『本物の発話の選別』の実装）。"""
     if d.get("type") != "user":
         return False
     if d.get("isSidechain") or d.get("isMeta") or d.get("isCompactSummary"):
@@ -136,8 +139,8 @@ def is_genuine_user_message(d):
 
 
 def is_genuine_codex_user_message(d):
-    """Codex セッションの1行が「本物の binge 発話」か。
-    Codex は binge が実際に打った入力だけを event_msg / payload.type=user_message として残す
+    """Codex セッションの1行が「本物のユーザー発話」か。
+    Codex はユーザーが実際に打った入力だけを event_msg / payload.type=user_message として残す
     （AGENTS.md 注入・<skill> 注入・環境コンテキストは response_item 側に出るため自然に除外される）。
     payload.message が発話本文。"""
     if d.get("type") != "event_msg":
