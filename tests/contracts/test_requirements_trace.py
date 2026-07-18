@@ -1,14 +1,14 @@
-"""D001 requirements trace contract (T-REQ-TRACE-001..006).
+"""D001 requirements trace contract (T-REQ-TRACE-001..008).
 
-D001-R1 forbids requirements-document changes, so raw source digests are the
-first gate.  The semantic checks then parse the one canonical Markdown table
-form used by the frozen documents.  A future owner-approved document revision
-must update both the digest and these explicit checks.
+D001-R2 permits only trace-source clarification while keeping all 54 data rows
+byte-identical. Raw source and data-row digests are the first gates; semantic
+checks then lock both downstream and matrix-upstream mappings.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import unittest
 from pathlib import Path
@@ -21,7 +21,7 @@ PLAN_PATH = ROOT / "docs" / "baseline" / "implementation-plan.md"
 DAG_PATH = ROOT / "docs" / "baseline" / "issue-dag.md"
 
 DIGESTS = {
-    "requirements": "b2ade4aff4372e94f284237b66a5c873012397bd2b3281debca246a4a4056e80",
+    "requirements": "86f252c92b57f738b612fe620e2f205d3961ad30446a472c0df3c0b9da0eecb0",
     "decisions": "0a2777989164cc0773c64ab91e032d72fe5e39384d7418ff6859547cc2e88981",
     "plan": "3cc65da6a333271d6efed00cdf13f419249d40692126c87ae02096f6bfb6d4de",
     "dag": "b12d22906422da41a69e98b16e93f81c86fe570dc81fb5c8e17b5999920d4be4",
@@ -45,6 +45,17 @@ PREFIXES = {
     "Runtime/source matrices": ("MX", None),
     "Mandatory sandbox contract": ("SB", "sandbox"),
 }
+
+TRACE_CHECK_SPECS = {
+    "D001 trace checks": ("check_id", "check", "required result", "source of truth"),
+}
+
+DATA_ROW_RE = re.compile(rb"^\| (?:RQ|NM|AC|MX|SB)-[0-9]{3} \|.*\|$")
+DATA_ROW_BYTES_SHA256 = "ca71483efa0364f9308a4e3a13692e76d2ce7ce3e62108c41c0e1557d3afe461"
+DOWNSTREAM_SCHEMA = "watari-requirements-downstream-map/v1"
+DOWNSTREAM_SHA256 = "1c5557f560f16861335c622c497035ad0a814ce30304a05dc99d6b5ff38809bb"
+MATRIX_UPSTREAM_SCHEMA = "watari-matrix-upstream-map/v1"
+MATRIX_UPSTREAM_SHA256 = "f29051cb3e4ac17c4f32a24e46de870124ccc0474c4b8b2a64ec740c37a1840b"
 
 TRACE_GRAMMAR = re.compile(
     r"`[A-Z][A-Z0-9-]*[0-9][A-Za-z0-9-]*`"
@@ -140,6 +151,101 @@ def baseline_ids(plan: str, dag: str):
     return result
 
 
+def issue_tickets(dag: str, code: str):
+    result = {}
+    for line in dag.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = split_row(line, code)
+        match = re.fullmatch(r"([A-Z][A-Z0-9-]*[0-9][A-Za-z0-9-]*) / ([LHOC])", cells[0])
+        if match is None:
+            continue
+        require(len(cells) == 5, code, f"issue-DAG row shape {match.group(1)}")
+        require(match.group(1) not in result, code, f"duplicate issue-DAG ticket {match.group(1)}")
+        result[match.group(1)] = {"class": match.group(2), "test": cells[3]}
+    return result
+
+
+def ordered_rows(tables):
+    return [row for title in DOMAIN_SPECS for row in tables[title]]
+
+
+def canonical_json(payload) -> bytes:
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode()
+
+
+def validate_data_row_bytes(raw: bytes, code: str):
+    rows = [line for line in raw.split(b"\n") if DATA_ROW_RE.fullmatch(line)]
+    require(len(rows) == 54, code, f"data row count {len(rows)}")
+    canonical = b"".join(line + b"\n" for line in rows)
+    require(digest(canonical) == DATA_ROW_BYTES_SHA256, code, "data row byte digest")
+
+
+def data_row_spans(raw: bytes):
+    pattern = re.compile(rb"(?m)^\| (?:RQ|NM|AC|MX|SB)-[0-9]{3} \|[^\r\n]*\|$")
+    return [match.span() for match in pattern.finditer(raw)]
+
+
+def source_position(row_id: str) -> int:
+    if row_id.startswith(("RQ-", "NM-", "SB-")):
+        return 6
+    if row_id.startswith("AC-"):
+        return 5
+    if row_id.startswith("MX-"):
+        return 5
+    raise AssertionError(f"unknown row source {row_id}")
+
+
+def downstream_contract(req: str, dag: str, code: str):
+    tables = parse_domain(req, code)
+    tickets = issue_tickets(dag, code)
+    rows = {}
+    references = []
+    for row in ordered_rows(tables):
+        source = row["required test/gate"] if row["id"].startswith("MX-") else row["trace"]
+        selected = [token for token in tokens(source, code, row["id"]) if token in tickets]
+        rows[row["id"]] = selected
+        references.extend(selected)
+    payload = {"schema": DOWNSTREAM_SCHEMA, "rows": rows}
+    require(len(rows) == 54, code, "downstream row count")
+    require(len(references) == 277, code, "downstream reference count")
+    distinct = set(references)
+    require(len(distinct) == 101, code, "distinct downstream ticket count")
+    require(digest(canonical_json(payload)) == DOWNSTREAM_SHA256, code, "downstream mapping digest")
+    for ticket_id in distinct:
+        require(ticket_id in tickets and bool(tickets[ticket_id]["test"]), code, f"ticket test/observation {ticket_id}")
+    return tables, tickets
+
+
+def matrix_upstream_contract(req: str, code: str):
+    tables = parse_domain(req, code)
+    local = {row["id"] for row in ordered_rows(tables)}
+    rows = {}
+    for row in tables["Runtime/source matrices"]:
+        selected = tokens(row["trace"], code, row["id"])
+        require(all(re.fullmatch(r"(?:RQ|NM|AC)-[0-9]{3}", item) for item in selected), code, f"MX upstream kind {row['id']}")
+        require(set(selected) <= local, code, f"MX upstream resolution {row['id']}")
+        rows[row["id"]] = selected
+    payload = {"schema": MATRIX_UPSTREAM_SCHEMA, "rows": rows}
+    require(len(rows) == 9, code, "MX upstream row count")
+    require(sum(map(len, rows.values())) == 25, code, "MX upstream reference count")
+    require(digest(canonical_json(payload)) == MATRIX_UPSTREAM_SHA256, code, "MX upstream mapping digest")
+    return tables
+
+
+def references_resolve(req: str, plan: str, dag: str, code: str):
+    tables = parse_domain(req, code)
+    universe = baseline_ids(plan, dag) | {row["id"] for row in ordered_rows(tables)}
+    for title, rows in tables.items():
+        for row in rows:
+            cells = [row["trace"]]
+            if title == "Runtime/source matrices":
+                cells.append(row["required test/gate"])
+            for cell in cells:
+                require(set(tokens(cell, code, row["id"])) <= universe, code, f"unknown reference {row['id']}")
+    return tables
+
+
 def expected(prefix: str, last: int):
     return {f"{prefix}-{number:03d}" for number in range(1, last + 1)}
 
@@ -158,6 +264,18 @@ def mutate(text: str, row_id: str, position: int, value: str):
     replacement = "| " + " | ".join(cells) + " |"
     require(text.count(line) == 1, "MUTATION", "ambiguous row")
     return text.replace(line, replacement, 1)
+
+
+def replace_token(cell: str, position: int, value: str):
+    matches = list(TRACE_TOKEN.finditer(cell))
+    match = matches[position]
+    return cell[: match.start(1)] + value + cell[match.end(1) :]
+
+
+def swap_tokens(cell: str, first: int, second: int):
+    values = TRACE_TOKEN.findall(cell)
+    values[first], values[second] = values[second], values[first]
+    return "`" + "`, `".join(values) + "`"
 
 
 def delete(text: str, row_id: str):
@@ -191,14 +309,13 @@ class RequirementsTraceTest(unittest.TestCase):
 
     def test_t_req_trace_002_all_trace_references_resolve(self):
         code = "T-REQ-TRACE-002"
-        tables = parse_domain(self.req, code)
-        universe = baseline_ids(self.plan, self.dag) | {row["id"] for rows in tables.values() for row in rows}
-        for rows in tables.values():
-            for row in rows:
-                require(set(tokens(row["trace"], code, row["id"])) <= universe, code, f"unknown trace {row['id']}")
+        references_resolve(self.req, self.plan, self.dag, code)
         for value in ("", "`AC-001`, `Q999`", "`AC-001`, `AC-001`"):
             changed = mutate(self.req, "RQ-001", 6, value)
-            self.rejected(lambda text: [require(set(tokens(row["trace"], code, row["id"])) <= universe, code, "unknown") for rows in parse_domain(text, code).values() for row in rows], changed)
+            self.rejected(references_resolve, changed, self.plan, self.dag, code)
+        for value in ("", "`R003`, `Q999`", "`R003`, `R003`"):
+            changed = mutate(self.req, "MX-001", 5, value)
+            self.rejected(references_resolve, changed, self.plan, self.dag, code)
 
     def test_t_req_trace_003_required_runtime_source_matrix(self):
         code = "T-REQ-TRACE-003"
@@ -241,6 +358,62 @@ class RequirementsTraceTest(unittest.TestCase):
         self.rejected(parse_domain, mutate(self.req, "RQ-001", 3, ""), code)
         changed = mutate(self.req, "RQ-002", 6, "`R019`, `I003`, `Q007`")
         self.rejected(lambda text: [require(bool(set(tokens(row["trace"], code, row["id"])) & set(index(parse_domain(text, code)["Acceptance criteria"], code))), code, "no AC") for row in parse_domain(text, code)["User requirements"]], changed)
+
+    def test_t_req_trace_007_exact_downstream_mapping_and_row_bytes(self):
+        code = "T-REQ-TRACE-007"
+        check_rows = parse_tables(self.req, TRACE_CHECK_SPECS, code)["D001 trace checks"]
+        checks = {row["check_id"]: row for row in check_rows}
+        require(len(checks) == len(check_rows), code, "duplicate trace check ID")
+        require(set(checks) == expected("T-REQ-TRACE", 8), code, "trace check IDs")
+        validate_data_row_bytes(self.req_raw, code)
+        tables, tickets = downstream_contract(self.req, self.dag, code)
+        ordered = ordered_rows(tables)
+
+        for row in ordered:
+            replacement = f"{row['id'].split('-')[0]}-999"
+            self.rejected(downstream_contract, mutate(self.req, row["id"], 0, replacement), self.dag, code)
+
+        ticket_ids = sorted(tickets)
+        for row in ordered:
+            position = source_position(row["id"])
+            source = row["required test/gate"] if row["id"].startswith("MX-") else row["trace"]
+            source_tokens = tokens(source, code, row["id"])
+            replacement = next(item for item in ticket_ids if item not in source_tokens)
+            downstream_positions = [number for number, item in enumerate(source_tokens) if item in tickets]
+            for number in downstream_positions:
+                changed = mutate(self.req, row["id"], position, replace_token(source, number, replacement))
+                self.rejected(downstream_contract, changed, self.dag, code)
+            for first_index, first in enumerate(downstream_positions):
+                for second in downstream_positions[first_index + 1 :]:
+                    changed = mutate(self.req, row["id"], position, swap_tokens(source, first, second))
+                    self.rejected(downstream_contract, changed, self.dag, code)
+
+        spans = data_row_spans(self.req_raw)
+        require(len(spans) == 54, code, "data row span count")
+        for start, end in spans:
+            for offset in range(start, end):
+                changed = self.req_raw[:offset] + bytes([(self.req_raw[offset] + 1) % 256]) + self.req_raw[offset + 1 :]
+                self.rejected(validate_data_row_bytes, changed, code)
+
+    def test_t_req_trace_008_exact_matrix_upstream_mapping(self):
+        code = "T-REQ-TRACE-008"
+        tables = matrix_upstream_contract(self.req, code)
+        upstream_ids = sorted(
+            row["id"]
+            for title in ("User requirements", "Non-goals", "Acceptance criteria")
+            for row in tables[title]
+        )
+        for row in tables["Runtime/source matrices"]:
+            source = row["trace"]
+            source_tokens = tokens(source, code, row["id"])
+            replacement = next(item for item in upstream_ids if item not in source_tokens)
+            for number in range(len(source_tokens)):
+                changed = mutate(self.req, row["id"], 7, replace_token(source, number, replacement))
+                self.rejected(matrix_upstream_contract, changed, code)
+            for first in range(len(source_tokens)):
+                for second in range(first + 1, len(source_tokens)):
+                    changed = mutate(self.req, row["id"], 7, swap_tokens(source, first, second))
+                    self.rejected(matrix_upstream_contract, changed, code)
 
 
 if __name__ == "__main__":

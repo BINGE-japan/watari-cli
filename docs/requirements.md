@@ -11,15 +11,21 @@ machine-readableなIDで管理する。未qualifiedな能力はsupportedと表�
 
 ## Trace schema
 
-各行は次の列を持つ。`trace`は後続ticketまたはtest IDを1つ以上含まなければならない。
-`status`が`open`の行は実装既定値として扱わない。
+各行は次の列を持つ。`RQ-*`、`NM-*`、`AC-*`、`SB-*`の`trace`はlocal IDとbaseline
+implementation-plan/issue-DAG IDを参照できる。そのうち後続実装coverageとして数える唯一の
+subsetは、baseline issue-DAGでclassがexact `L`、`H`、`O`、`C`のticket row IDとする。
+test/observationは各ticket rowの先行test・観測cellから解決し、`trace`へ直接記録しない。
+`MX-*`の`required test/gate`は同じbaseline issue-DAG ticket row IDだけを後続参照として持ち、
+`trace`は上流のlocal `RQ-*`、`NM-*`、`AC-*`だけを参照する。各参照cellはIDを1つ以上
+含まなければならない。`status`が`open`の行は実装既定値として扱わない。
 
 | field | rule |
 | --- | --- |
 | `id` | 文書内で一意の`RQ-*`, `NM-*`, `AC-*`, `SB-*`, `MX-*` |
 | `kind` | `requirement`, `non-goal`, `acceptance`, `sandbox`, `matrix` |
 | `status` | `frozen`または`open` |
-| `trace` | 後続test IDと実装ticket IDのカンマ区切り。空欄禁止 |
+| `required test/gate` | `MX-*`だけが持つ、baseline issue-DAGでclassがexact `L`/`H`/`O`/`C`の後続ticket row IDのカンマ区切り。空欄禁止 |
+| `trace` | `RQ-*`, `NM-*`, `AC-*`, `SB-*`ではlocal IDとbaseline implementation-plan/issue-DAG ID、`MX-*`では上流のlocal `RQ-*`, `NM-*`, `AC-*`のカンマ区切り。空欄禁止 |
 | `owner` | 未決事項は所有者を明示 |
 
 ## User requirements
@@ -109,8 +115,10 @@ machine-readableなIDで管理する。未qualifiedな能力はsupportedと表�
 | check_id | check | required result | source of truth |
 | --- | --- | --- | --- |
 | T-REQ-TRACE-001 | all requirement/non-goal/acceptance/sandbox/matrix IDs are unique | pass; duplicate count 0 | all tables above |
-| T-REQ-TRACE-002 | every trace cell is non-empty and references a local ID, baseline implementation-plan ID, or baseline DAG ID; phase/ADR references are valid baseline references and are not unknown | pass; empty/unknown trace count 0; source of truth is local IDs + `docs/baseline/implementation-plan.md` + `docs/baseline/issue-dag.md` | all tables above + both baseline documents |
+| T-REQ-TRACE-002 | every reference cell (`trace` plus matrix `required test/gate`) is non-empty and references a local ID, baseline implementation-plan ID, or baseline DAG ID; phase/ADR references are valid baseline references and are not unknown | pass; empty/unknown reference count 0; source of truth is local IDs + `docs/baseline/implementation-plan.md` + `docs/baseline/issue-dag.md` | all tables above + both baseline documents |
 | T-REQ-TRACE-003 | required matrix IDs exist | `MX-001`..`MX-009` exist, both matrix names present, private session-receipt and enabled-connector rows are separate | runtime/source matrices |
 | T-REQ-TRACE-004 | required sandbox IDs exist | `SB-001`..`SB-007` exist | mandatory sandbox contract |
 | T-REQ-TRACE-005 | required decision IDs are represented | `DEC-001`..`DEC-006` exist in `docs/decisions.md`; open decisions remain explicit | `docs/decisions.md` |
 | T-REQ-TRACE-006 | every requirement and non-goal has acceptance/trace coverage | no row without acceptance and trace | requirements/non-goals tables |
+| T-REQ-TRACE-007 | exact downstream mapping and immutable data-row bytes | 54 rows, 277 downstream references, 101 distinct baseline tickets, canonical mapping SHA-256 `1c5557f560f16861335c622c497035ad0a814ce30304a05dc99d6b5ff38809bb`; every distinct ticket resolves once with a non-empty preceding test/observation; all 54 data rows retain SHA-256 `ca71483efa0364f9308a4e3a13692e76d2ce7ce3e62108c41c0e1557d3afe461` | non-matrix `trace`, matrix `required test/gate`, baseline issue-DAG |
+| T-REQ-TRACE-008 | exact matrix upstream mapping | 9 rows, 25 upstream references, canonical mapping SHA-256 `f29051cb3e4ac17c4f32a24e46de870124ccc0474c4b8b2a64ec740c37a1840b`; every reference is a local `RQ-*`, `NM-*`, or `AC-*` | matrix `trace` |
