@@ -1,10 +1,10 @@
-"""設定（カセット差込口＋起動設定）の解決と永続化。
+"""設定（記憶の場所＋起動設定）の解決と永続化。
 
-ゲーム機(watari-cli)はカセット＝個人記憶を内蔵しない。実行時にここで解決した
-カセットパスを、エンジン(engine.watari_lib)が import 時に読む環境変数へ橋渡しする。
+ワタリ本体は記憶を内蔵しない。実行時にここで解決した記憶パスを、エンジン
+(engine.watari_lib)が import 時に読む環境変数 WATARI_HOME へ橋渡しする。
 起動設定(runtime/provider/model)も同じ設定ファイルに永続化し、watari chat が使う。
 
-カセットパスの優先順: --home 引数 > 環境変数 WATARI_HOME > 保存済み設定 > エンジン既定。
+記憶パスの優先順: --home 引数 > 環境変数 WATARI_HOME > 保存済み設定 > エンジン既定。
 設定ファイルは XDG 準拠: $XDG_CONFIG_HOME/watari/config.json（既定 ~/.config/watari/config.json）。
 """
 from __future__ import annotations
@@ -44,11 +44,11 @@ def save_config(**kwargs) -> dict:
 
 
 def apply(home: str | None = None) -> None:
-    """使用するカセットパスを環境変数 WATARI_HOME に確定する。
+    """使う記憶の場所を環境変数 WATARI_HOME に確定する。
 
     engine を import する前に呼ぶこと（watari_lib は import 時に env を読むため）。
     優先順: 明示引数 > 既存の環境変数 > 保存済み設定。どれも無ければ何もしない
-    （＝engine 既定の現ライブ・カセットに委ねる）。
+    （＝engine 既定に委ねる）。
     """
     if home:
         os.environ["WATARI_HOME"] = os.path.abspath(os.path.expanduser(home))
@@ -61,7 +61,7 @@ def apply(home: str | None = None) -> None:
 
 
 def save_home(home: str) -> str:
-    """カセットパスを設定に永続化し、確定した絶対パスを返す。"""
+    """記憶の場所を設定に永続化し、確定した絶対パスを返す。"""
     resolved = os.path.abspath(os.path.expanduser(home))
     save_config(home=resolved)
     return resolved
