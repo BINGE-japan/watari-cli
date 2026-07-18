@@ -30,7 +30,8 @@ DOMAIN_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 # state 算出の定数（SCHEMA.md と一致させる）
 HEAT_DECAY_DAYS = 30      # 30日ごとに heat が1下がる
-THREAD_CLOSE_DAYS = 45    # 45日更新が無い thread は自動クローズ
+DORMANT_DAYS = 45         # 45日更新が無い thread は dormant（声かけ待ち。印を付けて state に残す）
+SINK_DAYS = 90            # 90日更新が無い thread は state から沈める（log には残り復元可能）
 INGEST_MAX_MESSAGES = 300000
 INGEST_MAX_WINDOW_DAYS = 30
 
