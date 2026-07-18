@@ -161,16 +161,35 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 - 各カーソルは「**実際に処理した最後の `timestamp`**」に厳密に進める（未処理区間を飛び越えない）。
 - `last_run` は痕跡用。log に非事実行を積まないための受け皿。
 - カーソルの前進は ingest.py の `--advance-*` だけが行う（「実際に処理した最後の timestamp」を渡す。後退は拒否される）。
-  transcript/obsidian は専用フラグ（`--advance-wsl/win/codex/obsidian`）、外部ソース（slack/gmail/calendar/linear）は
-  `--advance-ext <name>=<ts>`（対応キーの正本は watari_lib.py の EXT_STORES）。読めなかった・新着が無かったソースは渡さない（据え置き）。
+  transcript/obsidian は専用フラグ（`--advance-wsl/win/codex/obsidian`）、外部ソース(connector)は
+  `--advance-ext <name>=<ts>`。**許可名は固定リストではなく、ユーザーが宣言した connector 名**（config の `connectors`。下の
+  「connector」節）。未宣言の名前はエラー。読めなかった・新着が無かったソースは渡さない（据え置き）。connector のカーソルは
+  他のキーと同じくマシンごとの host 記録に載る（host 記録の cursors は任意キーを許すので、宣言名がそのままキーになる）。
 - 旧 `cursors.json` からの移行：旧 `<home>/cursors.json` があれば、読み取り（status / dream / ingest）は
   その位置を**メモリ上で**引き継ぐ。host 記録への永続化は実際に前進が起きたとき（`ingest` の save_cursors）に
   一度だけ行い、読み取り専用パスは何も書かない（既存のカーソル位置は次の前進が丸ごと書き戻すので失われない）。`cursors.json`
   はリポ外の旧ルーティンがまだ読むので消さない（この repo が正本として扱うのをやめるだけ）。実装は host.load_cursors / host.save_cursors。
-- **クラウド源（slack/gmail/calendar/linear）の扱い**：今はこれらのカーソルもマシンごとの host 記録に置く。ただし
-  クラウド源は本来どのマシンから取り込んでも同じ位置であるべき（マシン間で共有すべき性質）。その一元化は connector 層の
-  将来課題として切り出す（ここでは解かない）。
+- **cloud スコープの connector（メール等）の扱い**：カーソルは他と同じくマシンごとの host 記録に置くが、cloud 源は本来
+  どのマシンから取り込んでも同じ位置であるべき（マシン間で共有すべき性質）。多重取り込みを避けるため、**cloud connector は
+  「担当1台」だけが夢を見る**（どのマシンが担当かは運用で決める）。local スコープは各マシンが自分で読む。
 - `obsidian` カーソルの対象はユーザーの Obsidian vault（場所はユーザーが設定する。ワタリ本体はパスを内蔵しない）。ノートはユーザー本人の産出物なので、自分の言葉でまとめた内容は mastery 2 の根拠になり得る。知識の中身は log に写さず、到達状態とノートへのポインタ（refs.cwd）だけを書く（ノートの中身の正本は vault）。
+
+## connector（夢に流し込むソースの宣言）
+transcript 以外のソース（メール・タスク・チャット等）は、ユーザーが `config.json` の `connectors` に**宣言する**。
+watari-cli は特定ツールのアダプタを内蔵しない——実際の読み取りは、その `read` 指示に従ってエージェント（Pi 上の MCP 等）が
+自分のツールで行う。CLI が担うのはカーソルの追跡と ingest だけ（薄い宣言機構であってプラグインエンジンではない）。
+- 宣言：`watari connector add --name <slug> --scope cloud|local --read "<cursor 以降どう読むか>"`。一覧は `watari connector list`。
+- 各エントリ＝`{"name":<小文字スラッグ>, "scope":"cloud"|"local", "read":<自由記述の読み方指示>}`。同名は上書き（二重管理を避ける）。
+- `scope`：`local`＝そのマシン固有のソース（各マシンが自分で夢を見る）。`cloud`＝どのマシンから読んでも同じ位置になるソース
+  （メール等）。**cloud は「担当1台」だけが夢を見る**（多重取り込み防止。担当は運用で決める）。
+- カーソルは `--advance-ext <name>=<最新ts>` で前進（マシンごとの host 記録に格納。`--advance-ext` の許可名はここで宣言した名前に限る）。
+- EXAMPLE（宣言の形。ツール実装は含まない）：
+  ```json
+  {"connectors": [
+    {"name": "mail",  "scope": "cloud", "read": "cursor(前回ts)以降に届いた自分宛メールを新しい順に読み、要点＋ポインタだけ判定する"},
+    {"name": "tasks", "scope": "cloud", "read": "cursor 以降に更新されたタスク/issue を読み、状態変化と締切だけ拾う（中身は写さない）"}
+  ]}
+  ```
 
 ## 1回の処理上限（初回・差分大の決定論化）
 1回で処理する件数は次の**小さい方**で固定（実装は extract.py。変えるときは本ファイルと watari_lib.py の定数を揃える）：

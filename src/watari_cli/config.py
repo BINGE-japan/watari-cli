@@ -11,6 +11,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
+
+# connector 名は小文字スラッグ（domain と同じ形）。engine を import すると watari_lib が
+# env から MEM を確定してしまい config.apply の上書き機会を奪うため、ここは engine に依存せず
+# 自前で持つ（config は engine より前に読まれる層）。
+_SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+CONNECTOR_SCOPES = ("local", "cloud")
 
 
 def _config_dir() -> str:
@@ -65,3 +72,38 @@ def save_home(home: str) -> str:
     resolved = os.path.abspath(os.path.expanduser(home))
     save_config(home=resolved)
     return resolved
+
+
+def load_connectors() -> list:
+    """宣言済み connector の一覧（config の "connectors"）。無ければ空リスト。
+
+    connector＝「夢に流し込むソース」の宣言。watari-cli は特定ツールのアダプタを内蔵せず、
+    ユーザーがどのソースを・どう読むかを宣言するだけ（実際の読み取りはエージェントが自分の
+    ツールで行う）。各エントリは {"name":<slug>, "scope":"local"|"cloud", "read":<自由記述>}。
+    """
+    connectors = load_config().get("connectors")
+    return connectors if isinstance(connectors, list) else []
+
+
+def save_connector(entry: dict) -> list:
+    """connector 宣言を1件、name をキーに追加/更新して保存し、更新後の一覧を返す。
+
+    name は小文字スラッグ必須、scope は local|cloud。read はエージェントへの自由記述の読み方指示。
+    同名は位置を保って上書き（二重管理を避ける）。不正な name/scope は ValueError。
+    """
+    name = entry.get("name")
+    scope = entry.get("scope")
+    if not isinstance(name, str) or not _SLUG_RE.match(name):
+        raise ValueError(f"connector name は小文字スラッグ必須: {name!r}")
+    if scope not in CONNECTOR_SCOPES:
+        raise ValueError(f"connector scope は {'|'.join(CONNECTOR_SCOPES)}: {scope!r}")
+    record = {"name": name, "scope": scope, "read": entry.get("read") or ""}
+    connectors = load_connectors()
+    for i, c in enumerate(connectors):
+        if c.get("name") == name:
+            connectors[i] = record
+            break
+    else:
+        connectors.append(record)
+    save_config(connectors=connectors)
+    return connectors

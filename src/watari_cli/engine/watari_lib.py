@@ -26,7 +26,8 @@ STORES = {
 # Codex 側でワタリと話した内容も consolidate が拾えるようにする第3の transcript ストア。
 # 形式は Claude Code と異なる（下の is_genuine_codex_user_message 参照）。カーソルは transcripts_codex。
 CODEX_STORE = os.environ.get("WATARI_STORE_CODEX", os.path.expanduser("~/.codex/sessions"))
-EXT_STORES = ("slack", "gmail", "calendar", "linear")  # 外部ソースのカーソルキー（ingest.py --advance-ext の許可名）
+# 外部ソース(connector)のカーソルキーは固定リストではない。ユーザーが config に宣言した
+# connector 名（config.load_connectors）が --advance-ext の許可名になる（ingest.py で検証）。
 GENRES = ("life", "learning")
 KIND_TO_GENRE = {"study": "learning", "fact": "life", "interest": "life", "thread": "life"}
 DOMAIN_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
