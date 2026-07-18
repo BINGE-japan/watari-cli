@@ -91,6 +91,7 @@ class EntrypointContractTests(unittest.TestCase):
             },
             "tool": {"setuptools": {
                 "package-dir": {"": "src"}, "packages": {"find": {"where": ["src"]}},
+                "package-data": {"watari_cli": ["skill/*.md"]},
             }},
         })
         temporary = tempfile.TemporaryDirectory(prefix="watari-b002-")
@@ -136,6 +137,7 @@ class EntrypointContractTests(unittest.TestCase):
         self.assertEqual(tuple(path.name for path in sdists), ("watari_cli-0.1.0.tar.gz",))
         wheel, dist_info = wheels[0], "watari_cli-0.1.0.dist-info"
         expected_members = {"watari_cli/__init__.py", "watari_cli/cli/__init__.py",
+            "watari_cli/skill/SKILL.md", "watari_cli/skill/SCHEMA.md",
             *(f"{dist_info}/{name}" for name in ("METADATA", "WHEEL", "entry_points.txt", "top_level.txt", "RECORD"))}
         with zipfile.ZipFile(wheel) as archive:
             names = archive.namelist()

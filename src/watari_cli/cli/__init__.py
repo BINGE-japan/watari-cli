@@ -334,12 +334,25 @@ def cmd_install(args) -> int:
 
 
 def _find_skill_dir() -> str | None:
-    """同梱スキル skills/watari の場所を最善努力で探す（リポ実行時に見つかる）。"""
+    """同梱スキル(watari_cli/skill)の場所を返す。
+
+    スキルはパッケージ本体(src/watari_cli/)の内側に同梱されているため、wheel から
+    インストールされていても checkout を直接（editable / PYTHONPATH=src）実行していても、
+    importlib.resources で一貫して見つかる（パスを当てずっぽうで探し回らない）。
+    それでも解決できない特殊な配置向けに、checkout 相対のパスへ最後にフォールバックする。
+    """
+    try:
+        from importlib import resources
+
+        candidate = resources.files("watari_cli") / "skill"
+        if (candidate / "SKILL.md").is_file():
+            return str(candidate)
+    except (ModuleNotFoundError, FileNotFoundError, NotADirectoryError, TypeError):
+        pass
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.join(os.getcwd(), "skills", "watari"),
-        os.path.join(here, "..", "..", "..", "skills", "watari"),
-        os.path.join(here, "..", "skills", "watari"),
+        os.path.join(here, "..", "skill"),
+        os.path.join(os.getcwd(), "src", "watari_cli", "skill"),
     ]
     for path in candidates:
         resolved = os.path.abspath(path)
@@ -380,7 +393,7 @@ def cmd_chat(args) -> int:
         return 1
     skill = _find_skill_dir()
     if not skill:
-        sys.stderr.write("同梱スキル skills/watari が見つかりません（リポから実行してください）。\n")
+        sys.stderr.write("同梱スキル(watari_cli/skill)が見つかりません（インストールが壊れている可能性があります）。\n")
         return 1
 
     settings = config.load_config()
