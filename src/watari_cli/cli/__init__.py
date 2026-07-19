@@ -231,13 +231,17 @@ def _prepare_memory(mode: str, home: str, url: str | None) -> tuple[str, str]:
 def _install_wizard(args) -> dict:
     """インストール体験（UX）だけ。質問して選択を plan(dict) にして返す。副作用なし。
 
-    ここが調整対象のコンポーネント。--dry-run はこれだけを回す。実行は _prepare_memory が担う。
-    フラグを渡せばその質問は飛ばす。--yes で全部既定。prompts.Cancelled を送出しうる。
+    ここが調整対象のコンポーネント。--dry-run はこれだけを回す。実行（記憶の用意・Pi 導入・
+    設定保存）は cmd_install が担う。フラグを渡せばその質問は飛ばす。--yes で全部既定。
+    prompts.Cancelled を送出しうる。
     """
+    import shutil
+
     from watari_cli import prompts
 
     default_dir = _default_memory_dir()
     live = os.path.join(os.path.expanduser("~"), ".claude", "skills", "watari", "memory")
+    interactive = not (args.from_url or args.home or args.yes)
 
     # 1) 記憶の始め方
     if args.from_url:
@@ -266,12 +270,51 @@ def _install_wizard(args) -> dict:
             url = None
         mode = kind
 
-    # AI（プロバイダ/モデル）は Pi 側で選ぶもの。install はモデル非依存に徹する（尋ねない・保存しない）。
-    return {"mode": mode, "home": home, "url": url, "runtime": args.runtime}
+    # 2) どの AI でワタリを動かすか（Pi の provider）。watari は provider/model（非秘密）だけ
+    #    保存し、API キーは保存しない（env か Pi の /login に委ねる）。対話時のみ menu を出す。
+    provider = args.provider
+    if provider is None and interactive:
+        options = [
+            (label + ("  ✓認証済(env)" if any(os.environ.get(e) for e in envs) else ""), name)
+            for (label, name, envs) in _PROVIDERS
+        ]
+        options.append(("あとで決める（Pi の既定/ログインに任せる）", ""))
+        provider = prompts.select("どの AI でワタリを動かしますか？", options, default=0) or None
+
+    # 3) ランタイム(Pi)。未導入かつ対話時なら導入するか確認（断れば起動時に npx で自動取得）。
+    install_pi = shutil.which("pi") is None and interactive and prompts.confirm(
+        "ランタイム Pi が未導入です。今インストールしますか？（断っても起動時に自動取得します）",
+        default=True)
+
+    return {"mode": mode, "home": home, "url": url, "runtime": args.runtime,
+            "provider": provider, "model": args.model, "install_pi": install_pi}
 
 
-def _install_done_lines(home: str, desc: str) -> list[str]:
-    return [f"✓ セットアップ完了（{desc}）", f"  記憶の場所: {home}", "  起動:  watari chat"]
+def _install_done_lines(home: str, desc: str, provider: str | None = None) -> list[str]:
+    lines = [f"✓ セットアップ完了（{desc}）", f"  記憶の場所: {home}"]
+    if provider:
+        authed = "認証済み" if _provider_env_present(provider) else "初回 watari chat で Pi の /login 認証"
+        lines.append(f"  AI: {provider}（{authed}）")
+    lines.append("  起動:  watari chat")
+    return lines
+
+
+def _install_pi_runtime() -> tuple[bool, str]:
+    """Pi ランタイムをグローバル導入する（pnpm を優先・無ければ npm）。(ok, メッセージ) を返す。
+    失敗しても install 全体は止めない（起動時に npx で自動取得できるため）。"""
+    import shutil
+    import subprocess
+
+    pkg = "@earendil-works/pi-coding-agent"
+    for tool, sub in (("pnpm", ["add", "-g", pkg]), ("npm", ["install", "-g", pkg])):
+        exe = shutil.which(tool)
+        if not exe:
+            continue
+        proc = subprocess.run([exe, *sub], capture_output=True, text=True)
+        if proc.returncode == 0:
+            return True, f"Pi を導入しました（{tool}）"
+        return False, f"Pi の導入に失敗（{tool}）。起動時に npx で取得を試みます:\n{proc.stderr.strip()[:300]}"
+    return False, "pnpm も npm も無く Pi を導入できません（起動時に npx で取得を試みます）"
 
 
 def cmd_install(args) -> int:
@@ -293,9 +336,11 @@ def cmd_install(args) -> int:
                "clone": f"バックアップから復元（{plan['url']}）"}[plan["mode"]]
         print("\n── プレビュー（--dry-run：実際には何も変更していません）──")
         print(f"  記憶: {act} → {target}")
-        print("  実行時: 記憶を用意 → state 再生成 → 設定保存(config.json)")
+        print(f"  AI プロバイダ: {plan['provider'] or '（未指定＝Pi の既定/ログインに任せる）'}")
+        print(f"  Pi 導入: {'する' if plan['install_pi'] else 'しない（未導入なら起動時 npx で取得）'}")
+        print("  実行時: 記憶を用意 → state 再生成 →(必要なら)Pi 導入 → 設定保存(config.json)")
         print("  完了時の表示 ↓")
-        for line in _install_done_lines(target, act):
+        for line in _install_done_lines(target, act, plan["provider"]):
             print("    " + line)
         return 0
 
@@ -305,9 +350,12 @@ def cmd_install(args) -> int:
         sys.stderr.write(f"{error}\n")
         return 1
     saved = config.save_home(home)
-    config.save_config(runtime=plan["runtime"])
+    config.save_config(runtime=plan["runtime"], provider=plan["provider"], model=plan["model"])
+    if plan["install_pi"]:
+        ok, message = _install_pi_runtime()
+        print(("✓ " if ok else "! ") + message)
     print()
-    for line in _install_done_lines(saved, desc):
+    for line in _install_done_lines(saved, desc, plan["provider"]):
         print(line)
     return 0
 
@@ -338,6 +386,24 @@ def _find_skill_dir() -> str | None:
         if os.path.isfile(os.path.join(resolved, "SKILL.md")):
             return resolved
     return None
+
+
+# Pi が動かす AI プロバイダの候補。2要素目 = pi の --provider 名、3要素目 = その鍵を探す env 変数。
+# watari は provider/model（非秘密）だけを config に持ち、API キーは保存しない
+# （env か Pi の /login に委ねる＝秘密をディスクに置かない。ユーザーの 1Password 主義を守る）。
+_PROVIDERS = [
+    ("Claude（Anthropic）", "anthropic", ("ANTHROPIC_API_KEY",)),
+    ("Gemini（Google）", "google", ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY")),
+    ("GPT（OpenAI）", "openai", ("OPENAI_API_KEY",)),
+]
+
+
+def _provider_env_present(provider: str) -> bool:
+    """指定 provider の API キーが環境変数にあるか（値は見ず存在のみ）。"""
+    for _label, name, envs in _PROVIDERS:
+        if name == provider:
+            return any(os.environ.get(e) for e in envs)
+    return False
 
 
 def _runtime_base(runtime: str) -> list[str]:
@@ -377,8 +443,18 @@ def cmd_chat(args) -> int:
 
     settings = config.load_config()
     runtime = args.runtime or settings.get("runtime") or "pi"
+    provider = args.provider or settings.get("provider")
+    model = args.model or settings.get("model")
 
-    cmd = _runtime_base(runtime) + ["--skill", skill] + args.extra
+    cmd = _runtime_base(runtime) + ["--skill", skill]
+    if provider:
+        cmd += ["--provider", provider]
+    if model:
+        cmd += ["--model", model]
+    cmd += args.extra
+    # provider を選んだのに鍵が env に無ければ、Pi の /login に委ねる旨だけ知らせる（秘密は保存しない）
+    if provider and not _provider_env_present(provider) and not args.show:
+        sys.stderr.write(f"（{provider} の API キーは未検出。Pi 起動後に /login で認証してください）\n")
 
     env = dict(os.environ)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
@@ -538,6 +614,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pinst.add_argument("--from", dest="from_url", metavar="GIT_URL",
                        help="バックアップ(git)から記憶を復元する")
     pinst.add_argument("--runtime", help="起動ランタイム（既定 pi）。watari chat が使う")
+    pinst.add_argument("--provider", help="AI プロバイダ（例 anthropic/google/openai）。対話なら menu で選べる")
+    pinst.add_argument("--model", help="モデル（省略時は Pi の既定）")
     pinst.add_argument("--yes", "-y", action="store_true", help="質問せず既定のまま（コマンド一発）")
     pinst.add_argument("--dry-run", action="store_true", help="UX だけ試す（何も変更しない・何度でも）")
     pinst.set_defaults(func=cmd_install)
@@ -545,6 +623,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pc = sub.add_parser("chat", help="ワタリを起動（スキル/記憶/モデルを自動で渡す）")
     pc.add_argument("--home", help="記憶の場所")
     pc.add_argument("--runtime", help="起動ランタイム（既定: 保存値か pi）")
+    pc.add_argument("--provider", help="AI プロバイダ（既定: 保存値。例 anthropic/google/openai）")
+    pc.add_argument("--model", help="モデル（既定: 保存値か Pi の既定）")
     pc.add_argument("--show", action="store_true", help="起動せず、実行するコマンドだけ表示")
     pc.add_argument("extra", nargs="*", help="ランタイムへ素通しする追加引数")
     pc.set_defaults(func=cmd_chat)
