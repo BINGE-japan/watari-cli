@@ -98,8 +98,10 @@ def cmd_host(args) -> int:
 
 def cmd_dream(args) -> int:
     config.apply(args.home)
-    from watari_cli.engine import extract
+    from watari_cli import git_sync
+    from watari_cli.engine import extract, watari_lib as wl
 
+    git_sync.sync_before_read(wl.MEM)
     result = extract.run()
     if args.json:
         # 判定するワタリ(エージェント)が消費する生の候補。messages[] を渡す。
@@ -119,8 +121,10 @@ def cmd_dream(args) -> int:
 
 def cmd_recall(args) -> int:
     config.apply(args.home)
+    from watari_cli import git_sync
     from watari_cli.engine import watari_lib as wl
 
+    git_sync.sync_before_read(wl.MEM)
     out = {}
     for genre in wl.GENRES:
         try:
@@ -267,12 +271,35 @@ def _install_wizard(args) -> dict:
             url = None
         mode = kind
 
-    # AI（プロバイダ/モデル）は Pi 側で選ぶもの。install はモデル非依存に徹する（尋ねない・保存しない）。
-    return {"mode": mode, "home": home, "url": url, "runtime": args.runtime}
+    # 2) マルチマシン同期（git remote）。clone は既に origin あり。それ以外は選ばせる／--remote で指定。
+    interactive = not (args.from_url or args.home or args.yes)
+    if mode == "clone":
+        git_remote = None  # clone 先には既に origin が設定される
+    elif args.remote:
+        git_remote = args.remote
+    elif not interactive:
+        git_remote = None  # 非対話の既定はローカルのみ（--remote で上書き）
+    else:
+        choice = prompts.select(
+            "記憶を別のマシンとも同期しますか？（git remote＝バックアップにもなる）", [
+                ("同期する（git remote を設定）", "remote"),
+                ("このマシンだけで使う（同期もバックアップも無し）", "local"),
+            ], default=0)
+        git_remote = (prompts.text("記憶リポの git URL") if choice == "remote" else None) or None
+
+    return {"mode": mode, "home": home, "url": url, "runtime": args.runtime,
+            "git_remote": git_remote}
 
 
-def _install_done_lines(home: str, desc: str) -> list[str]:
-    return [f"✓ セットアップ完了（{desc}）", f"  記憶の場所: {home}", "  起動:  watari chat"]
+def _install_done_lines(home: str, desc: str, git_remote: str | None = None,
+                        mode: str | None = None) -> list[str]:
+    lines = [f"✓ セットアップ完了（{desc}）", f"  記憶の場所: {home}"]
+    if git_remote:
+        lines.append(f"  同期: {git_remote}")
+    elif mode != "clone":
+        lines.append("  同期: このマシンのみ（別マシンと共有せず・バックアップも無し）")
+    lines.append("  起動:  watari chat")
+    return lines
 
 
 def cmd_install(args) -> int:
@@ -292,11 +319,15 @@ def cmd_install(args) -> int:
         target = os.path.abspath(os.path.expanduser(plan["home"]))
         act = {"new": "新しい記憶を作成", "adopt": "既存の記憶を使う",
                "clone": f"バックアップから復元（{plan['url']}）"}[plan["mode"]]
+        sync = (f"git remote と同期（{plan['git_remote']}）" if plan["git_remote"]
+                else "clone 元と同期（origin 既設）" if plan["mode"] == "clone"
+                else "このマシンのみ（同期なし）")
         print("\n── プレビュー（--dry-run：実際には何も変更していません）──")
         print(f"  記憶: {act} → {target}")
-        print("  実行時: 記憶を用意 → state 再生成 → 設定保存(config.json)")
+        print(f"  同期: {sync}")
+        print("  実行時: 記憶を用意 → state 再生成 →(remote 指定時)git 設定+push → 設定保存(config.json)")
         print("  完了時の表示 ↓")
-        for line in _install_done_lines(target, act):
+        for line in _install_done_lines(target, act, plan["git_remote"], plan["mode"]):
             print("    " + line)
         return 0
 
@@ -307,8 +338,12 @@ def cmd_install(args) -> int:
         return 1
     saved = config.save_home(home)
     config.save_config(runtime=plan["runtime"])
+    if plan["git_remote"]:
+        from watari_cli import git_sync
+        ok, message = git_sync.setup_remote(saved, plan["git_remote"])
+        print(("✓ " if ok else "! ") + message)
     print()
-    for line in _install_done_lines(saved, desc):
+    for line in _install_done_lines(saved, desc, plan["git_remote"], plan["mode"]):
         print(line)
     return 0
 
@@ -371,6 +406,9 @@ def cmd_chat(args) -> int:
     if not os.path.isdir(home):
         sys.stderr.write(f"記憶が見つかりません: {home}\n  先に `watari install` を実行してください。\n")
         return 1
+    if not args.show:
+        from watari_cli import git_sync
+        git_sync.sync_before_read(home)  # 起動前に最新の記憶を取り込む
     skill = _find_skill_dir()
     if not skill:
         sys.stderr.write("同梱スキル(watari_cli/skill)が見つかりません（インストールが壊れている可能性があります）。\n")
@@ -463,6 +501,9 @@ def cmd_ingest(args) -> int:
     except ValueError as error:
         return _write_validation_errors(error)
     print(summary)
+    if not args.dry_run:
+        from watari_cli import git_sync
+        git_sync.sync_after_write(wl.MEM)  # 書いた記憶を commit→pull→push（offline は繰り越し）
     return 0
 
 
@@ -543,6 +584,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pinst.add_argument("--from", dest="from_url", metavar="GIT_URL",
                        help="バックアップ(git)から記憶を復元する")
     pinst.add_argument("--runtime", help="起動ランタイム（既定 pi）。watari chat が使う")
+    pinst.add_argument("--remote", metavar="GIT_URL",
+                       help="記憶を同期する git remote（新規/引き継ぎ時）。省略かつ対話なら menu で選べる")
     pinst.add_argument("--yes", "-y", action="store_true", help="質問せず既定のまま（コマンド一発）")
     pinst.add_argument("--dry-run", action="store_true", help="UX だけ試す（何も変更しない・何度でも）")
     pinst.set_defaults(func=cmd_install)
