@@ -3,10 +3,11 @@
 
 決定論部分の正本実装。仕様の「なぜ」は SCHEMA.md、ここは「どう」。
 
-パス定数（記憶＝MEM、ソース＝STORES/CODEX_STORE）は環境変数(config)から注入する。
-未設定時の既定はどのマシンでも動く標準の場所に解決する（記憶は XDG_DATA_HOME 配下、
-transcript ストアは ~/.claude/projects と ~/.codex/sessions）。通常は install が保存した
-WATARI_HOME（config 経由）がこれらを上書きするので、既定はあくまで無設定時の受け皿。
+パス定数（記憶＝MEM、ソース＝PI_STORE）は環境変数(config)から注入する。未設定時の既定は
+どのマシンでも動く標準の場所に解決する（記憶は XDG_DATA_HOME 配下、transcript ストアは Pi の
+セッション ~/.pi/agent/sessions）。watari-cli の runtime は Pi なので、夢が読む唯一の組み込み
+transcript は Pi。他の AI CLI・ツールは connector（ユーザー宣言）として渡す。通常は install が
+保存した WATARI_HOME（config 経由）がこれらを上書きするので、既定はあくまで無設定時の受け皿。
 """
 import json
 import os
@@ -16,18 +17,13 @@ from datetime import datetime, timezone
 # 環境変数で上書き可。既定は標準の場所に一元化（通常は config 経由の WATARI_HOME が上書きする）。
 MEM = os.environ.get("WATARI_HOME", os.path.join(
     os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "watari", "memory"))
-STORES = {
-    # win は Windows/WSL 併用者向けのオプトイン。既定は空文字＝この store は無し
-    # （scan_store は存在しないパスを readable=False で扱うので空既定でも安全）。
-    "win": os.environ.get("WATARI_STORE_WIN", ""),
-    "wsl": os.environ.get("WATARI_STORE_WSL", os.path.expanduser("~/.claude/projects")),
-}
-# Codex CLI のセッション（~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl）。
-# Codex 側でワタリと話した内容も consolidate が拾えるようにする第3の transcript ストア。
-# 形式は Claude Code と異なる（下の is_genuine_codex_user_message 参照）。カーソルは transcripts_codex。
-CODEX_STORE = os.environ.get("WATARI_STORE_CODEX", os.path.expanduser("~/.codex/sessions"))
-# 外部ソース(connector)のカーソルキーは固定リストではない。ユーザーが config に宣言した
-# connector 名（config.load_connectors）が --advance-ext の許可名になる（ingest.py で検証）。
+# Pi のセッション（~/.pi/agent/sessions/<作業ディレクトリ>/*.jsonl）。watari chat は Pi を
+# 起動するので、ワタリと話した内容はすべてここに残る＝夢が読む唯一の組み込み transcript ストア。
+# 形式は Pi 独自 JSONL（下の is_genuine_pi_user_message 参照）。カーソルは transcripts_pi。
+PI_STORE = os.environ.get("WATARI_STORE_PI", os.path.expanduser("~/.pi/agent/sessions"))
+# transcript 以外のソース（他 AI CLI・メール・タスク・チャット等）は connector として扱う。
+# カーソルキーは固定リストでなく、ユーザーが config に宣言した connector 名
+# （config.load_connectors）が --advance-ext の許可名になる（ingest.py で検証）。
 GENRES = ("life", "learning")
 KIND_TO_GENRE = {"study": "learning", "fact": "life", "interest": "life", "thread": "life"}
 DOMAIN_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -118,38 +114,18 @@ def existing_dedup_keys():
     return keys
 
 
-def is_genuine_user_message(d):
-    """transcript の1行が「本物のユーザー発話」か（SCHEMA『本物の発話の選別』の実装）。"""
-    if d.get("type") != "user":
-        return False
-    if d.get("isSidechain") or d.get("isMeta") or d.get("isCompactSummary"):
-        return False
-    if "toolUseResult" in d:
+def is_genuine_pi_user_message(d):
+    """Pi セッションの1行が「本物のユーザー発話」か（SCHEMA『本物の発話の選別』の実装）。
+
+    Pi は実ユーザー入力を type:"message" & message.role:"user" として残す。tool 結果は
+    role:"toolResult"、bash 実行や注入は別 type（bashExecution / custom / custom_message / label
+    等）に出るため、role だけで自然に選別できる（Claude のような type:"user" への tool 結果混入がない）。
+    content は文字列でも、テキスト/画像ブロックの配列でもよい（判定側がそのまま読む）。"""
+    if d.get("type") != "message":
         return False
     if not d.get("timestamp"):
         return False
-    content = d.get("message", {}).get("content")
-    if not isinstance(content, str):
+    m = d.get("message")
+    if not isinstance(m, dict) or m.get("role") != "user":
         return False
-    # ハーネス合成行（スラッシュコマンド・ローカル実行・タスク通知・スケジュール起動）を除外
-    for marker in ("<command-name>", "<local-command-stdout>", "<task-notification>",
-                   "<system-reminder>", "<scheduled-task"):
-        if marker in content:
-            return False
-    return True
-
-
-def is_genuine_codex_user_message(d):
-    """Codex セッションの1行が「本物のユーザー発話」か。
-    Codex はユーザーが実際に打った入力だけを event_msg / payload.type=user_message として残す
-    （AGENTS.md 注入・<skill> 注入・環境コンテキストは response_item 側に出るため自然に除外される）。
-    payload.message が発話本文。"""
-    if d.get("type") != "event_msg":
-        return False
-    if not d.get("timestamp"):
-        return False
-    p = d.get("payload")
-    if not isinstance(p, dict) or p.get("type") != "user_message":
-        return False
-    msg = p.get("message")
-    return isinstance(msg, str) and bool(msg.strip())
+    return m.get("content") is not None

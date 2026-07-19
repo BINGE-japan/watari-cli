@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""カーソル以降の「本物のユーザー発話」を両ストアから決定的に抽出する。
+"""カーソル以降の「本物のユーザー発話」を Pi ストアから決定的に抽出する。
 
 出力(JSON, stdout):
 {
   "generated": ts,
-  "stores": {"win": {"cursor":.., "readable":bool, "count":n, "max_ts":..|null, "truncated":bool}, "wsl": {...}, "codex": {...}},
-  "messages": [{"store","ts","session","uuid","cwd","file","text"}, ...]  # ts 昇順（win/wsl=Claude, codex=Codex）
+  "stores": {"pi": {"cursor":.., "readable":bool, "count":n, "max_ts":..|null, "truncated":bool}},
+  "messages": [{"store","ts","session","uuid","cwd","file","text"}, ...]  # ts 昇順（store=pi）
 }
 
 - ストアが読めない回はそのストアを readable:false とし、カーソルは前進させない
@@ -19,24 +19,23 @@ import os
 from datetime import timedelta
 
 from .watari_lib import (
-    CODEX_STORE, INGEST_MAX_MESSAGES, INGEST_MAX_WINDOW_DAYS, STORES,
-    fmt_ts, is_genuine_codex_user_message, is_genuine_user_message,
-    load_cursors, now_utc, parse_ts,
+    INGEST_MAX_MESSAGES, INGEST_MAX_WINDOW_DAYS, PI_STORE,
+    fmt_ts, is_genuine_pi_user_message, load_cursors, now_utc, parse_ts,
 )
 
 
-def scan_store(root, cursor_iso):
-    """1ストアを走査。(readable, messages) を返す。
-    ファイル1件でも読めなかった回は readable=False を返す（呼び出し側はそのストアの
-    カーソルを前進させない＝未読ファイルを飛び越えて取りこぼす事故を防ぐ。SCHEMA『WSL が
-    読めない回は前進させずスキップ』をファイル粒度で満たす）。"""
+def scan_pi_store(root, cursor_iso):
+    """Pi のセッション（<root>/**/<session>.jsonl、cwd ごとに保存）を走査。(readable, messages) を返す。
+    先頭行がヘッダ（type:"session"）で session id と cwd を持つ。以降の type:"message" のうち
+    message.role=="user" が本物の発話。dedup 用 uuid は pi:<session>:<entry id>（各行の安定 id を使う。
+    無い版では ts で代替）。入れ子の深さは Pi の版で変わりうるので **/*.jsonl で深さ非依存に拾う。
+    I/O 失敗時 readable=False、窓・停滞対策は他ストアと同じ思想。"""
     if not os.path.isdir(root):
         return False, []
     cursor = parse_ts(cursor_iso) if cursor_iso else None
     out = []
     ok = True
-    for path in sorted(glob.glob(os.path.join(root, "*", "*.jsonl"))):
-        # サブエージェント等の入れ子は対象外（projects/<proj>/<session>.jsonl 直下のみ）
+    for path in sorted(glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True)):
         try:
             if cursor and os.path.getmtime(path) < cursor.timestamp() - 120:
                 continue  # カーソル以前にしか書かれていないファイルは読まない
@@ -45,13 +44,19 @@ def scan_store(root, cursor_iso):
             ok = False  # stat/open に失敗したファイルがある→このストアは前進させない
             continue
         try:
+            session_id = os.path.basename(path)[:-6]
+            cwd = None
             with f:
                 for line in f:
                     try:
                         d = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    if not is_genuine_user_message(d):
+                    if d.get("type") == "session":  # 先頭ヘッダ行：session id と cwd を確定
+                        session_id = d.get("id") or session_id
+                        cwd = d.get("cwd") or cwd
+                        continue
+                    if not is_genuine_pi_user_message(d):
                         continue
                     try:
                         ts = parse_ts(d["timestamp"])
@@ -61,9 +66,9 @@ def scan_store(root, cursor_iso):
                         continue
                     out.append({
                         "ts": d["timestamp"],
-                        "session": d.get("sessionId") or os.path.basename(path)[:-6],
-                        "uuid": d.get("uuid"),
-                        "cwd": d.get("cwd"),
+                        "session": session_id,
+                        "uuid": f"pi:{session_id}:{d.get('id') or d['timestamp']}",
+                        "cwd": cwd,
                         "file": path,
                         "text": d["message"]["content"],
                     })
@@ -76,69 +81,14 @@ def scan_store(root, cursor_iso):
     return ok, out
 
 
-def scan_codex_store(root, cursor_iso):
-    """Codex のセッション（<root>/YYYY/MM/DD/rollout-*.jsonl）を走査。(readable, messages) を返す。
-    形式は Claude Code と違うが、出力の形は同じ（LLM 判定は source を問わず一様に扱える）。
-    dedup 用の合成 uuid は codex:<session>:<ts>（Codex は per-message uuid を持たないため）。
-    I/O 失敗時 readable=False、窓・停滞対策は scan_store と同じ思想。"""
-    if not os.path.isdir(root):
-        return False, []
-    cursor = parse_ts(cursor_iso) if cursor_iso else None
-    out = []
-    ok = True
-    for path in sorted(glob.glob(os.path.join(root, "*", "*", "*", "*.jsonl"))):
-        try:
-            if cursor and os.path.getmtime(path) < cursor.timestamp() - 120:
-                continue
-            f = open(path, encoding="utf-8")
-        except OSError:
-            ok = False
-            continue
-        try:
-            session_id = os.path.basename(path)[:-6]
-            cwd = None
-            with f:
-                for line in f:
-                    try:
-                        d = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if d.get("type") == "session_meta":
-                        p = d.get("payload") or {}
-                        session_id = p.get("id") or p.get("session_id") or session_id
-                        cwd = p.get("cwd") or cwd
-                        continue
-                    if not is_genuine_codex_user_message(d):
-                        continue
-                    try:
-                        ts = parse_ts(d["timestamp"])
-                    except (ValueError, KeyError):
-                        continue
-                    if cursor and ts <= cursor:
-                        continue
-                    out.append({
-                        "ts": d["timestamp"],
-                        "session": session_id,
-                        "uuid": f"codex:{session_id}:{d['timestamp']}",
-                        "cwd": cwd,
-                        "file": path,
-                        "text": d["payload"]["message"],
-                    })
-        except (OSError, UnicodeDecodeError):
-            ok = False
-            continue
-    return ok, out
-
-
 def run():
     """両ストアを走査して結果 dict を返す（副作用なし・読むだけ）。"""
     cursors = load_cursors()
     result = {"generated": fmt_ts(now_utc()), "stores": {}, "messages": []}
-    # win/wsl は Claude Code 形式（scan_store）、codex は Codex 形式（scan_codex_store）。
+    # watari chat の runtime は Pi。夢が読む組み込み transcript は Pi のセッションだけ
+    # （他の AI CLI・ツールは connector 宣言としてエージェントが読む）。
     jobs = [
-        ("win", "transcripts_win", scan_store, STORES["win"]),
-        ("wsl", "transcripts_wsl", scan_store, STORES["wsl"]),
-        ("codex", "transcripts_codex", scan_codex_store, CODEX_STORE),
+        ("pi", "transcripts_pi", scan_pi_store, PI_STORE),
     ]
     for store, cursor_key, scanner, root in jobs:
         cursor_iso = cursors.get(cursor_key)

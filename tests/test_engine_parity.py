@@ -2,13 +2,13 @@
 
 既存の test_regen_threads.py（open_threads の3層フェード）と test_host.py（カーソルの
 host 記録化）を補い、決定論コアで直接の被覆が無かった箇所を固める:
-- extract: 本物発話の選別 / Codex 合成 uuid / カーソル絞り込み / 窓トランケート
+- extract: 本物発話の選別（Pi）/ Pi 合成 uuid・ヘッダ読取 / カーソル絞り込み / 窓トランケート
 - ingest : (uuid,kind) 重複スキップ / 検証の原子性 / カーソル後退拒否 / deadline 検証 / 不正JSON
 - regen  : learning 畳み込み（mastery 非降格・freshness・related 和集合・alias）/ interests 減衰
 
 注: watari_lib.MEM はモジュール定数（import 時に env から一度だけ解決）。ingest は MEM を
 「値で」import するため、一時 home へ向けるには wl.MEM と ingest.MEM の両方を差し替える。
-extract は STORES/CODEX_STORE を値で持つので、そちらを差し替える。
+extract は PI_STORE を値で持つので、そちらを差し替える。
 """
 from __future__ import annotations
 
@@ -31,97 +31,95 @@ def _write_jsonl(path, records):
 
 
 class ExtractSelectionTest(unittest.TestCase):
-    """本物の binge 発話の選別・カーソル絞り込み・Codex 合成の契約。"""
+    """本物の binge 発話の選別・カーソル絞り込み・Pi 合成 uuid・ヘッダ読取の契約。"""
 
-    def test_scan_store_selects_only_genuine_user_messages(self):
+    def test_scan_pi_selects_only_genuine_user_messages(self):
         with tempfile.TemporaryDirectory(prefix="watari-ex-") as root:
             _write_jsonl(os.path.join(root, "proj", "sess.jsonl"), [
-                {"type": "user", "timestamp": "2026-07-10T00:00:00.000Z", "uuid": "u1",
-                 "cwd": "/home/binge/proj", "sessionId": "S1",
-                 "message": {"content": "本物の発話"}},
-                # ハーネス合成行は除外
-                {"type": "user", "timestamp": "2026-07-10T00:01:00.000Z", "uuid": "u2",
-                 "message": {"content": "<command-name>/watari</command-name>"}},
-                # sidechain は除外
-                {"type": "user", "timestamp": "2026-07-10T00:02:00.000Z", "uuid": "u3",
-                 "isSidechain": True, "message": {"content": "x"}},
-                # toolUseResult は除外
-                {"type": "user", "timestamp": "2026-07-10T00:03:00.000Z", "uuid": "u4",
-                 "toolUseResult": {}, "message": {"content": "x"}},
+                # 先頭ヘッダ行：session id と cwd を持つ
+                {"type": "session", "id": "S1", "cwd": "/home/binge/proj",
+                 "timestamp": "2026-07-10T00:00:00.000Z"},
+                {"type": "message", "id": "m1", "timestamp": "2026-07-10T00:00:01.000Z",
+                 "message": {"role": "user", "content": "本物の発話"}},
+                # tool 結果は role:"toolResult" で除外（混入しない）
+                {"type": "message", "id": "m2", "timestamp": "2026-07-10T00:00:02.000Z",
+                 "message": {"role": "toolResult", "content": [{"type": "text", "text": "x"}]}},
                 # assistant は除外
-                {"type": "assistant", "timestamp": "2026-07-10T00:04:00.000Z",
-                 "message": {"content": "返答"}},
+                {"type": "message", "id": "m3", "timestamp": "2026-07-10T00:00:03.000Z",
+                 "message": {"role": "assistant", "content": [{"type": "text", "text": "返答"}]}},
+                # message 以外の type（bash 実行・注入等）は除外
+                {"type": "bashExecution", "id": "m4", "timestamp": "2026-07-10T00:00:04.000Z"},
             ])
-            ok, msgs = extract.scan_store(root, None)
+            ok, msgs = extract.scan_pi_store(root, None)
             self.assertTrue(ok)
-            self.assertEqual([m["uuid"] for m in msgs], ["u1"])
+            self.assertEqual([m["uuid"] for m in msgs], ["pi:S1:m1"])
             self.assertEqual(msgs[0]["text"], "本物の発話")
             self.assertEqual(msgs[0]["session"], "S1")
             self.assertEqual(msgs[0]["cwd"], "/home/binge/proj")
 
-    def test_scan_store_excludes_at_or_before_cursor(self):
+    def test_scan_pi_excludes_at_or_before_cursor(self):
         with tempfile.TemporaryDirectory(prefix="watari-ex-") as root:
             _write_jsonl(os.path.join(root, "proj", "sess.jsonl"), [
-                {"type": "user", "timestamp": "2026-07-10T00:00:00.000Z", "uuid": "old",
-                 "message": {"content": "old"}},
-                {"type": "user", "timestamp": "2026-07-10T00:05:00.000Z", "uuid": "new",
-                 "message": {"content": "new"}},
+                {"type": "session", "id": "S1", "cwd": "/w",
+                 "timestamp": "2026-07-10T00:00:00.000Z"},
+                {"type": "message", "id": "old", "timestamp": "2026-07-10T00:00:00.000Z",
+                 "message": {"role": "user", "content": "old"}},
+                {"type": "message", "id": "new", "timestamp": "2026-07-10T00:05:00.000Z",
+                 "message": {"role": "user", "content": "new"}},
             ])
             # ts == cursor は除外・以降のみ（カーソルは「処理済みの最後」の意味）
-            ok, msgs = extract.scan_store(root, "2026-07-10T00:00:00.000Z")
+            ok, msgs = extract.scan_pi_store(root, "2026-07-10T00:00:00.000Z")
             self.assertTrue(ok)
-            self.assertEqual([m["uuid"] for m in msgs], ["new"])
+            self.assertEqual([m["uuid"] for m in msgs], ["pi:S1:new"])
 
-    def test_scan_store_missing_root_is_unreadable(self):
-        ok, msgs = extract.scan_store("/no/such/dir", None)
+    def test_scan_pi_missing_root_is_unreadable(self):
+        ok, msgs = extract.scan_pi_store("/no/such/dir", None)
         self.assertFalse(ok)
         self.assertEqual(msgs, [])
 
-    def test_scan_codex_synthesizes_uuid_and_reads_meta(self):
-        with tempfile.TemporaryDirectory(prefix="watari-cx-") as root:
-            _write_jsonl(os.path.join(root, "2026", "07", "10", "rollout-abc.jsonl"), [
-                {"type": "session_meta", "payload": {"id": "CX1", "cwd": "/work"}},
-                {"type": "event_msg", "timestamp": "2026-07-10T00:00:00.000Z",
-                 "payload": {"type": "user_message", "message": "コーデックス発話"}},
-                # agent_message は除外
-                {"type": "event_msg", "timestamp": "2026-07-10T00:01:00.000Z",
-                 "payload": {"type": "agent_message", "message": "応答"}},
+    def test_scan_pi_synthesizes_uuid_and_reads_header_at_any_depth(self):
+        # dedup 鍵は pi:<session id>:<行の安定 id>。入れ子の深さに依らず拾える（**/*.jsonl）。
+        with tempfile.TemporaryDirectory(prefix="watari-pi-") as root:
+            _write_jsonl(os.path.join(root, "deep", "nest", "s.jsonl"), [
+                {"type": "session", "id": "CX1", "cwd": "/work",
+                 "timestamp": "2026-07-10T00:00:00.000Z"},
+                {"type": "message", "id": "e9", "timestamp": "2026-07-10T00:00:01.000Z",
+                 "message": {"role": "user", "content": "深いネストの発話"}},
             ])
-            ok, msgs = extract.scan_codex_store(root, None)
+            ok, msgs = extract.scan_pi_store(root, None)
             self.assertTrue(ok)
             self.assertEqual(len(msgs), 1)
-            self.assertEqual(msgs[0]["uuid"], "codex:CX1:2026-07-10T00:00:00.000Z")
+            self.assertEqual(msgs[0]["uuid"], "pi:CX1:e9")
             self.assertEqual(msgs[0]["session"], "CX1")
             self.assertEqual(msgs[0]["cwd"], "/work")
-            self.assertEqual(msgs[0]["text"], "コーデックス発話")
+            self.assertEqual(msgs[0]["text"], "深いネストの発話")
 
     def test_run_truncates_window_from_oldest_message(self):
         # 窓の起点は「最古の未処理メッセージ」。起点 +30日を超える発話は落とし truncated:true。
-        with tempfile.TemporaryDirectory(prefix="watari-win-") as win, \
-                tempfile.TemporaryDirectory(prefix="watari-wsl-") as wsl, \
-                tempfile.TemporaryDirectory(prefix="watari-cx-") as codex, \
+        with tempfile.TemporaryDirectory(prefix="watari-pi-") as pi, \
                 tempfile.TemporaryDirectory(prefix="watari-home-") as home:
-            _write_jsonl(os.path.join(win, "proj", "s.jsonl"), [
-                {"type": "user", "timestamp": "2026-01-01T00:00:00.000Z", "uuid": "a",
-                 "message": {"content": "oldest"}},
-                {"type": "user", "timestamp": "2026-01-16T00:00:00.000Z", "uuid": "b",
-                 "message": {"content": "within"}},
-                {"type": "user", "timestamp": "2026-02-20T00:00:00.000Z", "uuid": "c",
-                 "message": {"content": "beyond-window"}},
+            _write_jsonl(os.path.join(pi, "proj", "s.jsonl"), [
+                {"type": "session", "id": "S1", "cwd": "/p",
+                 "timestamp": "2026-01-01T00:00:00.000Z"},
+                {"type": "message", "id": "a", "timestamp": "2026-01-01T00:00:00.000Z",
+                 "message": {"role": "user", "content": "oldest"}},
+                {"type": "message", "id": "b", "timestamp": "2026-01-16T00:00:00.000Z",
+                 "message": {"role": "user", "content": "within"}},
+                {"type": "message", "id": "c", "timestamp": "2026-02-20T00:00:00.000Z",
+                 "message": {"role": "user", "content": "beyond-window"}},
             ])
-            saved = (extract.STORES, extract.CODEX_STORE, wl.MEM)
-            extract.STORES = {"win": win, "wsl": wsl}
-            extract.CODEX_STORE = codex
+            saved = (extract.PI_STORE, wl.MEM)
+            extract.PI_STORE = pi
             wl.MEM = home  # 空 home → カーソルは全 None（絞り込み無し・書き込み無し）
             try:
                 result = extract.run()
             finally:
-                extract.STORES, extract.CODEX_STORE, wl.MEM = saved
-            win_stats = result["stores"]["win"]
-            self.assertTrue(win_stats["truncated"])
-            self.assertEqual(win_stats["count"], 2)
-            self.assertEqual(win_stats["max_ts"], "2026-01-16T00:00:00.000Z")
-            self.assertEqual([m["uuid"] for m in result["messages"]], ["a", "b"])
+                extract.PI_STORE, wl.MEM = saved
+            pi_stats = result["stores"]["pi"]
+            self.assertTrue(pi_stats["truncated"])
+            self.assertEqual(pi_stats["count"], 2)
+            self.assertEqual(pi_stats["max_ts"], "2026-01-16T00:00:00.000Z")
+            self.assertEqual([m["uuid"] for m in result["messages"]], ["pi:S1:a", "pi:S1:b"])
 
 
 class IngestApplyTest(unittest.TestCase):
@@ -163,17 +161,17 @@ class IngestApplyTest(unittest.TestCase):
         self.assertFalse(os.path.exists(host.host_path(self.home)))  # host 記録も書かない
 
     def test_cursor_backward_rejected_and_atomic(self):
-        ingest.apply([self._row(uuid="u1")], advance_wsl="2026-07-10T00:00:00.000Z")
+        ingest.apply([self._row(uuid="u1")], advance_pi="2026-07-10T00:00:00.000Z")
         with self.assertRaises(ValueError) as cm:
-            ingest.apply([self._row(uuid="u2")], advance_wsl="2026-07-01T00:00:00.000Z")
+            ingest.apply([self._row(uuid="u2")], advance_pi="2026-07-01T00:00:00.000Z")
         self.assertTrue(any("後退禁止" in e for e in cm.exception.args[0]))
         # 後退拒否で u2 は書かれない（原子性）
         self.assertEqual([d["refs"]["uuid"] for d in wl.load_log("life")], ["u1"])
 
     def test_cursor_advance_lands_in_host_record_not_shared_json(self):
-        ingest.apply([self._row(uuid="u1")], advance_wsl="2026-07-10T00:00:00.000Z")
+        ingest.apply([self._row(uuid="u1")], advance_pi="2026-07-10T00:00:00.000Z")
         record = json.load(open(host.host_path(self.home), encoding="utf-8"))
-        self.assertEqual(record["cursors"]["transcripts_wsl"], "2026-07-10T00:00:00.000Z")
+        self.assertEqual(record["cursors"]["transcripts_pi"], "2026-07-10T00:00:00.000Z")
         self.assertIn("last_run", record["cursors"])
         # 共有 cursors.json は（このマシンからは）作らない
         self.assertFalse(os.path.exists(os.path.join(self.home, "cursors.json")))

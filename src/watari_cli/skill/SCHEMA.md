@@ -30,20 +30,19 @@
 - 記憶の根拠は原則ユーザー本人（user 発話）。ワタリ(assistant)の発言はユーザーが採用/同意した事実の確認にのみ使う。
   サブエージェント(isSidechain)・ツール出力・メタ行は無視する。
 
-## 本物の発話の選別（重要 — tool_result 誤取り込みの防止）
-Claude Code の transcript では tool 実行結果も `type:"user"` で記録される。本物のユーザー発話だけを取る条件は **すべて満たす行**に限定する：
-- `type == "user"`
-- `message.content` が**文字列**（text のみ。配列＝tool_result ブロックは除外）
-- `toolUseResult` キーを**持たない**
-そのうえで次は除外：`isMeta:true` / `isCompactSummary:true` / `type:"summary"` / `isSidechain:true` / スラッシュコマンド由来の合成 user 行 / `timestamp` の無い制御行。
-- 時刻フィールド名は `timestamp`（UTC・…Z）。`ts` ではない（`ts` は log 側の名前）。
+## 本物の発話の選別（Pi セッション）
+watari chat の runtime は Pi。Pi のセッションは `~/.pi/agent/sessions/<作業ディレクトリ>/*.jsonl`（JSONL）で、
+先頭行が `{"type":"session","id":<session uuid>,"cwd":<作業ディレクトリ>}` のヘッダ。本物のユーザー発話だけを取る
+条件（**すべて満たす行**）：
+- `type == "message"`
+- `message.role == "user"`
+- `timestamp` を持つ（UTC・…Z。`ts` ではない＝`ts` は log 側の名前）
 
-### Codex セッションの選別（第3の transcript ストア）
-ユーザーは Codex CLI 側からもワタリと話す（`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`）。Codex 形式は Claude Code と違い、
-本物のユーザー発話は **`type=="event_msg"` かつ `payload.type=="user_message"`** の行だけに現れる（発話本文は `payload.message`）。
-AGENTS.md 注入・`<skill>` 注入・環境コンテキストは `response_item` 側に出るため、この条件で自然に除外される
-（実装は watari_lib.is_genuine_codex_user_message / extract.scan_codex_store）。per-message uuid が無いため
-dedup 鍵は合成 uuid `codex:<session_id>:<timestamp>`。時刻は同じく top-level `timestamp`（UTC …Z）。
+tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExecution` / `custom` / `custom_message` / `label` 等）に
+出るため、role だけで自然に選別できる（Claude Code のような `type:"user"` への tool 結果混入が無く、判定は単純）。
+`message.content` は文字列でも、テキスト/画像ブロックの配列でもよい（判定側がそのまま読む）。session id と cwd は
+ヘッダ行から取り、各行の安定 `id`（8桁hex）を使って dedup 鍵は合成 uuid `pi:<session_id>:<id>`（id が無い版では
+`pi:<session_id>:<timestamp>`）。実装は watari_lib.is_genuine_pi_user_message / extract.scan_pi_store。
 
 ## 学習の根拠はユーザーの発話痕跡（説明された≠学習した）
 - topic・mastery として記録してよいのは、その話題が **ユーザー自身の発話に現れた**ものだけ。ワタリが説明しただけでユーザーの反応（質問・言い換え・続きの計算・相づち）が無い内容は、mastery を問わず記録しない。
@@ -57,7 +56,7 @@ dedup 鍵は合成 uuid `codex:<session_id>:<timestamp>`。時刻は同じく to
 - 補填行（state からの還元・移行時の topic アンカー等）は合成 uuid `reconcile:<domain>/<slug>` を正当な dedup 鍵として使ってよい（元発話が特定できない場合は refs.session 省略可）。
 - Obsidian vault 由来の行（`source:"obsidian"`）は合成 uuid `obsidian:<vault相対パス>@<処理対象更新日YYYY-MM-DD>` を dedup 鍵とする（更新日を含めるのは、後日加筆されたノートから新しい行を書けるようにするため。同一更新分の再処理は dedup される）。`refs.cwd` にノートの vault 相対パスを残す。
 - Linear 由来の行（`source:"linear"`）は合成 uuid `linear:<issue識別子（例 ABC-123）>@<処理対象更新日YYYY-MM-DD>` を dedup 鍵とする（考え方は obsidian と同じ：issue が後日動いたら新しい行を書け、同一更新分の再処理は dedup される）。issue の中身は log に写さず、ユーザーの活動・予定として効く要点だけを書く（中身の正本は Linear）。
-- 同一プロジェクトが Windows / WSL の両ストアに二重に現れることがある。**近接 ts ＋ 同一 `refs.cwd` の同義行は1件に畳む**（先に拾った方を残す）。
+- 同一発話が複数ソース（Pi transcript と connector 等）に二重に現れることがある。**近接 ts ＋ 同一 `refs.cwd` の同義行は1件に畳む**（先に拾った方を残す）。
 
 ## state.json（現在地・派生物。ジャンルの性質で形が違う）
 ### life（日常・興味・人物像 — 定着度の概念は無い）
@@ -144,23 +143,20 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 相互に読める。組み込みキーとストア別の意味：
 ```
 {
-  "transcripts_win": "<最後に処理した Windows store メッセージの UTC ts>",
-  "transcripts_wsl": "<最後に処理した WSL store メッセージの UTC ts>",
-  "transcripts_codex": "<最後に処理した Codex セッションの UTC ts>",
-  "obsidian": "<最後に処理した vault ノートの更新時刻（UTC ts）>",
+  "transcripts_pi": "<最後に処理した Pi セッションメッセージの UTC ts>",
   "last_run": "<このルーティンが最後に走った UTC ts>",
-  "<connector名>": "<宣言した connector ごとに --advance-ext で動的に追加されるカーソル（例 linear なら issue の更新時刻、gmail なら受信時刻 等。意味は各 connector の read 指示が決める）>"
+  "<connector名>": "<宣言した connector ごとに --advance-ext で動的に追加されるカーソル（例 obsidian ならノート更新時刻、linear なら issue の更新時刻、gmail なら受信時刻 等。意味は各 connector の read 指示が決める）>"
 }
 ```
-- transcript ストアは **Windows・WSL・Codex で別カーソル**（`transcripts_win` / `transcripts_wsl` / `transcripts_codex`）。各ストアを読めた分だけ、そのカーソルを前進。
-- **読めない回（I/O error 等）はそのストアのカーソルを前進させずスキップ**（例：WSL 停止中に Win 側だけ前進して WSL 発話を永久取りこぼす事故を防ぐ。Codex も同じ扱い）。
+- 組み込み transcript は **Pi 一本**（`transcripts_pi`）。watari chat の runtime が Pi なので、ワタリと話した内容はすべて Pi のセッションに残る。他の AI CLI・ツールは connector として宣言する（下の「connector」節）。
+- **読めない回（I/O error 等）はカーソルを前進させずスキップ**（読めた分だけ前進。一時的な I/O 断で未読区間を飛び越えて取りこぼす事故を防ぐ）。
 - `null` は **−∞**（=全件が新しい）とみなす。
 - 各カーソルは「**実際に処理した最後の `timestamp`**」に厳密に進める（未処理区間を飛び越えない）。
 - `last_run` は痕跡用。log に非事実行を積まないための受け皿。
-- カーソルの前進は ingest.py の `--advance-*` だけが行う（「実際に処理した最後の timestamp」を渡す。後退は拒否される）。
-  transcript/obsidian は専用フラグ（`--advance-wsl/win/codex/obsidian`）、外部ソース(connector)は
+- カーソルの前進は ingest.py の advance フラグだけが行う（「実際に処理した最後の timestamp」を渡す。後退は拒否される）。
+  組み込み transcript(Pi) は専用フラグ `--advance-pi`、外部ソース(connector)は
   `--advance-ext <name>=<ts>`。**許可名は固定リストではなく、ユーザーが宣言した connector 名**（config の `connectors`。下の
-  「connector」節）。未宣言の名前はエラー。読めなかった・新着が無かったソースは渡さない（据え置き）。connector のカーソルは
+  「connector」節。obsidian 等もここで宣言して渡す）。未宣言の名前はエラー。読めなかった・新着が無かったソースは渡さない（据え置き）。connector のカーソルは
   他のキーと同じくマシンごとの host 記録に載る（host 記録の cursors は任意キーを許すので、宣言名がそのままキーになる）。
 - 旧 `cursors.json` からの移行：旧 `<home>/cursors.json` があれば、読み取り（status / dream / ingest）は
   その位置を**メモリ上で**引き継ぐ。host 記録への永続化は実際に前進が起きたとき（`ingest` の save_cursors）に
@@ -169,7 +165,7 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 - **cloud スコープの connector（メール等）の扱い**：カーソルは他と同じくマシンごとの host 記録に置くが、cloud 源は本来
   どのマシンから取り込んでも同じ位置であるべき（マシン間で共有すべき性質）。多重取り込みを避けるため、**cloud connector は
   「担当1台」だけが夢を見る**（どのマシンが担当かは運用で決める）。local スコープは各マシンが自分で読む。
-- `obsidian` カーソルの対象はユーザーの Obsidian vault（場所はユーザーが設定する。ワタリ本体はパスを内蔵しない）。ノートはユーザー本人の産出物なので、自分の言葉でまとめた内容は mastery 2 の根拠になり得る。知識の中身は log に写さず、到達状態とノートへのポインタ（refs.cwd）だけを書く（ノートの中身の正本は vault）。
+- Obsidian を使うなら connector として宣言する（`watari connector add --name obsidian --scope local`）。ノートはユーザー本人の産出物なので、自分の言葉でまとめた内容は mastery 2 の根拠になり得る。知識の中身は log に写さず、到達状態とノートへのポインタ（refs.cwd）だけを書く（ノートの中身の正本は vault）。カーソルは他 connector と同じく `--advance-ext obsidian=<最新ts>`。
 
 ## connector（夢に流し込むソースの宣言）
 transcript 以外のソース（メール・タスク・チャット等）は、ユーザーが `config.json` の `connectors` に**宣言する**。

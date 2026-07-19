@@ -18,8 +18,8 @@ import os
 import sys
 
 from .watari_lib import (
-    GENRES, KIND_TO_GENRE, SINK_DAYS, STORES,
-    is_genuine_user_message, load_log, now_utc, parse_ts, state_path,
+    GENRES, KIND_TO_GENRE, PI_STORE, SINK_DAYS,
+    is_genuine_pi_user_message, load_log, now_utc, parse_ts, state_path,
 )
 from . import regen_state
 
@@ -99,30 +99,31 @@ def check_coverage():
             if s:
                 ref_sessions.add(s)
     lines = []
-    for store, root in STORES.items():
-        if not os.path.isdir(root):
-            lines.append(f"[{store}] ストアが読めない")
+    if not os.path.isdir(PI_STORE):
+        return ["[pi] ストアが読めない"]
+    # session id はヘッダ行(type:"session")に入るので、まず1ファイル読んでから ref と突き合わせる
+    # （Claude 版はファイル名で早期 skip できたが、Pi は id が中にあるため中身を見てから判定）。
+    for path in glob.glob(os.path.join(PI_STORE, "**", "*.jsonl"), recursive=True):
+        sid = os.path.basename(path)[:-6]
+        cnt, last = 0, ""
+        try:
+            for line in open(path, encoding="utf-8"):
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if d.get("type") == "session":
+                    sid = d.get("id") or sid
+                    continue
+                if is_genuine_pi_user_message(d):
+                    cnt += 1
+                    last = max(last, d["timestamp"])
+        except OSError:
             continue
-        for path in glob.glob(os.path.join(root, "*", "*.jsonl")):
-            sid = os.path.basename(path)[:-6]
-            if sid in ref_sessions:
-                continue
-            cnt, last = 0, ""
-            try:
-                for line in open(path, encoding="utf-8"):
-                    if '"type":"user"' not in line:
-                        continue
-                    try:
-                        d = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if is_genuine_user_message(d):
-                        cnt += 1
-                        last = max(last, d["timestamp"])
-            except OSError:
-                continue
-            if cnt >= 5:
-                lines.append(f"[{store}] {os.path.basename(os.path.dirname(path))} {sid[:8]} 実発話{cnt} last={last[:10]}")
+        if sid in ref_sessions:
+            continue
+        if cnt >= 5:
+            lines.append(f"[pi] {os.path.basename(os.path.dirname(path))} {sid[:8]} 実発話{cnt} last={last[:10]}")
     return lines
 
 

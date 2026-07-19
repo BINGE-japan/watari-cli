@@ -57,6 +57,6 @@ Notes:
 Nothing new: it's the same "夢を見る" procedure the skill already documents,
 just triggered by cron instead of a live "夢を見て" — the agent runs `watari
 dream --json`, judges the candidates, writes rows with `watari ingest
---rows ... --advance-*`, and finishes with `watari audit`. Cursors, dedup,
+--rows ... --advance-pi`, and finishes with `watari audit`. Cursors, dedup,
 and the three-tier judgment rules all behave identically whether the prompt
 came from a person or from cron.
