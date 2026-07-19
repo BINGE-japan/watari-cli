@@ -16,8 +16,11 @@ Watari.
 
 `watari install` sets up (or adopts an existing cartridge, or restores one
 from a git backup) a memory cartridge and remembers where it lives. `watari
-chat` then launches the bundled skill on Pi (pass `--show` to print the command
-instead of running it, or extra arguments to pass straight through to Pi).
+chat` then launches Watari on Pi — the persona is injected as Pi's system prompt
+and the memory is read through the `watari` CLI (pass `--show` to print the
+command instead of running it, or extra arguments to pass straight through to
+Pi). The Pi runtime needs **Node ≥22.19** on PATH; without it Pi fails to
+start.
 
 Run `watari --help`, or `watari <subcommand> --help`, for the full set of
 subcommands: status/host/dream/recall/ingest/audit/regen/init/install/chat/

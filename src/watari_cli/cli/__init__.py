@@ -379,9 +379,11 @@ def cmd_chat(args) -> int:
     settings = config.load_config()
     runtime = args.runtime or settings.get("runtime") or "pi"
 
-    # --no-skills: Pi の自動スキル探索を切り、明示した watari スキルだけを読ませる。
-    # ~/.agents/skills や ~/.pi/agent/skills に同名 "watari" があると衝突してこちらが skip されるため。
-    cmd = _runtime_base(runtime) + ["--no-skills", "--skill", skill] + args.extra
+    # ワタリは「オンデマンドで呼ぶスキル」でなく常時オンの人格。--skill 渡しだとモデルが自動発動せず
+    # 素の助手のまま応答する（実測）。SKILL.md をシステムプロンプトに常時注入して人格を起動する。
+    # --no-skills で他スキルの自動探索（~/.agents/skills 等の同名 "watari" 衝突含む）も切る。
+    skill_md = os.path.join(skill, "SKILL.md")
+    cmd = _runtime_base(runtime) + ["--no-skills", "--append-system-prompt", skill_md] + args.extra
 
     env = dict(os.environ)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
