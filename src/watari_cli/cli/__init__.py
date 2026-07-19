@@ -447,8 +447,7 @@ def cmd_ingest(args) -> int:
     try:
         summary = ingest.apply(
             rows,
-            advance_wsl=args.advance_wsl, advance_win=args.advance_win,
-            advance_codex=args.advance_codex, advance_obsidian=args.advance_obsidian,
+            advance_pi=args.advance_pi,
             advance_ext=args.advance_ext or (), allow_new_domain=args.allow_new_domain,
             dry_run=args.dry_run,
         )
@@ -553,10 +552,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pi = sub.add_parser("ingest", help="判定済みの記憶行(JSON)を記憶へ書き込む")
     pi.add_argument("--rows", required=True, help="log 行の JSON 配列ファイル(SCHEMA 準拠)")
     pi.add_argument("--home", help="記憶の場所")
-    pi.add_argument("--advance-wsl")
-    pi.add_argument("--advance-win")
-    pi.add_argument("--advance-codex")
-    pi.add_argument("--advance-obsidian")
+    pi.add_argument("--advance-pi")
     pi.add_argument("--advance-ext", action="append", default=[], metavar="NAME=TS")
     pi.add_argument("--allow-new-domain", action="store_true")
     pi.add_argument("--dry-run", action="store_true", help="検証と件数だけ（書き込みなし）")

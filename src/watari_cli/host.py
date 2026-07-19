@@ -22,12 +22,12 @@ AI_CLIS = ("claude", "codex", "pi")
 # 取り込みカーソルのキー（このマシンの host 記録の "cursors" に格納。空の既定は全て None）。
 # 記憶（WATARI_HOME）は git で全マシン共有されるため、カーソルは共有 cursors.json ではなく
 # マシンごとの host 記録に持つ（各マシンは自分のファイルだけ書くので衝突しない）。
-# ここに載るのは本当に固定の組み込みソースだけ（transcript 3種 + obsidian + last_run）。
-# connector（slack/gmail/calendar/linear 等）のカーソルは固定リストではなく、ユーザーが
-# `watari connector add` で宣言した名前が --advance-ext 前進時に動的なキーとして生える
-# （config.load_connectors / ingest.apply 参照）。
+# ここに載るのは本当に固定の組み込みソースだけ（Pi transcript + last_run）。watari chat の
+# runtime は Pi なので組み込み transcript は Pi 一本。obsidian 含む他ソース（slack/gmail/
+# calendar/linear 等）のカーソルは固定リストではなく、ユーザーが `watari connector add` で
+# 宣言した名前が --advance-ext 前進時に動的なキーとして生える（config.load_connectors / ingest.apply）。
 CURSOR_KEYS = (
-    "transcripts_win", "transcripts_wsl", "transcripts_codex", "obsidian", "last_run",
+    "transcripts_pi", "last_run",
 )
 
 

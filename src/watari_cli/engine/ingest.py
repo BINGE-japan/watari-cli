@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """判定済みの記憶行を検証つきで log に追記し、カーソルを前進させ、state を再生成する。
 
-usage: ingest.py --rows FILE [--advance-wsl TS] [--advance-win TS] [--advance-codex TS]
-                 [--advance-obsidian TS] [--advance-ext NAME=TS ...] [--allow-new-domain] [--dry-run]
+usage: ingest.py --rows FILE [--advance-pi TS]
+                 [--advance-ext NAME=TS ...] [--allow-new-domain] [--dry-run]
 
 --rows FILE: 追記したい log 行の JSON 配列。各行は SCHEMA の log 行仕様
   （kind で行き先ジャンルが決まる。study は domain/topic/mastery/note 必須、
     interest/thread は topic 必須、refs.uuid 必須）。
---advance-*: そのストアの「実際に処理した最後の timestamp」。後退は拒否。
+--advance-pi: Pi transcript ストアの「実際に処理した最後の timestamp」。後退は拒否。
   ストアが読めなかった回は渡さない（カーソル据え置き）。
 --advance-ext NAME=TS: 外部ソース(connector)のカーソル前進。繰り返し指定可。許可名はユーザーが
-  宣言した connector 名（config の connectors。`watari connector add`）。規則は --advance-* と同じ
-  （後退拒否・読めなかった回は渡さない）。未宣言の名前はエラー。
+  宣言した connector 名（config の connectors。`watari connector add`）。規則は --advance-pi と同じ
+  （後退拒否・読めなかった回は渡さない）。未宣言の名前はエラー。obsidian 等もここで宣言して渡す。
 
 検証に1件でも失敗したら何も書かずに exit 2（原子性）。
 dedup: 既存 log に同 (refs.uuid, kind) があれば黙ってスキップ（正常系）。
@@ -114,8 +114,7 @@ def load_rows(path):
     return rows
 
 
-def apply(rows, *, advance_wsl=None, advance_win=None, advance_codex=None,
-          advance_obsidian=None, advance_ext=(), allow_new_domain=False, dry_run=False):
+def apply(rows, *, advance_pi=None, advance_ext=(), allow_new_domain=False, dry_run=False):
     """検証→dedup→追記→カーソル前進→state 再生成。サマリ文字列を返す。
 
     検証（行・カーソル後退）に1件でも失敗したら ValueError(errors) を送出し、何も書かない。
@@ -124,11 +123,8 @@ def apply(rows, *, advance_wsl=None, advance_win=None, advance_codex=None,
     # カーソルはマシンごとの host 記録に持つ（遅延 import で循環を回避）。
     from watari_cli import host
     cursors = host.load_cursors(MEM)
-    advances = [("wsl", "transcripts_wsl", advance_wsl),
-                ("win", "transcripts_win", advance_win),
-                ("codex", "transcripts_codex", advance_codex),
-                ("obsidian", "obsidian", advance_obsidian)]
-    # 外部ソース(connector)の許可名はユーザー宣言（config の connectors）。obsidian/transcript は
+    advances = [("pi", "transcripts_pi", advance_pi)]
+    # 外部ソース(connector)の許可名はユーザー宣言（config の connectors）。transcript(Pi) は
     # 上の専用フラグが担当し、ここは通らない。advance_ext が無ければ config を読まない（副作用最小）。
     if advance_ext:
         from watari_cli import config
@@ -187,10 +183,7 @@ def apply(rows, *, advance_wsl=None, advance_win=None, advance_codex=None,
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rows", required=True)
-    ap.add_argument("--advance-wsl")
-    ap.add_argument("--advance-win")
-    ap.add_argument("--advance-codex")
-    ap.add_argument("--advance-obsidian")
+    ap.add_argument("--advance-pi")
     ap.add_argument("--advance-ext", action="append", default=[], metavar="NAME=TS")
     ap.add_argument("--allow-new-domain", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -200,8 +193,7 @@ def main():
         rows = load_rows(args.rows)
         summary = apply(
             rows,
-            advance_wsl=args.advance_wsl, advance_win=args.advance_win,
-            advance_codex=args.advance_codex, advance_obsidian=args.advance_obsidian,
+            advance_pi=args.advance_pi,
             advance_ext=args.advance_ext, allow_new_domain=args.allow_new_domain,
             dry_run=args.dry_run,
         )

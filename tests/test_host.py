@@ -67,10 +67,8 @@ class HostCursorsTest(unittest.TestCase):
     """取り込みカーソルが（共有 cursors.json ではなく）このマシンの host 記録に載る契約。"""
 
     LEGACY = {
-        "transcripts_win": "2026-07-01T10:00:00.000Z",
-        "transcripts_wsl": "2026-07-02T11:00:00.000Z",
-        "transcripts_codex": None, "slack": None, "gmail": None,
-        "calendar": None, "linear": None, "obsidian": None,
+        "transcripts_pi": "2026-07-02T11:00:00.000Z",
+        "slack": None, "gmail": None, "obsidian": None,
         "last_run": "2026-07-02T12:00:00.000Z",
     }
 
@@ -83,14 +81,13 @@ class HostCursorsTest(unittest.TestCase):
             self.assertFalse(os.path.isdir(os.path.join(home, "hosts")))
 
     def test_cursor_keys_only_has_real_builtin_sources(self) -> None:
-        # CURSOR_KEYS は固定 connector リスト時代の名残（slack/gmail/calendar/linear）を
-        # 持たない：それらは新規ユーザーの `watari status` に無意味なプレースホルダとして
-        # 出ていた。connector のカーソルは宣言名を使って --advance-ext で動的に生える
-        # （固定リストに載せない）。
-        self.assertEqual(set(host.CURSOR_KEYS),
-                          {"transcripts_win", "transcripts_wsl", "transcripts_codex",
-                           "obsidian", "last_run"})
-        for stale in ("slack", "gmail", "calendar", "linear"):
+        # watari-cli の runtime は Pi。組み込み transcript は Pi 一本 + last_run だけ。
+        # 旧移植で引きずっていた win/wsl/codex や、固定 connector 時代の名残
+        # （slack/gmail/calendar/linear）や obsidian は CURSOR_KEYS に載せない
+        # ——connector のカーソルは宣言名を使って --advance-ext で動的に生える。
+        self.assertEqual(set(host.CURSOR_KEYS), {"transcripts_pi", "last_run"})
+        for stale in ("transcripts_win", "transcripts_wsl", "transcripts_codex",
+                      "obsidian", "slack", "gmail", "calendar", "linear"):
             self.assertNotIn(stale, host.CURSOR_KEYS)
 
     def test_legacy_cursors_json_read_free_then_migrates_on_save(self) -> None:
@@ -121,16 +118,16 @@ class HostCursorsTest(unittest.TestCase):
                 json.dump(self.LEGACY, f)
             host.set_fact(home, "terminal", "Ghostty")  # facts を先に置く
             cursors = host.load_cursors(home)            # record 有・cursors 無 → 移行
-            advanced = dict(cursors, transcripts_wsl="2026-07-10T09:00:00.000Z")
+            advanced = dict(cursors, transcripts_pi="2026-07-10T09:00:00.000Z")
             host.save_cursors(home, advanced)
             with open(host.host_path(home), encoding="utf-8") as f:
                 record = json.load(f)
-            self.assertEqual(record["cursors"]["transcripts_wsl"], "2026-07-10T09:00:00.000Z")
+            self.assertEqual(record["cursors"]["transcripts_pi"], "2026-07-10T09:00:00.000Z")
             self.assertEqual(record["facts"]["terminal"], "Ghostty")   # facts を壊さない
             self.assertEqual(record["machine_id"], host.machine_id())  # 自動情報も揃う
             # cursors.json は正本ではないので前進の影響を受けない
             with open(legacy_path, encoding="utf-8") as f:
-                self.assertEqual(json.load(f)["transcripts_wsl"], self.LEGACY["transcripts_wsl"])
+                self.assertEqual(json.load(f)["transcripts_pi"], self.LEGACY["transcripts_pi"])
 
     def test_refresh_does_not_drop_cursors_set_by_save_cursors(self) -> None:
         # 回帰: watari host（--set 無し）や watari status は host.refresh() を呼ぶだけの
