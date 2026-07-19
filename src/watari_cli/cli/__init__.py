@@ -398,6 +398,66 @@ def _runtime_base(runtime: str) -> list[str]:
     return runtime.split()
 
 
+def _state_dir() -> str:
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    d = os.path.join(base, "watari")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _dream_recently(lock_path: str, window: float = 300.0) -> bool:
+    """直近 window 秒に夢が走った、または今も走っているなら True（二重起動ガード）。"""
+    import time
+    try:
+        with open(lock_path, encoding="utf-8") as f:
+            lock = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return False
+    if lock.get("pid") and _pid_alive(lock["pid"]):
+        return True
+    return (time.time() - lock.get("ts", 0)) < window
+
+
+def _spawn_background_dream(home: str, runtime: str, skill: str) -> None:
+    """chat 起動時に裏で夢（「夢を見て」）を回す。起動をブロックしない。二重起動は lock でガードし、
+    自分が dream worker（WATARI_SKIP_AUTO_DREAM）なら回さない＝再帰しない。夜間 cron の代替。"""
+    import subprocess
+    import time
+
+    if os.environ.get("WATARI_SKIP_AUTO_DREAM"):
+        return
+    lock_path = os.path.join(_state_dir(), "dream.lock")
+    if _dream_recently(lock_path):
+        return
+    cmd = _runtime_base(runtime) + [
+        "--no-skills", "--append-system-prompt", os.path.join(skill, "SKILL.md"),
+        "--no-session", "-p", "夢を見て"]
+    env = dict(os.environ)
+    env["WATARI_HOME"] = home
+    env["WATARI_SKIP_AUTO_DREAM"] = "1"
+    try:
+        proc = subprocess.Popen(
+            cmd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return
+    try:
+        with open(lock_path, "w", encoding="utf-8") as f:
+            json.dump({"pid": proc.pid, "ts": time.time()}, f)
+    except OSError:
+        pass
+
+
 def cmd_chat(args) -> int:
     """ワタリを起動する。スキル・記憶を自動で渡すランチャー（モデルは Pi 側の関心事）。
 
@@ -443,6 +503,7 @@ def cmd_chat(args) -> int:
 
     relayer = relay.Relay(wl.PI_STORE, host.machine_id())
     relayer.start()  # 会話を別マシンへ中継（クラウド未認証なら内部で no-op）
+    _spawn_background_dream(home, runtime, skill)  # 裏で夢を回す（非ブロッキング・二重起動ガード）
 
     def _on_term(signum, frame):  # SIGTERM でも最終 flush してから抜ける
         relayer.stop_and_flush()
