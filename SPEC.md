@@ -19,6 +19,10 @@
 - **決定論**：log＝正本（追記専用）→ state＝派生（log から再生成）。同じ log＋now なら必ず同じ state。
 - **モデル非依存**：判定はランタイム上のモデル、機械処理は CLI。**CLI はモデルも MCP も呼ばない**。
 - **持ち運び**：記憶は WATARI_HOME（git リポ）。`watari install` で挿せば「その人のワタリ」。
+- **ユーザーに生コマンドを手組みさせない**：`watari install` で watari の担当（記憶カセットの用意）が
+  menu で完結し home も保存される。以後ユーザーは `watari chat` を打つだけ（`--home` も不要）。
+  **モデル・認証は Pi の担当**（Pi が起動時に選ばせ・`/login` し・自分で覚える）。watari はそれを
+  肩代わり・重複しない（watari ≠ Pi の分離。install で「どの AI で動かすか」は尋ねない）。
 
 ## スコープ（境界＝engine に入るか、カセットか）
 - **engine（配布・`src/watari_cli/`）**：CLI・記憶エンジン・人格スキル。汎用・binge 非依存。
