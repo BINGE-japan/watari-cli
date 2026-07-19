@@ -1,5 +1,10 @@
 # Watari CLI product repository
 
+**Start with `SPEC.md`** — the project's goal, requirements, scope, current
+status, and settled decisions live there, so the intent doesn't have to be
+restated each session. This file is the development discipline; `SPEC.md` is
+the "what and why."
+
 This repository contains the installable Watari CLI product: a memory engine
 (`src/watari_cli/`) and a bundled persona skill (`src/watari_cli/skill/`,
 shipped as package data in the wheel). The memory schema is specified in
