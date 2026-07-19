@@ -342,6 +342,13 @@ def cmd_install(args) -> int:
         from watari_cli import git_sync
         ok, message = git_sync.setup_remote(saved, plan["git_remote"])
         print(("✓ " if ok else "! ") + message)
+    # Google 認証（発話中継所）。client_id 同梱済みかつ未認証・対話時のみ承認を促す（browser フロー）。
+    from watari_cli import cloud
+    if cloud.is_configured() and not cloud.is_authorized() and not args.yes:
+        from watari_cli import prompts
+        if prompts.confirm("Google Drive と会話を同期しますか？（別マシンのワタリが夢に見れる）", default=True):
+            ok, message = cloud.authorize()
+            print(("✓ " if ok else "! ") + message)
     print()
     for line in _install_done_lines(saved, desc, plan["git_remote"], plan["mode"]):
         print(line)
