@@ -71,6 +71,7 @@ def scan_pi_store(root, cursor_iso):
                         "cwd": cwd,
                         "file": path,
                         "text": d["message"]["content"],
+                        "role": "user",
                     })
         except (OSError, UnicodeDecodeError):
             # ライブ追記中のファイルが多バイト文字の途中で切れていると for line in f が
@@ -81,18 +82,85 @@ def scan_pi_store(root, cursor_iso):
     return ok, out
 
 
+def scan_cloud_stream(cursors, this_machine):
+    """他マシンの共有発話（クラウドの transcripts-<machine>.jsonl）を machine ごとに走査する。
+    [(store_key, cursor_key, readable, msgs), ...] を返す。自分のマシン分は local Pi で読むので
+    スキップ（重複回避）。クラウド未認証/未接続は空リスト。各マシン分は readable=False で据え置ける。
+
+    行形式は relay が書いた {ts, turn_id, machine, cwd, role, text}。role=user は候補、assistant は
+    判定の文脈用。dedup 用 uuid は pi:<machine>:<turn_id>（別マシンでも安定・ingest 重複を防ぐ）。"""
+    try:
+        from watari_cli import cloud
+        store = cloud.get_store()
+    except Exception:
+        return []
+    if store is None:
+        return []
+    try:
+        files = store.list()
+    except Exception:
+        return []  # クラウド全体が読めない → cloud ソース無し（全 cloud カーソル据え置き）
+    sources = []
+    for f in files:
+        name = f.get("name", "")
+        if not (name.startswith("transcripts-") and name.endswith(".jsonl")):
+            continue
+        machine = name[len("transcripts-"):-len(".jsonl")]
+        if machine == this_machine:
+            continue
+        cursor_key = f"cloud_{machine}"
+        cur_iso = cursors.get(cursor_key)
+        cursor = None
+        if cur_iso:
+            try:
+                cursor = parse_ts(cur_iso)
+            except (ValueError, TypeError):
+                cursor = None
+        try:
+            content = store.read(name)
+        except Exception:
+            sources.append((cursor_key, cursor_key, False, []))  # このマシン分は据え置き
+            continue
+        msgs = []
+        for raw in content.splitlines():
+            try:
+                d = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if d.get("role") not in ("user", "assistant"):
+                continue
+            ts = d.get("ts")
+            if not ts:
+                continue
+            try:
+                tsp = parse_ts(ts)
+            except (ValueError, TypeError):
+                continue
+            if cursor and tsp <= cursor:
+                continue
+            msgs.append({
+                "ts": ts, "session": None,
+                "uuid": f"pi:{machine}:{d.get('turn_id') or ts}",
+                "cwd": d.get("cwd"), "file": name, "text": d.get("text"),
+                "role": d.get("role"),
+            })
+        sources.append((cursor_key, cursor_key, True, msgs))
+    return sources
+
+
 def run():
-    """両ストアを走査して結果 dict を返す（副作用なし・読むだけ）。"""
+    """ローカル Pi ＋ 他マシンの共有発話を走査して結果 dict を返す（副作用なし・読むだけ）。"""
     cursors = load_cursors()
     result = {"generated": fmt_ts(now_utc()), "stores": {}, "messages": []}
-    # watari chat の runtime は Pi。夢が読む組み込み transcript は Pi のセッションだけ
-    # （他の AI CLI・ツールは connector 宣言としてエージェントが読む）。
-    jobs = [
-        ("pi", "transcripts_pi", scan_pi_store, PI_STORE),
-    ]
-    for store, cursor_key, scanner, root in jobs:
+    # ソース = (store_key, cursor_key, readable, msgs)。組み込みは Pi（自マシンのローカル）＋
+    # クラウドの他マシン分。cursor 規律は共通（読めた分だけ前進・読めなければ据え置き）。
+    pi_readable, pi_msgs = scan_pi_store(PI_STORE, cursors.get("transcripts_pi"))
+    sources = [("pi", "transcripts_pi", pi_readable, pi_msgs)]
+    from watari_cli import host
+    sources.extend(scan_cloud_stream(cursors, host.machine_id()))
+
+    for store, cursor_key, readable, msgs in sources:
         cursor_iso = cursors.get(cursor_key)
-        readable, msgs = scanner(root, cursor_iso)
         msgs.sort(key=lambda m: (m["ts"], m["uuid"] or ""))
         truncated = False
         if msgs:

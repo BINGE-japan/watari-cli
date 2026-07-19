@@ -184,3 +184,67 @@ class Relay:
         except cloud.CloudError:
             return  # 繰り越し（キューはそのまま・次回再送）
         open(_queue_path(), "w", encoding="utf-8").close()  # 送信成功 → キューを空に
+
+
+def prune_cloud(home: str, days: int = 90) -> None:
+    """クラウドの共有発話から「全マシンが夢に見た分」＋「days 超の古い分」を削除する（容量の頭打ち）。
+
+    各マシンの cloud_<machine> カーソルは host record（カセット git 共有）にあるので、あるファイル
+    transcripts-<M>.jsonl については **M 以外の全マシン**の cloud_<M> カーソルの最小で「全員が読んだ
+    位置」を求め、それ以前を削る。まだ読んでいないマシンがあれば days の保険だけが効く（取りこぼさない）。
+    未認証/未接続や個々の失敗は握りつぶす（ベストエフォート）。
+    """
+    store = cloud.get_store()
+    if store is None:
+        return
+    try:
+        files = store.list()
+    except cloud.CloudError:
+        return
+    from datetime import timedelta
+
+    from watari_cli import host
+    from watari_cli.engine.watari_lib import now_utc, parse_ts
+
+    hosts = host.all_hosts(home)
+    cutoff = now_utc() - timedelta(days=days)
+    for f in files:
+        name = f.get("name", "")
+        if not (name.startswith("transcripts-") and name.endswith(".jsonl")):
+            continue
+        machine = name[len("transcripts-"):-len(".jsonl")]
+        key = f"cloud_{machine}"
+        curs = [(h.get("cursors") or {}).get(key) for h in hosts
+                if h.get("machine_id") != machine]  # M 自身は自分の cloud を夢に見ない
+        min_dreamed = None
+        if curs and all(curs):
+            try:
+                min_dreamed = min(parse_ts(c) for c in curs)
+            except (ValueError, TypeError):
+                min_dreamed = None
+        try:
+            content = store.read(name)
+        except cloud.CloudError:
+            continue
+        kept = []
+        for raw in content.splitlines():
+            try:
+                tsp = parse_ts(json.loads(raw)["ts"])
+            except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+                kept.append(raw)  # 壊れ行は消さず残す
+                continue
+            if tsp < cutoff:
+                continue  # days 超（保険）
+            if min_dreamed and tsp <= min_dreamed:
+                continue  # 全マシンが夢に見た
+            kept.append(raw)
+        new_content = ("\n".join(kept) + "\n") if kept else ""
+        if new_content == content:
+            continue
+        try:
+            if kept:
+                store.write(name, new_content)
+            else:
+                store.delete(name)
+        except cloud.CloudError:
+            pass
