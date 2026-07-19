@@ -437,6 +437,18 @@ def cmd_chat(args) -> int:
         print(f"WATARI_HOME={home}")
         print(" ".join(shlex.quote(c) for c in cmd))
         return 0
+
+    import signal
+    from watari_cli import host, relay
+
+    relayer = relay.Relay(wl.PI_STORE, host.machine_id())
+    relayer.start()  # 会話を別マシンへ中継（クラウド未認証なら内部で no-op）
+
+    def _on_term(signum, frame):  # SIGTERM でも最終 flush してから抜ける
+        relayer.stop_and_flush()
+        os._exit(128 + signum)
+
+    prev_term = signal.signal(signal.SIGTERM, _on_term)
     try:
         return subprocess.run(cmd, env=env).returncode
     except FileNotFoundError:
@@ -445,6 +457,11 @@ def cmd_chat(args) -> int:
             "  Pi を使うなら `npx -y @earendil-works/pi-coding-agent` が通るか確認してください。\n"
         )
         return 127
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        signal.signal(signal.SIGTERM, prev_term)
+        relayer.stop_and_flush()  # 正常/SIGINT/例外いずれも最終 flush
 
 
 def cmd_regen(args) -> int:
