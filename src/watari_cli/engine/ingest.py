@@ -114,7 +114,8 @@ def load_rows(path):
     return rows
 
 
-def apply(rows, *, advance_pi=None, advance_ext=(), allow_new_domain=False, dry_run=False):
+def apply(rows, *, advance_pi=None, advance_cloud=(), advance_ext=(),
+          allow_new_domain=False, dry_run=False):
     """検証→dedup→追記→カーソル前進→state 再生成。サマリ文字列を返す。
 
     検証（行・カーソル後退）に1件でも失敗したら ValueError(errors) を送出し、何も書かない。
@@ -124,6 +125,12 @@ def apply(rows, *, advance_pi=None, advance_ext=(), allow_new_domain=False, dry_
     from watari_cli import host
     cursors = host.load_cursors(MEM)
     advances = [("pi", "transcripts_pi", advance_pi)]
+    for spec in advance_cloud:  # 他マシンの共有発話ストリームのカーソル（cloud_<machine>）
+        name, sep, ts = spec.partition("=")
+        if sep and ts:
+            advances.append((f"cloud {name}", f"cloud_{name}", ts))
+        else:
+            errors.append(f"--advance-cloud は <machine>=<UTC ts> 形式: {spec!r}")
     # 外部ソース(connector)の許可名はユーザー宣言（config の connectors）。transcript(Pi) は
     # 上の専用フラグが担当し、ここは通らない。advance_ext が無ければ config を読まない（副作用最小）。
     if advance_ext:
@@ -184,6 +191,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rows", required=True)
     ap.add_argument("--advance-pi")
+    ap.add_argument("--advance-cloud", action="append", default=[], metavar="MACHINE=TS")
     ap.add_argument("--advance-ext", action="append", default=[], metavar="NAME=TS")
     ap.add_argument("--allow-new-domain", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
@@ -193,7 +201,7 @@ def main():
         rows = load_rows(args.rows)
         summary = apply(
             rows,
-            advance_pi=args.advance_pi,
+            advance_pi=args.advance_pi, advance_cloud=args.advance_cloud,
             advance_ext=args.advance_ext, allow_new_domain=args.allow_new_domain,
             dry_run=args.dry_run,
         )

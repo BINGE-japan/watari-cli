@@ -514,7 +514,7 @@ def cmd_ingest(args) -> int:
     try:
         summary = ingest.apply(
             rows,
-            advance_pi=args.advance_pi,
+            advance_pi=args.advance_pi, advance_cloud=args.advance_cloud or (),
             advance_ext=args.advance_ext or (), allow_new_domain=args.allow_new_domain,
             dry_run=args.dry_run,
         )
@@ -526,8 +526,9 @@ def cmd_ingest(args) -> int:
         return _write_validation_errors(error)
     print(summary)
     if not args.dry_run:
-        from watari_cli import git_sync
+        from watari_cli import git_sync, relay
         git_sync.sync_after_write(wl.MEM)  # 書いた記憶を commit→pull→push（offline は繰り越し）
+        relay.prune_cloud(wl.MEM)          # 全マシンが夢に見た分＋90日超の共有発話を削除
     return 0
 
 
@@ -625,6 +626,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--rows", required=True, help="log 行の JSON 配列ファイル(SCHEMA 準拠)")
     pi.add_argument("--home", help="記憶の場所")
     pi.add_argument("--advance-pi")
+    pi.add_argument("--advance-cloud", action="append", default=[], metavar="MACHINE=TS")
     pi.add_argument("--advance-ext", action="append", default=[], metavar="NAME=TS")
     pi.add_argument("--allow-new-domain", action="store_true")
     pi.add_argument("--dry-run", action="store_true", help="検証と件数だけ（書き込みなし）")
