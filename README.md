@@ -26,11 +26,23 @@ Run `watari --help`, or `watari <subcommand> --help`, for the full set of
 subcommands: status/host/dream/recall/ingest/audit/regen/init/install/chat/
 connector.
 
-Memory only grows on demand by default (saying "夢を見て" in a conversation,
-or running `watari dream` by hand). To reproduce the original's automatic
-nightly growth, see
-[`docs/headless-dream.md`](docs/headless-dream.md) for scheduling that
-headless, outside the CLI.
+Memory grows automatically: `watari chat` kicks off a background "dream" at
+startup that distils recent conversations into the log (you can also say
+"夢を見て" in a conversation, or run `watari dream` by hand). A scheduled/headless
+variant is in [`docs/headless-dream.md`](docs/headless-dream.md).
+
+## Using Watari on several machines
+
+Point every machine at the same memory cartridge (a git remote) and Watari is
+one agent everywhere: memory syncs over git (pulled before each session, pushed
+after each write), and your conversations are relayed — user + assistant text
+only, never tool output — through a private cloud folder (Google Drive
+appDataFolder) so a dream on machine B can pick up what you said on machine A.
+Raw transcripts never enter the git history (git can't forget); the cloud relay
+is prunable and self-expires. Choose "sync" vs "local only" during `watari
+install`. The relay needs a one-time Google OAuth app registration — see
+[`docs/google-oauth-setup.md`](docs/google-oauth-setup.md); until it is set up,
+sync is skipped and Watari runs local-only.
 
 ## Your own reference material
 
