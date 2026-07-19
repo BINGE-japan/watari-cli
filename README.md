@@ -1,8 +1,12 @@
 # Watari CLI
 
-Watari CLI is a pull-only personal-agent harness. It is intended to appear only
-when `watari` is invoked while keeping user-owned profile and memory portable
-across supported AI runtimes.
+Watari CLI runs **Watari** — your personal agent — on the Pi runtime. `watari
+chat` launches a full Watari session (the bundled persona skill plus your own
+memory); you talk to Watari for the whole session, not as an overlay that
+surfaces on a keyword inside another assistant. Your memory and profile are a
+portable, user-owned cartridge (a git repo) kept separate from the shipped
+engine — so the engine can be handed to someone else, who then grows their own
+Watari.
 
 ## Getting started
 
@@ -12,9 +16,8 @@ across supported AI runtimes.
 
 `watari install` sets up (or adopts an existing cartridge, or restores one
 from a git backup) a memory cartridge and remembers where it lives. `watari
-chat` then launches the bundled skill inside your AI runtime (Pi by default;
-pass `--show` to print the command instead of running it, or extra arguments
-to pass straight through to the runtime).
+chat` then launches the bundled skill on Pi (pass `--show` to print the command
+instead of running it, or extra arguments to pass straight through to Pi).
 
 Run `watari --help`, or `watari <subcommand> --help`, for the full set of
 subcommands: status/host/dream/recall/ingest/audit/regen/init/install/chat/
@@ -40,7 +43,8 @@ ordinary recorded fact through the normal ingest flow.
 Status: the `watari` CLI is implemented — memory engine (`src/watari_cli/`) and
 bundled persona skill (`src/watari_cli/skill/`, shipped as package data in the
 wheel), with subcommands status/host/dream/recall/ingest/audit/regen/init/
-install/chat/connector.
+install/chat/connector. The project's goal, scope, current status, and settled
+decisions are in [`SPEC.md`](SPEC.md).
 
 The memory schema (log/state model, cursors, and the deterministic folding
 rules) is specified in
