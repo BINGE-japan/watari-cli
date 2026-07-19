@@ -237,7 +237,6 @@ def _install_wizard(args) -> dict:
     from watari_cli import prompts
 
     default_dir = _default_memory_dir()
-    live = os.path.join(os.path.expanduser("~"), ".claude", "skills", "watari", "memory")
 
     # 1) 記憶の始め方
     if args.from_url:
@@ -259,7 +258,9 @@ def _install_wizard(args) -> dict:
             url = prompts.text("バックアップの場所（git URL）")
             home = default_dir  # 保存先は既定で十分。こだわる人は --home で上書き
         elif kind == "adopt":
-            home = prompts.text("記憶のあるフォルダ", default=(live if os.path.isdir(live) else default_dir))
+            # 既定に ~/.claude の原本を出さない：adopt は state を書き戻すので、原本を指すと
+            # ~/.claude を書き換えてオリジナルワタリを壊しうる。カセットの複製/クローンを指させる。
+            home = prompts.text("記憶のあるフォルダ（カセットの場所）", default=default_dir)
             url = None
         else:  # new: 保存先は聞かず既定を使う
             home = default_dir
@@ -378,7 +379,9 @@ def cmd_chat(args) -> int:
     settings = config.load_config()
     runtime = args.runtime or settings.get("runtime") or "pi"
 
-    cmd = _runtime_base(runtime) + ["--skill", skill] + args.extra
+    # --no-skills: Pi の自動スキル探索を切り、明示した watari スキルだけを読ませる。
+    # ~/.agents/skills や ~/.pi/agent/skills に同名 "watari" があると衝突してこちらが skip されるため。
+    cmd = _runtime_base(runtime) + ["--no-skills", "--skill", skill] + args.extra
 
     env = dict(os.environ)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
