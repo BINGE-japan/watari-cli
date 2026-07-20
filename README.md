@@ -50,18 +50,29 @@ runs local-only.
 ## Connectors: other sources dream should read
 
 For services watari-cli ships a built-in adapter for, `watari connect
-<service>` walks you through it end to end: it explains what to open and what
-to paste, verifies the credential with a real API call before saving it, and
-registers the connector declaration for you. Built-in services so far: Linear
-(personal API key), GitHub (fine-grained personal access token), Notion
-(internal integration token), Slack (pasted user OAuth token, `xoxp-`, created
-from an app manifest), and Chatwork (pasted API token). Run `watari connect`
-with no argument for a menu of available services. Dream then reads it
-deterministically with `watari connector read <name> [--since TS] [--json]`
-(defaults to this machine's saved cursor); the cursor itself only advances via
-`watari ingest --advance-ext`, same as every other source. Gmail and Google
-Calendar are listed in the menu but not implemented yet (`watari connect
-<name>` reports "not supported").
+<service>` walks you through it end to end and registers the connector
+declaration for you. Most services take a pasted token: it explains what to
+open and what to paste, then verifies the credential with a real API call
+before saving it. Built-in services so far: Linear (personal API key), GitHub
+(fine-grained personal access token), Notion (internal integration token),
+Slack (pasted user OAuth token, `xoxp-`, created from an app manifest),
+Chatwork (pasted API token), Gmail, Google Calendar, and Google Drive (no
+paste — see below). Run `watari connect` with no argument for a menu of
+available services. Dream then reads it deterministically with `watari
+connector read <name> [--since TS] [--json]` (defaults to this machine's saved
+cursor); the cursor itself only advances via `watari ingest --advance-ext`,
+same as every other source.
+
+Gmail/Calendar/Drive don't take a pasted token at all: they reuse the same
+Google OAuth app already registered for the multi-machine relay (see above)
+and extend it with **incremental scopes** — connecting one of them just opens
+a browser approval for that one extra scope (`gmail.readonly`,
+`calendar.readonly`, or `drive.metadata.readonly`), on top of whatever's
+already granted. See
+[`docs/google-oauth-setup.md`](docs/google-oauth-setup.md) for the scopes to
+add to the consent screen, and a note on Gmail/Drive being restricted scopes
+(blocked for unverified External apps — switch the consent screen to
+Internal if you're on Google Workspace).
 
 For anything without a built-in adapter — the original hand-rolled Watari's
 `knowledge/` folder of reference notes, an Obsidian vault, or any other

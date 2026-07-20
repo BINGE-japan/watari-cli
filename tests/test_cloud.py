@@ -1,7 +1,9 @@
 """クラウド置き場（Drive appDataFolder）アダプタの契約テスト。HTTP をモックしてオフライン検証。
 
-実 OAuth/実 Drive は binge のアプリ登録が要るのでここでは検証しない（docs/google-oauth-setup.md）。
-ここでは REST の組み立て・パース・read-modify-write の append・認可フラグを固める。
+実 Google エンドポイントは叩かない（docs/google-oauth-setup.md 参照・binge のアプリ登録が要る）。
+ここでは REST の組み立て・パース・read-modify-write の append・認可フラグ・incremental scope
+（authorize の loopback フロー自体は webbrowser.open だけ差し替えてローカルで完結させ、実際に
+サーバへ到達させて固める）を検証する。
 """
 from __future__ import annotations
 
@@ -9,6 +11,7 @@ import json
 import os
 import tempfile
 import unittest
+import urllib.parse
 
 from watari_cli import cloud, config
 
@@ -73,6 +76,75 @@ class AuthTest(_Base):
         self.fake(lambda m, u, d: (200, b'{"access_token":"AT"}'))
         self.assertEqual(cloud._access_token(), "AT")
         self.assertEqual(self.calls[0][1], cloud._TOKEN_URL)
+
+    def test_public_access_token_wrapper(self):
+        self.fake(lambda m, u, d: (200, b'{"access_token":"AT2"}'))
+        self.assertEqual(cloud.access_token(), "AT2")
+
+
+class IncrementalScopeTest(_Base):
+    """gmail/calendar/gdrive（google_connectors.py）が使う incremental scope の土台。"""
+
+    def test_union_scopes_always_includes_drive_appdata_first(self):
+        self.assertEqual(cloud._union_scopes(None), [cloud.SCOPE])
+        self.assertEqual(cloud._union_scopes(["https://x/gmail.readonly"]),
+                         [cloud.SCOPE, "https://x/gmail.readonly"])
+
+    def test_union_scopes_dedupes_and_preserves_order(self):
+        got = cloud._union_scopes([cloud.SCOPE, "a", "b", "a"])
+        self.assertEqual(got, [cloud.SCOPE, "a", "b"])
+
+    def test_granted_scopes_empty_when_unset(self):
+        config.save_config(google={"refresh_token": "RT"})
+        self.assertEqual(cloud.granted_scopes(), [])
+
+    def test_granted_scopes_reads_config(self):
+        config.save_config(google={"refresh_token": "RT", "scopes": [cloud.SCOPE, "extra"]})
+        self.assertEqual(cloud.granted_scopes(), [cloud.SCOPE, "extra"])
+
+    def test_authorize_full_loopback_flow_saves_granted_scopes(self):
+        """実際に loopback サーバまで通す（webbrowser.open だけ差し替えて「ユーザーが承認した」を
+        模す）。authorize(scopes) が要求スコープに追加スコープを含め、include_granted_scopes=true
+        を付け、応答の scope 一覧をそのまま config.google.scopes に保存することを固める。"""
+        import threading
+        import urllib.request
+        import webbrowser
+
+        extra_scope = "https://www.googleapis.com/auth/gmail.readonly"
+        seen_query: dict = {}
+
+        def fake_open(url):
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            seen_query.update(qs)
+            redirect_uri = qs["redirect_uri"][0]
+            callback = redirect_uri + "?" + urllib.parse.urlencode(
+                {"code": "AUTHCODE", "state": qs["state"][0]})
+            threading.Thread(
+                target=lambda: urllib.request.urlopen(callback, timeout=5), daemon=True).start()
+            return True
+
+        def r(m, u, d):
+            if u == cloud._TOKEN_URL:
+                return 200, json.dumps({
+                    "refresh_token": "NEWRT",
+                    "scope": f"{cloud.SCOPE} {extra_scope}",
+                }).encode()
+            return 404, b"{}"
+        self.fake(r)
+
+        saved_open = webbrowser.open
+        webbrowser.open = fake_open
+        try:
+            ok, message = cloud.authorize([extra_scope])
+        finally:
+            webbrowser.open = saved_open
+
+        self.assertTrue(ok, message)
+        self.assertIn(cloud.SCOPE, seen_query["scope"][0])
+        self.assertIn(extra_scope, seen_query["scope"][0])
+        self.assertEqual(seen_query["include_granted_scopes"][0], "true")
+        self.assertEqual(config.load_config()["google"]["refresh_token"], "NEWRT")
+        self.assertEqual(cloud.granted_scopes(), [cloud.SCOPE, extra_scope])
 
 
 class CredentialsTest(_Base):

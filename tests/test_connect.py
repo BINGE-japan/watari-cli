@@ -118,9 +118,16 @@ class ConnectWizardTest(_XdgIsolated):
         self.assertEqual(config.load_connectors(), [])
 
     def test_planned_service_reports_unimplemented_and_saves_nothing(self):
-        # slack は実装済みになったため、未対応プレースホルダの例は gmail に差し替える
-        # （gmail/calendar は本タスクのスコープ外で未対応のまま）。
-        rc, out, _err = _run(["connect", "gmail"])
+        # 実装が進むにつれ REGISTRY の全サービスが implemented=True になっていくため、
+        # 特定サービス名には依存せずテスト内で一時的にプレースホルダを差し込む
+        # （RegistryExtensibilityTest と同じレジストリ退避/復元パターン）。
+        saved_registry = dict(connectors.REGISTRY)
+        connectors.REGISTRY["not-yet-implemented"] = connectors._placeholder("NotYetService")
+        try:
+            rc, out, _err = _run(["connect", "not-yet-implemented"])
+        finally:
+            connectors.REGISTRY.clear()
+            connectors.REGISTRY.update(saved_registry)
         self.assertEqual(rc, 0)
         self.assertIn("未対応", out)
         self.assertIn("対応予定", out)

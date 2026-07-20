@@ -713,11 +713,22 @@ def cmd_connector_read(args) -> int:
     return 0
 
 
+def _declare_builtin_connector(name: str, message: str) -> int:
+    """成功時の共通の締め（connector 宣言 → 完了表示）。paste/oauth 両経路から呼ぶ。"""
+    config.save_connector({
+        "name": name, "scope": "cloud",
+        "read": f"組み込み: `watari connector read {name}` で読む",
+    })
+    print(f"✓ 接続しました（{message} として認証）")
+    return 0
+
+
 def _connect_wizard(name: str) -> int:
-    """1サービス分の接続体験: 案内 → 貼り付け → 疎通確認 → config 保存 → connector 宣言。
+    """1サービス分の接続体験: 案内 → 認証 → config 保存 → connector 宣言。
 
     サービスごとの分岐はここに書かない——レジストリ(connectors.REGISTRY)から引いた
     ServiceAdapter を汎用に駆動するだけ。新サービスはレジストリに1件足せばここを触らず動く。
+    分岐は auth_kind の2種類だけ（paste=トークン貼り付け / oauth=cloud.py の共有 Google 認可）。
     """
     from watari_cli import connectors as connectors_mod, prompts
 
@@ -731,6 +742,14 @@ def _connect_wizard(name: str) -> int:
     print(f"{service.label} と接続します。")
     for line in service.guide:
         print(f"  {line}")
+
+    if service.auth_kind == "oauth":
+        ok, message = service.verify()
+        if not ok:
+            sys.stderr.write(f"! 接続に失敗しました: {message}\n")
+            return 1
+        return _declare_builtin_connector(name, message)
+
     try:
         api_key = prompts.text("貼り付けてください")
     except prompts.Cancelled:
@@ -744,12 +763,7 @@ def _connect_wizard(name: str) -> int:
         sys.stderr.write(f"! 接続に失敗しました: {message}\n")
         return 1
     connectors_mod.save_auth(name, api_key)
-    config.save_connector({
-        "name": name, "scope": "cloud",
-        "read": f"組み込み: `watari connector read {name}` で読む",
-    })
-    print(f"✓ 接続しました（{message} として認証）")
-    return 0
+    return _declare_builtin_connector(name, message)
 
 
 def cmd_connect(args) -> int:

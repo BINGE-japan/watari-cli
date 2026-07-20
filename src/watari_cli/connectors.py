@@ -4,11 +4,13 @@
 繰り返さないよう、ここに一枚で揃える。サービス固有の分岐（if name == "linear": ... elif ...）は
 どこにも書かない。REGISTRY に ServiceAdapter を1件足すだけで `watari connect`（メニュー含む）と
 `watari connector read` の両方に現れる（cli/__init__.py はレジストリを走査するだけで、サービス名を
-知らない）。未対応サービス（gmail/calendar）も同じ REGISTRY に `implemented=False` の
-プレースホルダとして載る（選ぶと「未対応です。対応予定」と案内するだけ）。
+知らない）。未対応サービスも同じ REGISTRY に `implemented=False` のプレースホルダとして載る
+（選ぶと「未対応です。対応予定」と案内するだけ）。
 
 認証情報は config.json の "connectors_auth" セクションへ {name: {"api_key": ...}} の形で保存する
-（cloud.py が "google" セクションを直接読み書きするのと同じ形）。
+（auth_kind="paste" のサービス）。gmail/calendar/gdrive は auth_kind="oauth" で、認証情報を
+ここに置かず cloud.py の "google" セクション（drive.appdata 用に既に確立済みの OAuth を
+incremental scope で拡張したもの）をそのまま使う。
 
 connector の**宣言**（config.json の "connectors" リスト）は既存の config.save_connector を
 そのまま使う（`watari connect` 成功時に自動登録し、`connector add` の手動宣言と二重管理しない）。
@@ -23,15 +25,27 @@ class ConnectorError(Exception):
 
 
 class ServiceAdapter:
-    """レジストリの1エントリ。実装済みサービスは guide/verify/read を持つ。未対応はラベルだけ。"""
+    """レジストリの1エントリ。実装済みサービスは guide/verify/read を持つ。未対応はラベルだけ。
+
+    auth_kind="paste"（既定）は Linear/GitHub/Notion のようにユーザーがトークンを貼り付ける形。
+    auth_kind="oauth" は Google 系（gmail/calendar/gdrive）のように cloud.py の共有 OAuth を使う
+    形で、貼り付けは発生しない。verify/read の呼び出し方が違う（cli._connect_wizard /
+    connectors.read が auth_kind で分岐する。サービス名の if/elif はどこにも書かない）:
+      - paste: verify(api_key) -> (ok, message) / read(api_key, since) -> rows
+      - oauth: verify() -> (ok, message)（内部で cloud.authorize(scopes) を必要時に起動）/
+               read(since) -> rows
+    """
 
     def __init__(self, label: str, implemented: bool = True,
-                guide: list[str] | None = None, verify=None, read=None):
+                guide: list[str] | None = None, verify=None, read=None,
+                auth_kind: str = "paste", scopes: list[str] | None = None):
         self.label = label
         self.implemented = implemented
         self.guide = guide or []  # 案内行（`watari connect <name>` がそのまま表示する短い日本語）
-        self.verify = verify  # (api_key) -> (ok: bool, message: str)
-        self.read = read  # (api_key, since: str|None) -> list[{"ts","uuid","text","meta"}]
+        self.verify = verify
+        self.read = read
+        self.auth_kind = auth_kind
+        self.scopes = scopes or []  # auth_kind="oauth" のとき、このサービスに必要な追加スコープ
 
 
 def _linear_adapter() -> ServiceAdapter:
@@ -76,6 +90,45 @@ def _notion_adapter() -> ServiceAdapter:
             "4. 発行されたトークンをここに貼り付ける",
         ],
         verify=notion.verify, read=notion.read,
+    )
+
+
+def _gmail_adapter() -> ServiceAdapter:
+    from watari_cli import google_connectors as g
+
+    return ServiceAdapter(
+        label="Gmail", implemented=True, auth_kind="oauth", scopes=[g.GMAIL_SCOPE],
+        guide=[
+            "ブラウザで Google の承認画面が開きます（Gmail の読み取り専用アクセス）。",
+            "サインイン中の Google アカウントで許可してください。",
+        ],
+        verify=g.gmail_verify, read=g.gmail_read,
+    )
+
+
+def _calendar_adapter() -> ServiceAdapter:
+    from watari_cli import google_connectors as g
+
+    return ServiceAdapter(
+        label="Google カレンダー", implemented=True, auth_kind="oauth", scopes=[g.CALENDAR_SCOPE],
+        guide=[
+            "ブラウザで Google の承認画面が開きます（カレンダーの読み取り専用アクセス）。",
+            "サインイン中の Google アカウントで許可してください。",
+        ],
+        verify=g.calendar_verify, read=g.calendar_read,
+    )
+
+
+def _gdrive_adapter() -> ServiceAdapter:
+    from watari_cli import google_connectors as g
+
+    return ServiceAdapter(
+        label="Google ドライブ", implemented=True, auth_kind="oauth", scopes=[g.GDRIVE_SCOPE],
+        guide=[
+            "ブラウザで Google の承認画面が開きます（ドライブのメタデータ読み取り専用アクセス）。",
+            "サインイン中の Google アカウントで許可してください。",
+        ],
+        verify=g.gdrive_verify, read=g.gdrive_read,
     )
 
 
@@ -124,8 +177,9 @@ REGISTRY = {
     "notion": _notion_adapter,
     "slack": _slack_adapter,
     "chatwork": _chatwork_adapter,
-    "gmail": _placeholder("Gmail"),
-    "calendar": _placeholder("Google カレンダー"),
+    "gmail": _gmail_adapter,
+    "calendar": _calendar_adapter,
+    "gdrive": _gdrive_adapter,
 }
 
 
@@ -161,6 +215,14 @@ def save_auth(name: str, api_key: str) -> None:
 
 
 def is_connected(name: str) -> bool:
+    service = get_service(name)
+    if service is None:
+        return False
+    if service.auth_kind == "oauth":
+        from watari_cli import cloud
+
+        granted = set(cloud.granted_scopes())
+        return cloud.is_authorized() and all(scope in granted for scope in service.scopes)
     return bool(auth_key(name))
 
 
@@ -171,6 +233,10 @@ def read(name: str, since: str | None) -> list[dict]:
         raise ConnectorError(f"組み込みコネクタではありません: {name}")
     if not service.implemented:
         raise ConnectorError(f"{service.label} は未対応です（対応予定）")
+    if service.auth_kind == "oauth":
+        if not is_connected(name):
+            raise ConnectorError(f"{name} は未接続です（先に `watari connect {name}`）")
+        return service.read(since)
     api_key = auth_key(name)
     if not api_key:
         raise ConnectorError(f"{name} は未接続です（先に `watari connect {name}`）")
