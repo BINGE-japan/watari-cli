@@ -56,12 +56,23 @@ open and what to paste, then verifies the credential with a real API call
 before saving it. Built-in services so far: Linear (personal API key), GitHub
 (fine-grained personal access token), Notion (internal integration token),
 Slack (pasted user OAuth token, `xoxp-`, created from an app manifest),
-Chatwork (pasted API token), Gmail, Google Calendar, and Google Drive (no
-paste — see below). Run `watari connect` with no argument for a menu of
-available services. Dream then reads it deterministically with `watari
-connector read <name> [--since TS] [--json]` (defaults to this machine's saved
-cursor); the cursor itself only advances via `watari ingest --advance-ext`,
-same as every other source.
+Chatwork (pasted API token), freee (Client ID/Secret — see below), Gmail,
+Google Calendar, and Google Drive (no paste — see below). Run `watari
+connect` with no argument for a menu of available services. Dream then reads
+it deterministically with `watari connector read <name> [--since TS]
+[--json]` (defaults to this machine's saved cursor); the cursor itself only
+advances via `watari ingest --advance-ext`, same as every other source.
+
+freee is its own OAuth app (not the shared Google one): you paste the
+Client ID/Secret from your freee app registration, then `watari connect
+freee` opens a browser approval. It prefers a loopback callback at
+`http://127.0.0.1:8787` (falling back to another port, then to freee's
+`urn:ietf:wg:oauth:2.0:oob` code-paste flow if a loopback listener can't be
+opened) and picks up the deal-issuing company automatically (or asks, if the
+account has more than one). freee's refresh tokens are single-use — every
+token refresh immediately overwrites the stored one — so a stale refresh
+token or an `invalid_grant` response surfaces as "reconnect required"
+(`watari connect freee`) rather than a silent failure.
 
 Gmail/Calendar/Drive don't take a pasted token at all: they reuse the same
 Google OAuth app already registered for the multi-machine relay (see above)
