@@ -43,6 +43,8 @@ def _get(token: str, url: str):
     status, body = _http("GET", url, _headers(token))
     if status == 401:
         raise ConnectorError("chatwork: 認証エラー（API トークンを確認してください）")
+    if status == 204:
+        return []  # Chatwork は「新着メッセージなし」を 204 No Content で返す（正常系）
     if status != 200:
         raise ConnectorError(f"chatwork: API エラー({status}): {body[:200]!r}")
     try:
