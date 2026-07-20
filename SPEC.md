@@ -96,7 +96,8 @@
   たびに過去の全発話を新 session id・新 timestamp で丸ごと再記録する実バグがある**ため、
   セッションを (最初の発話ts, パス) で順序付けし、ファイル先頭から連続する「既出の
   (cwd,role,text)」プレフィックスをリプレイと判定して捨てる（novel な発話以降は同文でも残す）。
-  opencode 等パス/形式が未検証の CLI は REGISTRY に `implemented=False` の枠だけ置く。
+  パス/形式が未検証の CLI は REGISTRY に載せない（選べるのに使えない行を作らない）。
+  一次情報が取れた時点で本実装のアダプタとして追加する。
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
   （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。196 テスト＋packaging green。

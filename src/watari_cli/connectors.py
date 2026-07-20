@@ -256,8 +256,9 @@ REGISTRY = {
     "gdrive": _gdrive_adapter,
     "claude-code": _claude_code_adapter,
     "codex": _codex_adapter,
-    # opencode 等: パス/形式が未検証のため実装せず、枠だけ置く（対応予定）。
-    "opencode": _placeholder("OpenCode"),
+    # 未実装のサービスはここに載せない——選べるのに使えない行はメニューのノイズになる。
+    # 実装できるだけの一次情報（ログ置き場・形式、または API 仕様）が取れた時点で
+    # _placeholder ではなく本実装のアダプタとして追加する。
 }
 
 
