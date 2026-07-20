@@ -666,8 +666,12 @@ def cmd_connector_list(args) -> int:
         return 0
     print("宣言済み connector:")
     for c in decls:
-        kind = "組み込み" if connectors_mod.is_builtin_name(c.get("name")) else "カスタム"
-        print(f"  {c.get('name')} [{c.get('scope')}] ({kind}): {c.get('read') or '—'}")
+        name = c.get("name")
+        if connectors_mod.is_builtin_name(name):
+            kind = "組み込み・接続済み" if connectors_status(name) else "組み込み・未接続"
+        else:
+            kind = "カスタム"
+        print(f"  {name} [{c.get('scope')}] ({kind}): {c.get('read') or '—'}")
     return 0
 
 
@@ -739,6 +743,8 @@ def _connect_wizard(name: str) -> int:
     if not service.implemented:
         print(f"{service.label}: 未対応です。対応予定。")
         return 0
+    if connectors_status(name):
+        print(f"{service.label} は接続済みです（続けると再接続します）。")
     print(f"{service.label} と接続します。")
     for line in service.guide:
         print(f"  {line}")
@@ -766,6 +772,24 @@ def _connect_wizard(name: str) -> int:
     return _declare_builtin_connector(name, message)
 
 
+def _menu_label(name: str, service) -> str:
+    """メニュー1行の表示。接続済み/未接続/未対応がひと目で分かるようにする。"""
+    if not service.implemented:
+        return f"{service.label}（未対応）"
+    mark = "接続済み" if connectors_status(name) else "未接続"
+    return f"{service.label}（{mark}）"
+
+
+def connectors_status(name: str) -> bool:
+    """そのサービスが接続済みか（表示用の薄いラッパー）。"""
+    from watari_cli import connectors as connectors_mod
+
+    try:
+        return connectors_mod.is_connected(name)
+    except Exception:
+        return False  # 判定できない回は未接続扱い（表示のために失敗させない）
+
+
 def cmd_connect(args) -> int:
     """`watari connect [service]`。引数なしは選択メニュー（レジストリを列挙するだけ）。
 
@@ -781,10 +805,7 @@ def cmd_connect(args) -> int:
 
     name = args.service
     if not name:
-        options = [
-            (s.label if s.implemented else f"{s.label}（未対応）", key)
-            for key, s in connectors_mod.list_services()
-        ]
+        options = [(_menu_label(key, s), key) for key, s in connectors_mod.list_services()]
         try:
             name = prompts.select("接続するサービスを選んでください", options, default=0)
         except prompts.Cancelled:

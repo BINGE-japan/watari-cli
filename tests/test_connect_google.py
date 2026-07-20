@@ -415,7 +415,8 @@ class RegistryGoogleExtensionTest(_GoogleIsolated):
         prompts.select = fake_select
         rc, _out, _err = _run(["connect"])
         self.assertEqual(rc, 130)
-        self.assertIn(("Google ドライブ", "gdrive"), captured["options"])
+        # ラベルには接続状態が付く（未接続なら「（未接続）」）
+        self.assertIn(("Google ドライブ（未接続）", "gdrive"), captured["options"])
 
 
 if __name__ == "__main__":
