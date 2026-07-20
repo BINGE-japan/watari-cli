@@ -767,8 +767,17 @@ def _connect_wizard(name: str) -> int:
 
 
 def cmd_connect(args) -> int:
-    """`watari connect [service]`。引数なしは選択メニュー（レジストリを列挙するだけ）。"""
+    """`watari connect [service]`。引数なしは選択メニュー（レジストリを列挙するだけ）。
+
+    対話ウィザードなので、非対話シェル（エージェントのツール実行・パイプ）から呼ばれたら
+    黙って既定値で進まず、ユーザー本人のターミナルで打つよう即座に案内して終了する。"""
     from watari_cli import connectors as connectors_mod, prompts
+
+    if not sys.stdin.isatty() and not os.environ.get("WATARI_CONNECT_ALLOW_NO_TTY"):
+        sys.stderr.write(
+            "watari connect は対話コマンドです。ユーザー本人のターミナルで実行してください\n"
+            "（エージェントは代行せず、打つコマンドを案内すること）。\n")
+        return 2
 
     name = args.service
     if not name:

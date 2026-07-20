@@ -31,6 +31,7 @@ from watari_cli.engine import watari_lib as wl
 
 
 def _run(argv):
+    os.environ["WATARI_CONNECT_ALLOW_NO_TTY"] = "1"  # テストは非TTY実行のため許可
     args = _build_parser().parse_args(argv)
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
