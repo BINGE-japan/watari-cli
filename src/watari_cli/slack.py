@@ -126,6 +126,8 @@ def read(token: str, since: str | None) -> list[dict]:
         uuid = f"slack:{channel_id}:{ts}"
         if uuid in rows_by_uuid:
             continue
+        if since and _ts_to_iso(ts) <= since:
+            continue  # after: は日付粒度のため、since 当日のカーソル以前をここで絞る
         channel_name = channel.get("name") or channel_id
         speaker = match.get("username") or match.get("user") or "?"
         body = (match.get("text") or "").strip().replace("\n", " ")

@@ -47,7 +47,8 @@ def _raise_for_status(service: str, status: int, body: bytes) -> None:
             f"{service}: 認証エラー（Google の認可が失効しています。`watari connect {service}` で再承認）")
     if status == 403:
         raise ConnectorError(
-            f"{service}: 権限エラー(403)。スコープ不足の可能性があります"
+            f"{service}: 権限エラー(403)。スコープ不足、または同梱の OAuth アプリを承認できない"
+            f"アカウントの可能性があります（docs/google-oauth-setup.md の Internal/自分のアプリ登録を参照）"
             f"（`watari connect {service}` で権限を再承認してください）: {body[:200]!r}")
     if status != 200:
         raise ConnectorError(f"{service}: API エラー({status}): {body[:200]!r}")
