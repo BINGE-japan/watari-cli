@@ -131,8 +131,14 @@ class ConnectWizardSlackTest(_XdgIsolated):
         rc, out, _err = _run(["connect", "slack"])
         self.assertEqual(rc, 1)
         self.assertIn("https://api.slack.com/apps", out)
-        self.assertIn("name: Watari", out)
         self.assertIn("search:read", out)
+        # マニフェストは貼り替え先(Create app from manifest)の既定タブに合わせて JSON
+        json.loads(slack.SLACK_MANIFEST)
+        self.assertIn('"name": "Watari"', out)
+        # 実画面の要所（雛形の全選択・置換／インストール／User トークン）が案内に出ている
+        self.assertIn("全選択", out)
+        self.assertIn("Install to Workspace", out)
+        self.assertIn("xoxp-", out)
 
 
 class ConnectorReadSlackTest(_XdgIsolated):

@@ -34,3 +34,11 @@ watari-cli の原則（コマンド一発・必要な選択は選択肢で・呪
 - `watari connector read linear --since <過去ts> --json` が実データを統一形式で返す。
 - 認証情報がカセット git に入らない（config.json のみ）。テスト追加・全 green。
 - SKILL/README/SPEC の該当箇所更新。
+
+## 付記: Slack の接続手順（実画面に合わせる）
+
+`Create app from manifest` の 2 画面目は「空欄に貼る」ではなく **Demo App の雛形 JSON が入った
+エディタ**で、既定タブは JSON。したがって guide は「全選択して置き換える」と明示し、マニフェストは
+YAML ではなく **JSON** で提示する（タブ切り替えの手間を消す）。作成後は `Install to Workspace` →
+`Allow` を踏まないとトークンが出ない。貼らせるのは **User OAuth Token（xoxp-）**——bot の xoxb- では
+`search.messages` が使えない。案内文の各段は実 UI のボタン名をそのまま書くこと。
