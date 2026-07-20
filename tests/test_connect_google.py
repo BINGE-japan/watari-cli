@@ -165,7 +165,8 @@ class ConnectWizardGmailTest(_GoogleIsolated):
 
     def test_menu_lists_gmail_as_implemented(self):
         from watari_cli import prompts
-        prompts.select = lambda *a, **k: "gmail"
+        picks = iter(["gmail", None])  # 接続後はメニューに戻るので「終了」を選ぶ
+        prompts.select = lambda *a, **k: next(picks)
         self._fake_authorize()
         gconn._http = _fake_http(lambda m, u, h, d: (
             200, json.dumps({"emailAddress": "me@example.com"}).encode()))
@@ -413,8 +414,8 @@ class RegistryGoogleExtensionTest(_GoogleIsolated):
             captured["options"] = options
             raise prompts.Cancelled
         prompts.select = fake_select
-        rc, _out, _err = _run(["connect"])
-        self.assertEqual(rc, 130)
+        rc, _out, _err = _run(["connect"])  # Cancelled=メニュー終了
+        self.assertEqual(rc, 0)  # メニューを閉じるのは正常終了
         # ラベルには接続状態が付く（未接続なら「（未接続）」）
         self.assertIn(("⬜ Google ドライブ", "gdrive"), captured["options"])
 

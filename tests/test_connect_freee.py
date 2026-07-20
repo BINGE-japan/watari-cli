@@ -182,11 +182,15 @@ class ConnectWizardFreeeTest(_XdgIsolated):
     def test_menu_includes_freee(self):
         from watari_cli import prompts
 
+        captured = {}
+
         def fake_select(message, options, default=0):
-            raise prompts.Cancelled
+            captured["options"] = options
+            raise prompts.Cancelled  # メニューを見るだけで抜ける
         prompts.select = fake_select
         rc, _out, _err = _run(["connect"])
-        self.assertEqual(rc, 130)
+        self.assertEqual(rc, 0)  # メニューの終了は正常終了
+        self.assertIn("freee", [value for _label, value in captured["options"]])
 
 
 class TokenRotationTest(_XdgIsolated):

@@ -820,15 +820,23 @@ def cmd_connect(args) -> int:
             "（エージェントは代行せず、打つコマンドを案内すること）。\n")
         return 2
 
-    name = args.service
-    if not name:
+    if args.service:
+        return _connect_wizard(args.service)  # サービス指名は1回だけ実行して終わる
+
+    # 引数なしは「メニュー → 接続 → メニューへ戻る」を繰り返す（複数サービスを続けて繋げる）。
+    # 状態アイコンは毎回組み立て直すので、今つないだものは次の表示で ✅ になる。
+    while True:
         options = [(_menu_label(key, s), key) for key, s in connectors_mod.list_services()]
+        options.append(("終了", None))
         try:
             name = prompts.select("接続するサービスを選んでください", options, default=0)
         except prompts.Cancelled:
-            sys.stderr.write("\n中止しました。\n")
-            return 130
-    return _connect_wizard(name)
+            print("\n終了しました。")
+            return 0
+        if name is None:
+            return 0
+        _connect_wizard(name)  # 個々の失敗はメッセージを出すだけ。メニューには戻る
+        print()
 
 
 def _build_parser() -> argparse.ArgumentParser:
