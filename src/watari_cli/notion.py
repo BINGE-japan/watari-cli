@@ -6,7 +6,7 @@ connector_http.py に共通化して linear/github と三重複しない形に�
 
 - 疎通確認（`verify`）は `GET /users/me`。integration（bot）の名前と所属ワークスペースを返す。
   watari connect のその場確認に使う。
-- 読み取り（`read`）は `POST /search`（`sort.timestamp=last_edited_time` を `ascending`、
+- 読み取り（`read`）は `POST /search`（`sort.timestamp=last_edited_time` を `descending`、
   `filter.value=page`）で「編集日時が古い順のページ」を取得し、`last_edited_time > since` を
   クライアント側で絞って統一形式 {ts, uuid, text, meta} に整形する（Notion の Search API は
   時刻レンジでの絞り込みクエリを持たないため、取得後にクライアント側で切る）。
@@ -87,12 +87,14 @@ def read(token: str, since: str | None) -> list[dict]:
     """カーソル(since)以降に編集されたページを統一形式 [{ts,uuid,text,meta}, ...] で
     last_edited_time 昇順に返す。
 
-    Notion Search API に時刻フィルタがないため、`sort=last_edited_time asc` で取得した
-    1ページ（`page_size=100`）を `last_edited_time > since` でクライアント側フィルタする。
+    Notion Search API に時刻フィルタがないため、**降順**で新しい方から 1 ページ（`page_size=100`）
+    取得し、`last_edited_time > since` の分だけ拾って昇順に並べ直す（昇順取得だと「ワークスペースで
+    最も古い 100 ページ」が返り、総数が 100 を超えると新しい編集が永遠に窓へ入らない）。
+    since 以降の新規編集が 100 件を超える回はその回で取り切れない（カーソルが進めば次回続きが入る）。
     since 省略時は全件（呼び出し側＝connectors.read が host カーソルを既定として渡す）。
     """
     payload = {
-        "sort": {"direction": "ascending", "timestamp": "last_edited_time"},
+        "sort": {"direction": "descending", "timestamp": "last_edited_time"},
         "filter": {"value": "page", "property": "object"},
         "page_size": 100,
     }
@@ -103,7 +105,7 @@ def read(token: str, since: str | None) -> list[dict]:
     for page in results:
         updated = page["last_edited_time"]
         if updated <= since_q:
-            continue
+            break  # 降順なのでこれ以降はすべて since 以前
         day = updated[:10]
         rows.append({
             "ts": updated,

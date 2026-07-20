@@ -444,12 +444,13 @@ class ConnectorReadNotionTest(_XdgIsolated):
         self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
         self.assertIn("A", rows[0]["text"])
         self.assertEqual(captured["payload"]["sort"],
-                         {"direction": "ascending", "timestamp": "last_edited_time"})
+                         {"direction": "descending", "timestamp": "last_edited_time"})
         self.assertEqual(captured["payload"]["filter"], {"value": "page", "property": "object"})
 
     def test_since_filters_out_older_pages_client_side(self):
-        pages = [self._page("page-old", "2026-06-01T00:00:00.000Z", "Old"),
-                 self._page("page-new", "2026-07-15T00:00:00.000Z", "New")]
+        # 実 API は降順（新しい順）で返す——古いページに到達した時点で打ち切られることも同時に検証
+        pages = [self._page("page-new", "2026-07-15T00:00:00.000Z", "New"),
+                 self._page("page-old", "2026-06-01T00:00:00.000Z", "Old")]
         notion._http = _fake_http(
             lambda m, u, h, d: (200, json.dumps({"results": pages}).encode()))
         rc, out, err = _run(
