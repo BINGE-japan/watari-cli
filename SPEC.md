@@ -42,14 +42,19 @@
 - **実装済み・検証済み**：CLI 一式（status/host/dream/recall/ingest/audit/regen/init/install/auth/
   chat/connect/connector）、記憶エンジン、人格スキル同梱（wheel）。クリーンルーム(Docker)で「素の環境に導入→カセット
   clone→recall に実記憶→Pi 上で人格＋記憶付きに起動」を実証。人格は原本に寄せて調整済み。
-- **組み込みコネクタ第一弾（Linear）**：`watari connect linear` が案内→貼り付け→疎通確認
-  （viewer クエリ）→ config 保存→ connector 宣言(scope既定cloud)まで一本道。`watari connector read
-  linear [--since TS] [--json]` が「自分が担当/作成した issue の updatedAt>since」を昇順・統一形式
-  {ts,uuid,text,meta} で返す決定論リーダー（HTTP は urllib のみ）。slack/gmail/calendar は枠だけ
-  （`watari connect <name>` で「未対応」）。
+- **組み込みコネクタ（Linear / GitHub / Notion）**：`watari connect <name>` が案内→貼り付け→疎通確認
+  → config 保存→ connector 宣言(scope既定cloud)まで一本道。`watari connector read <name> [--since TS]
+  [--json]` が各サービスの決定論リーダーで統一形式 {ts,uuid,text,meta} を昇順で返す（HTTP は urllib
+  のみ）。Linear は「自分が担当/作成した issue の updatedAt>since」（viewer クエリで疎通確認）。
+  GitHub は Fine-grained PAT 認証・「自分が関与する issue/PR の updated>since」（`GET /user` で疎通
+  確認、Search API は1ページ(per_page=100)打ち切り）。Notion は Internal Integration Token 認証・
+  「since 以降に編集されたページ」（`GET /users/me` で疎通確認、Search API に時刻フィルタが無いため
+  `last_edited_time` 昇順取得＋クライアント側フィルタ、1リクエスト(page_size=100)打ち切り、本文は
+  書き写さずタイトル＋ポインタのみ）。urllib transport は `connector_http.py` に共通化（三重複回避）。
+  slack/gmail/calendar は枠だけ（`watari connect <name>` で「未対応」）。
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
-  （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。122 テスト＋packaging green。
+  （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。154 テスト＋packaging green。
 - **未了（本物で動かす）**：Google OAuth アプリの登録（binge 手動・`docs/google-oauth-setup.md`）→ 各マシンで
   `watari auth` → A↔B の会話同期を実地確認。client_id 未設定の間は同期はスキップされ、ローカルのみで普通に動く。
 

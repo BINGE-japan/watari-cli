@@ -23,8 +23,9 @@ import json
 import os
 import tempfile
 import unittest
+import urllib.parse
 
-from watari_cli import config, connectors, host, linear
+from watari_cli import config, connectors, github, host, linear, notion
 from watari_cli.cli import _build_parser
 from watari_cli.engine import watari_lib as wl
 
@@ -213,6 +214,263 @@ class ConnectorReadLinearTest(_XdgIsolated):
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
         self.assertIn("組み込みコネクタではありません", err)
+
+
+class ConnectWizardGithubTest(_XdgIsolated):
+    def setUp(self):
+        super().setUp()
+        self._saved_http = github._http
+
+    def tearDown(self):
+        github._http = self._saved_http
+        super().tearDown()
+
+    def _user_ok(self, login="bingedev", token="ghp-secret-123"):
+        def router(method, url, headers, data):
+            self.assertEqual(headers.get("Authorization"), f"Bearer {token}")
+            if url == "https://api.github.com/user":
+                return 200, json.dumps({"login": login}).encode()
+            return 404, b"{}"
+        github._http = _fake_http(router)
+
+    def test_success_saves_auth_and_declares_connector(self):
+        from watari_cli import prompts
+        self._user_ok()
+        prompts.text = lambda *a, **k: "ghp-secret-123"
+        rc, out, err = _run(["connect", "github"])
+        self.assertEqual(rc, 0)
+        self.assertIn("bingedev", out)
+        self.assertNotIn("ghp-secret-123", out)  # 認証情報は print しない
+        self.assertNotIn("ghp-secret-123", err)
+        self.assertEqual(connectors.auth_key("github"), "ghp-secret-123")
+        decl = config.load_connectors()
+        self.assertEqual(len(decl), 1)
+        self.assertEqual((decl[0]["name"], decl[0]["scope"]), ("github", "cloud"))
+
+    def test_verify_failure_saves_nothing(self):
+        from watari_cli import prompts
+        prompts.text = lambda *a, **k: "bad-token"
+        github._http = _fake_http(lambda m, u, h, d: (401, b'{"message":"Bad credentials"}'))
+        rc, out, err = _run(["connect", "github"])
+        self.assertEqual(rc, 1)
+        self.assertIsNone(connectors.auth_key("github"))
+        self.assertEqual(config.load_connectors(), [])
+        self.assertNotIn("bad-token", out)
+        self.assertNotIn("bad-token", err)
+
+    def test_empty_key_aborts_without_saving(self):
+        from watari_cli import prompts
+        prompts.text = lambda *a, **k: ""
+        rc, _out, err = _run(["connect", "github"])
+        self.assertEqual(rc, 1)
+        self.assertIsNone(connectors.auth_key("github"))
+        self.assertEqual(config.load_connectors(), [])
+
+    def test_guide_mentions_token_creation_url(self):
+        from watari_cli import prompts
+        prompts.text = lambda *a, **k: ""  # 空入力で中止させ、案内文だけを見る
+        rc, out, _err = _run(["connect", "github"])
+        self.assertEqual(rc, 1)
+        self.assertIn("https://github.com/settings/tokens", out)
+
+
+class ConnectorReadGithubTest(_XdgIsolated):
+    def setUp(self):
+        super().setUp()
+        self._saved_http = github._http
+        self._saved_mem = wl.MEM
+        self._home = tempfile.TemporaryDirectory(prefix="watari-connread-home-")
+        wl.MEM = self._home.name
+        connectors.save_auth("github", "ghp-secret")
+
+    def tearDown(self):
+        github._http = self._saved_http
+        wl.MEM = self._saved_mem
+        self._home.cleanup()
+        super().tearDown()
+
+    def _item(self, number, updated, repo="binge/watari-cli", title="t", state="open"):
+        return {
+            "number": number, "title": title, "state": state, "updated_at": updated,
+            "html_url": f"https://github.com/{repo}/issues/{number}",
+            "repository_url": f"https://api.github.com/repos/{repo}",
+            "comments": 2,
+        }
+
+    def test_json_output_is_unified_and_ascending(self):
+        items = [self._item(20, "2026-07-15T00:00:00Z"),
+                 self._item(10, "2026-07-10T00:00:00Z")]  # 応答順はわざと逆
+        captured = {}
+
+        def router(method, url, headers, data):
+            self.assertEqual(headers.get("Authorization"), "Bearer ghp-secret")
+            if url == "https://api.github.com/user":
+                return 200, json.dumps({"login": "bingedev"}).encode()
+            parsed = urllib.parse.urlparse(url)
+            qs = urllib.parse.parse_qs(parsed.query)
+            captured["q"] = qs["q"][0]
+            captured["order"] = qs["order"][0]
+            return 200, json.dumps({"items": items}).encode()
+        github._http = _fake_http(router)
+
+        rc, out, err = _run(
+            ["connector", "read", "github", "--since", "2026-07-01T00:00:00Z", "--json"])
+        self.assertEqual(rc, 0, err)
+        rows = json.loads(out)
+        self.assertEqual([r["uuid"] for r in rows],
+                         ["github:binge/watari-cli#10@2026-07-10",
+                          "github:binge/watari-cli#20@2026-07-15"])
+        self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
+        self.assertIn("binge/watari-cli#10", rows[0]["text"])
+        self.assertEqual(captured["q"], "involves:bingedev updated:>2026-07-01T00:00:00Z")
+        self.assertEqual(captured["order"], "asc")
+
+    def test_auth_error_is_nonzero_with_no_partial_output(self):
+        github._http = _fake_http(lambda m, u, h, d: (401, b'{"message":"Bad credentials"}'))
+        rc, out, err = _run(["connector", "read", "github", "--since", "2026-07-01", "--json"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("認証エラー", err)
+
+    def test_unconnected_service_is_rejected(self):
+        config.save_config(connectors_auth={})  # 未接続に戻す
+        rc, out, err = _run(["connector", "read", "github", "--json"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("未接続", err)
+
+
+class ConnectWizardNotionTest(_XdgIsolated):
+    def setUp(self):
+        super().setUp()
+        self._saved_http = notion._http
+
+    def tearDown(self):
+        notion._http = self._saved_http
+        super().tearDown()
+
+    def _me_ok(self, name="Watari Bot", workspace="Binge Workspace", token="ntn-secret-123"):
+        def router(method, url, headers, data):
+            self.assertEqual(headers.get("Authorization"), f"Bearer {token}")
+            self.assertEqual(headers.get("Notion-Version"), "2022-06-28")
+            if url == "https://api.notion.com/v1/users/me":
+                return 200, json.dumps(
+                    {"name": name, "bot": {"workspace_name": workspace}}).encode()
+            return 404, b"{}"
+        notion._http = _fake_http(router)
+
+    def test_success_saves_auth_and_declares_connector(self):
+        from watari_cli import prompts
+        self._me_ok()
+        prompts.text = lambda *a, **k: "ntn-secret-123"
+        rc, out, err = _run(["connect", "notion"])
+        self.assertEqual(rc, 0)
+        self.assertIn("Watari Bot", out)
+        self.assertNotIn("ntn-secret-123", out)  # 認証情報は print しない
+        self.assertNotIn("ntn-secret-123", err)
+        self.assertEqual(connectors.auth_key("notion"), "ntn-secret-123")
+        decl = config.load_connectors()
+        self.assertEqual(len(decl), 1)
+        self.assertEqual((decl[0]["name"], decl[0]["scope"]), ("notion", "cloud"))
+
+    def test_verify_failure_saves_nothing(self):
+        from watari_cli import prompts
+        prompts.text = lambda *a, **k: "bad-token"
+        notion._http = _fake_http(lambda m, u, h, d: (401, b'{"message":"unauthorized"}'))
+        rc, out, err = _run(["connect", "notion"])
+        self.assertEqual(rc, 1)
+        self.assertIsNone(connectors.auth_key("notion"))
+        self.assertEqual(config.load_connectors(), [])
+        self.assertNotIn("bad-token", out)
+        self.assertNotIn("bad-token", err)
+
+    def test_empty_key_aborts_without_saving(self):
+        from watari_cli import prompts
+        prompts.text = lambda *a, **k: ""
+        rc, _out, err = _run(["connect", "notion"])
+        self.assertEqual(rc, 1)
+        self.assertIsNone(connectors.auth_key("notion"))
+        self.assertEqual(config.load_connectors(), [])
+
+    def test_guide_mentions_integration_setup_url_and_connection_step(self):
+        from watari_cli import prompts
+        prompts.text = lambda *a, **k: ""  # 空入力で中止させ、案内文だけを見る
+        rc, out, _err = _run(["connect", "notion"])
+        self.assertEqual(rc, 1)
+        self.assertIn("https://www.notion.so/my-integrations", out)
+        self.assertIn("Connections", out)  # 2段目（ページ/DB への接続）の案内が含まれる
+
+
+class ConnectorReadNotionTest(_XdgIsolated):
+    def setUp(self):
+        super().setUp()
+        self._saved_http = notion._http
+        self._saved_mem = wl.MEM
+        self._home = tempfile.TemporaryDirectory(prefix="watari-connread-home-")
+        wl.MEM = self._home.name
+        connectors.save_auth("notion", "ntn-secret")
+
+    def tearDown(self):
+        notion._http = self._saved_http
+        wl.MEM = self._saved_mem
+        self._home.cleanup()
+        super().tearDown()
+
+    def _page(self, page_id, updated, title="Title"):
+        return {
+            "id": page_id, "url": f"https://notion.so/{page_id}",
+            "last_edited_time": updated,
+            "properties": {"Name": {"type": "title", "title": [{"plain_text": title}]}},
+        }
+
+    def test_json_output_is_unified_and_ascending(self):
+        pages = [self._page("page-2", "2026-07-15T00:00:00.000Z", "B"),
+                 self._page("page-1", "2026-07-10T00:00:00.000Z", "A")]  # 応答順はわざと逆
+        captured = {}
+
+        def router(method, url, headers, data):
+            if url == "https://api.notion.com/v1/search":
+                captured["payload"] = json.loads(data)
+                return 200, json.dumps({"results": pages}).encode()
+            return 404, b"{}"
+        notion._http = _fake_http(router)
+
+        rc, out, err = _run(
+            ["connector", "read", "notion", "--since", "2026-07-01T00:00:00.000Z", "--json"])
+        self.assertEqual(rc, 0, err)
+        rows = json.loads(out)
+        self.assertEqual([r["uuid"] for r in rows],
+                         ["notion:page-1@2026-07-10", "notion:page-2@2026-07-15"])
+        self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
+        self.assertIn("A", rows[0]["text"])
+        self.assertEqual(captured["payload"]["sort"],
+                         {"direction": "ascending", "timestamp": "last_edited_time"})
+        self.assertEqual(captured["payload"]["filter"], {"value": "page", "property": "object"})
+
+    def test_since_filters_out_older_pages_client_side(self):
+        pages = [self._page("page-old", "2026-06-01T00:00:00.000Z", "Old"),
+                 self._page("page-new", "2026-07-15T00:00:00.000Z", "New")]
+        notion._http = _fake_http(
+            lambda m, u, h, d: (200, json.dumps({"results": pages}).encode()))
+        rc, out, err = _run(
+            ["connector", "read", "notion", "--since", "2026-07-01T00:00:00.000Z", "--json"])
+        self.assertEqual(rc, 0, err)
+        rows = json.loads(out)
+        self.assertEqual([r["uuid"] for r in rows], ["notion:page-new@2026-07-15"])
+
+    def test_auth_error_is_nonzero_with_no_partial_output(self):
+        notion._http = _fake_http(lambda m, u, h, d: (401, b'{"message":"unauthorized"}'))
+        rc, out, err = _run(["connector", "read", "notion", "--since", "2026-07-01", "--json"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("認証エラー", err)
+
+    def test_unconnected_service_is_rejected(self):
+        config.save_config(connectors_auth={})  # 未接続に戻す
+        rc, out, err = _run(["connector", "read", "notion", "--json"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("未接続", err)
 
 
 class RegistryExtensibilityTest(_XdgIsolated):

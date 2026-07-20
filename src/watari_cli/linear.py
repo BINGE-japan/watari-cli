@@ -15,9 +15,8 @@ POST する（Linear の Personal API key は Bearer 接頭辞を付けない）
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
 
+from watari_cli import connector_http
 from watari_cli.connectors import ConnectorError
 
 API_URL = "https://api.linear.app/graphql"
@@ -51,15 +50,12 @@ query Issues($since: DateTimeOrDuration!) {
 
 
 def _http(method: str, url: str, headers: dict | None = None, data: bytes | None = None):
-    """(status, body_bytes) を返す。HTTP エラーは (code, body)、ネットワーク断は ConnectorError。"""
-    req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return r.status, r.read()
-    except urllib.error.HTTPError as e:
-        return e.code, e.read()
-    except (urllib.error.URLError, OSError) as e:
-        raise ConnectorError(f"linear: ネットワークエラー: {e}")
+    """(status, body_bytes) を返す。HTTP エラーは (code, body)、ネットワーク断は ConnectorError。
+
+    urllib の transport 部分は connector_http.py に共通化済み（github/notion と共有）。
+    テストが `linear._http` を丸ごと差し替えられるよう、薄いラッパーとしてこの名前を残す。
+    """
+    return connector_http.request("linear", method, url, headers, data)
 
 
 def _post(api_key: str, query: str, variables: dict | None = None) -> dict:

@@ -48,6 +48,37 @@ def _linear_adapter() -> ServiceAdapter:
     )
 
 
+def _github_adapter() -> ServiceAdapter:
+    from watari_cli import github
+
+    return ServiceAdapter(
+        label="GitHub", implemented=True,
+        guide=[
+            "1. https://github.com/settings/tokens を開く",
+            "2. 'Generate new token' → 'Fine-grained tokens' を選ぶ",
+            "3. 対象リポジトリに Issues / Pull requests の Read 権限を付けて発行する",
+            "4. 発行されたトークンをここに貼り付ける",
+        ],
+        verify=github.verify, read=github.read,
+    )
+
+
+def _notion_adapter() -> ServiceAdapter:
+    from watari_cli import notion
+
+    return ServiceAdapter(
+        label="Notion", implemented=True,
+        guide=[
+            "1. https://www.notion.so/my-integrations を開く",
+            "2. 'New integration' で Internal Integration を作成し、トークンを発行する",
+            "3. 読ませたいページ/データベースを開き、右上の Connections から今作った"
+            " integration を接続する",
+            "4. 発行されたトークンをここに貼り付ける",
+        ],
+        verify=notion.verify, read=notion.read,
+    )
+
+
 def _placeholder(label: str):
     """未対応サービスのアダプタ工場（実装が付くまでの枠）。"""
     def factory() -> ServiceAdapter:
@@ -59,6 +90,8 @@ def _placeholder(label: str):
 # ここに1行足すだけでメニュー・connect・connector read の全部に現れる（他の場所に分岐を書かない）。
 REGISTRY = {
     "linear": _linear_adapter,
+    "github": _github_adapter,
+    "notion": _notion_adapter,
     "slack": _placeholder("Slack"),
     "gmail": _placeholder("Gmail"),
     "calendar": _placeholder("Google カレンダー"),
