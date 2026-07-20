@@ -34,12 +34,16 @@ class _Base(unittest.TestCase):
         os.environ.pop("WATARI_GOOGLE_CLIENT_ID", None)
         os.environ.pop("WATARI_GOOGLE_CLIENT_SECRET", None)
         os.environ["XDG_CONFIG_HOME"] = self._cfg.name
+        # 同梱既定(_BUNDLED_*)が焼き込まれていてもテストは「未設定」を再現できるよう空に固定
+        self._saved_bundled = (cloud._BUNDLED_CLIENT_ID, cloud._BUNDLED_CLIENT_SECRET)
+        cloud._BUNDLED_CLIENT_ID = cloud._BUNDLED_CLIENT_SECRET = ""
         self._saved = {"authorize": cloud.authorize, "text": prompts.text,
                        "confirm": prompts.confirm}
         self.authorized_with = []
         cloud.authorize = lambda: (self.authorized_with.append(cloud.credentials()) or (True, "ok"))
 
     def tearDown(self):
+        cloud._BUNDLED_CLIENT_ID, cloud._BUNDLED_CLIENT_SECRET = self._saved_bundled
         cloud.authorize = self._saved["authorize"]
         prompts.text = self._saved["text"]
         prompts.confirm = self._saved["confirm"]
