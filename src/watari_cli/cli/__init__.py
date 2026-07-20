@@ -102,6 +102,7 @@ def cmd_dream(args) -> int:
     from watari_cli.engine import extract, watari_lib as wl
 
     git_sync.sync_before_read(wl.MEM)
+    _ensure_state()
     result = extract.run()
     if args.json:
         # 判定するワタリ(エージェント)が消費する生の候補。messages[] を渡す。
@@ -119,12 +120,37 @@ def cmd_dream(args) -> int:
     return 0
 
 
+def _ensure_state() -> None:
+    """state.json が無い/古い場合に log から再生成する（state は派生物＝いつでも作り直せる）。
+
+    起きる状況: カセットを clone した直後（state は gitignore で運ばれない）、pull で log だけが
+    進んだ直後。読む側(recall/chat/dream)が呼ぶことで「state 無し=null」や陳腐化を防ぐ。"""
+    from watari_cli.engine import watari_lib as wl
+
+    for genre in wl.GENRES:
+        try:
+            log_m = os.path.getmtime(wl.log_path(genre))
+        except OSError:
+            continue  # log が無い＝未初期化。ここでは扱わない（install/init の責務）
+        try:
+            state_m = os.path.getmtime(wl.state_path(genre))
+        except OSError:
+            state_m = None
+        if state_m is None or state_m < log_m:
+            try:
+                _rebuild_state()  # regen して state.json へ書き出すところまで
+            except Exception:
+                pass  # 再生成失敗で読み全体を止めない（従来挙動＝あるものを読む）
+            return
+
+
 def cmd_recall(args) -> int:
     config.apply(args.home)
     from watari_cli import git_sync
     from watari_cli.engine import watari_lib as wl
 
     git_sync.sync_before_read(wl.MEM)
+    _ensure_state()
     out = {}
     for genre in wl.GENRES:
         try:
@@ -510,6 +536,7 @@ def cmd_chat(args) -> int:
     if not args.show:
         from watari_cli import git_sync
         git_sync.sync_before_read(home)  # 起動前に最新の記憶を取り込む
+        _ensure_state()  # clone/pull 直後でも state を最新に（派生物の遅延再生成）
     skill = _find_skill_dir()
     if not skill:
         sys.stderr.write("同梱スキル(watari_cli/skill)が見つかりません（インストールが壊れている可能性があります）。\n")
