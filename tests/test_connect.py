@@ -497,6 +497,31 @@ class RegistryExtensibilityTest(_XdgIsolated):
         connectors.REGISTRY.update(self._saved_registry)
         super().tearDown()
 
+    def test_menu_marks_connected_services(self):
+        """接続済みサービスはラベルで区別できる（未接続との差がひと目で分かる）。"""
+        from watari_cli import prompts
+
+        connectors.save_auth("linear", "key-abc")
+        captured = {}
+        saved = prompts.select
+
+        def fake_select(prompt, options, default=0):
+            captured["options"] = options
+            return "linear"
+        saved_text = prompts.text
+        prompts.select = fake_select
+        prompts.text = lambda *a, **k: "key-abc"  # メニュー後の貼り付けは検証対象外
+        linear._http = _fake_http(
+            lambda m, u, h, d: (200, json.dumps({"data": {"viewer": {"name": "Toshi"}}}).encode()))
+        try:
+            _run(["connect"])
+        finally:
+            prompts.select = saved
+            prompts.text = saved_text
+        labels = dict((value, label) for label, value in captured["options"])
+        self.assertEqual(labels["linear"], "Linear（接続済み）")
+        self.assertEqual(labels["github"], "GitHub（未接続）")
+
     def test_new_registry_entry_appears_in_menu_and_is_readable(self):
         from watari_cli import prompts
 
@@ -522,7 +547,8 @@ class RegistryExtensibilityTest(_XdgIsolated):
         # メニューに現れる（cli 側はレジストリを列挙しただけ・"fakesvc" を知らない）
         rc, out, _err = _run(["connect"])
         self.assertEqual(rc, 0)
-        self.assertIn(("FakeService", "fakesvc"), captured["options"])
+        # ラベルには接続状態が付く（未接続なら「（未接続）」）
+        self.assertIn(("FakeService（未接続）", "fakesvc"), captured["options"])
         self.assertIn("Fake Viewer", out)
         self.assertEqual(connectors.auth_key("fakesvc"), "fake-api-key")
         self.assertEqual(config.load_connectors()[0]["name"], "fakesvc")
