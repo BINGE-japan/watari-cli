@@ -32,14 +32,21 @@
 - **engine（配布・`src/watari_cli/`）**：CLI・記憶エンジン・人格スキル・git 同期層・クラウド中継アダプタ。
   汎用・binge 非依存。組み込み transcript は **Pi 一本**（runtime が Pi のため）。
 - **カセット（user・WATARI_HOME / config.json）**：記憶(log/state)・connector 宣言・host record・秘密。
-  binge の Gmail / Linear / Obsidian 等の連携は**全部こちら**（`watari connector add` で宣言）。
+  binge の Gmail / Obsidian 等の連携は**全部こちら**（`watari connector add` で自由記述宣言）。
+  Linear など組み込みコネクタは `watari connect` が認証（config.json の connectors_auth）と
+  宣言を一本化し、`watari connector read <name>` が決定論で読む（読み方をエージェントに書かせない）。
 - **作らない**：`daily_report`（日報）/ `knowledge`（参照資料）は engine に移植しない。
   スケジューラも同梱しない（cron 等の外部に任せる。`docs/headless-dream.md`）。
 
 ## 現在地（status — 変わったら更新する）
 - **実装済み・検証済み**：CLI 一式（status/host/dream/recall/ingest/audit/regen/init/install/auth/
-  chat/connector）、記憶エンジン、人格スキル同梱（wheel）。クリーンルーム(Docker)で「素の環境に導入→カセット
+  chat/connect/connector）、記憶エンジン、人格スキル同梱（wheel）。クリーンルーム(Docker)で「素の環境に導入→カセット
   clone→recall に実記憶→Pi 上で人格＋記憶付きに起動」を実証。人格は原本に寄せて調整済み。
+- **組み込みコネクタ第一弾（Linear）**：`watari connect linear` が案内→貼り付け→疎通確認
+  （viewer クエリ）→ config 保存→ connector 宣言(scope既定cloud)まで一本道。`watari connector read
+  linear [--since TS] [--json]` が「自分が担当/作成した issue の updatedAt>since」を昇順・統一形式
+  {ts,uuid,text,meta} で返す決定論リーダー（HTTP は urllib のみ）。slack/gmail/calendar は枠だけ
+  （`watari connect <name>` で「未対応」）。
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
   （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。122 テスト＋packaging green。
@@ -50,6 +57,11 @@
 - ランタイムは **Pi 専用**。`watari chat` は Pi ランチャー。モデルは Pi 側で選ぶ（install は非依存）。
 - **transcript は Pi 一本**、それ以外（他 AI CLI・メール・タスク・チャット等）は connector 宣言。
 - **Obsidian は connector**（専用フラグを廃止し宣言制へ一本化）。
+- **組み込みコネクタは案内型 wizard**：`watari connect <service>` が「案内→貼り付け→その場で実 API
+  疎通確認→config 保存→connector 宣言」を一本化する（生コマンドをユーザーに打たせない原則の延長）。
+  第一弾は Linear（Personal API key）。読み取りは `watari connector read <name>` が決定論で行い、
+  夢のエージェントはツール固有の API を知らなくてよい。カスタム connector（`connector add` の自由記述
+  read 指示）は上級者向けの逃げ道としてそのまま残す。slack/gmail/calendar は今回やらない（枠だけ）。
 - **daily_report / knowledge は engine 非移植**（カセット or 別途）。
 - **忘却は3層**：active(<45日) / dormant(45–90日・声かけ待ちの印) / sunk(≥90日・沈むが log に残る)。
   実時計ベース。取り込みカーソルは **per-machine の host record**（git 共有で衝突しない）。

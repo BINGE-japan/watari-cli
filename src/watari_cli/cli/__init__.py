@@ -655,15 +655,19 @@ def cmd_ingest(args) -> int:
 
 
 def cmd_connector_list(args) -> int:
-    """宣言済み connector（夢に流し込むソース）を一覧する。"""
-    connectors = config.load_connectors()
-    if not connectors:
+    """宣言済み connector（夢に流し込むソース）を一覧する。組み込み/カスタムを区別して表示。"""
+    from watari_cli import connectors as connectors_mod
+
+    decls = config.load_connectors()
+    if not decls:
         print("宣言済み connector: なし")
-        print('  追加: watari connector add --name <slug> --scope cloud|local --read "..."')
+        print("  追加: watari connect <service>（組み込み） / "
+              'watari connector add --name <slug> --scope cloud|local --read "..."（カスタム）')
         return 0
     print("宣言済み connector:")
-    for c in connectors:
-        print(f"  {c.get('name')} [{c.get('scope')}]: {c.get('read') or '—'}")
+    for c in decls:
+        kind = "組み込み" if connectors_mod.is_builtin_name(c.get("name")) else "カスタム"
+        print(f"  {c.get('name')} [{c.get('scope')}] ({kind}): {c.get('read') or '—'}")
     return 0
 
 
@@ -679,6 +683,91 @@ def cmd_connector_add(args) -> int:
     print(f"  read: {args.read or '—'}")
     print(f"  宣言済み: {', '.join(c['name'] for c in connectors)}")
     return 0
+
+
+def cmd_connector_read(args) -> int:
+    """組み込みコネクタをカーソル(--since、省略時はこのマシンの host カーソル)以降で読む。
+
+    決定論リーダー: 実 API を叩いて統一形式 {ts,uuid,text,meta} の配列を返すだけで、
+    カーソルの前進はしない（前進は従来どおり `watari ingest --advance-ext` のみが行う）。
+    認証エラー・ネットワーク断は明確な非ゼロ終了で返す（呼び出し側はカーソル据え置きで扱える）。
+    """
+    config.apply(args.home)
+    from watari_cli import connectors as connectors_mod, host
+    from watari_cli.engine import watari_lib as wl
+
+    since = args.since or host.load_cursors(wl.MEM).get(args.name)
+    try:
+        rows = connectors_mod.read(args.name, since)
+    except connectors_mod.ConnectorError as error:
+        sys.stderr.write(f"{error}\n")
+        return 1
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=1))
+        return 0
+    print(f"connector: {args.name}")
+    print(f"  since: {since or '—'}")
+    print(f"  件数: {len(rows)}")
+    if rows:
+        print(f"  max_ts: {rows[-1]['ts']}")
+    return 0
+
+
+def _connect_wizard(name: str) -> int:
+    """1サービス分の接続体験: 案内 → 貼り付け → 疎通確認 → config 保存 → connector 宣言。
+
+    サービスごとの分岐はここに書かない——レジストリ(connectors.REGISTRY)から引いた
+    ServiceAdapter を汎用に駆動するだけ。新サービスはレジストリに1件足せばここを触らず動く。
+    """
+    from watari_cli import connectors as connectors_mod, prompts
+
+    service = connectors_mod.get_service(name)
+    if service is None:
+        sys.stderr.write(f"不明なサービスです: {name}\n")
+        return 2
+    if not service.implemented:
+        print(f"{service.label}: 未対応です。対応予定。")
+        return 0
+    print(f"{service.label} と接続します。")
+    for line in service.guide:
+        print(f"  {line}")
+    try:
+        api_key = prompts.text("貼り付けてください")
+    except prompts.Cancelled:
+        sys.stderr.write("\n中止しました。\n")
+        return 130
+    if not api_key:
+        sys.stderr.write("キーが空のため中止しました。\n")
+        return 1
+    ok, message = service.verify(api_key)
+    if not ok:
+        sys.stderr.write(f"! 接続に失敗しました: {message}\n")
+        return 1
+    connectors_mod.save_auth(name, api_key)
+    config.save_connector({
+        "name": name, "scope": "cloud",
+        "read": f"組み込み: `watari connector read {name}` で読む",
+    })
+    print(f"✓ 接続しました（{message} として認証）")
+    return 0
+
+
+def cmd_connect(args) -> int:
+    """`watari connect [service]`。引数なしは選択メニュー（レジストリを列挙するだけ）。"""
+    from watari_cli import connectors as connectors_mod, prompts
+
+    name = args.service
+    if not name:
+        options = [
+            (s.label if s.implemented else f"{s.label}（未対応）", key)
+            for key, s in connectors_mod.list_services()
+        ]
+        try:
+            name = prompts.select("接続するサービスを選んでください", options, default=0)
+        except prompts.Cancelled:
+            sys.stderr.write("\n中止しました。\n")
+            return 130
+    return _connect_wizard(name)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -740,6 +829,10 @@ def _build_parser() -> argparse.ArgumentParser:
     pauth = sub.add_parser("auth", help="Google 認証（会話をマシン間で同期する中継所にログイン）")
     pauth.set_defaults(func=cmd_auth)
 
+    pconn = sub.add_parser("connect", help="組み込みコネクタと接続（案内→貼り付け→疎通確認→保存）")
+    pconn.add_argument("service", nargs="?", help="接続するサービス（例 linear）。省略時は選択メニュー")
+    pconn.set_defaults(func=cmd_connect)
+
     pc = sub.add_parser("chat", help="ワタリを起動（スキル/記憶/モデルを自動で渡す）")
     pc.add_argument("--home", help="記憶の場所")
     pc.add_argument("--runtime", help="起動ランタイム（既定: 保存値か pi）")
@@ -769,6 +862,12 @@ def _build_parser() -> argparse.ArgumentParser:
     pca.add_argument("--read", required=True,
                      help="このソースを cursor 以降どう読むかのエージェント向け自由指示")
     pca.set_defaults(func=cmd_connector_add)
+    pcr = consub.add_parser("read", help="組み込みコネクタをカーソル以降で決定論的に読む")
+    pcr.add_argument("name", help="組み込みコネクタ名（例 linear）")
+    pcr.add_argument("--home", help="記憶の場所（host カーソルの既定値解決に使う）")
+    pcr.add_argument("--since", help="この ts 以降を読む（省略時: このマシンの host カーソル）")
+    pcr.add_argument("--json", action="store_true", help="統一形式 {ts,uuid,text,meta} をJSON配列で出力")
+    pcr.set_defaults(func=cmd_connector_read)
     return p
 
 
