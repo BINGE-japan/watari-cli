@@ -519,8 +519,8 @@ class RegistryExtensibilityTest(_XdgIsolated):
             prompts.select = saved
             prompts.text = saved_text
         labels = dict((value, label) for label, value in captured["options"])
-        self.assertEqual(labels["linear"], "Linear（接続済み）")
-        self.assertEqual(labels["github"], "GitHub（未接続）")
+        self.assertEqual(labels["linear"], "✅ Linear（接続済み）")
+        self.assertEqual(labels["github"], "⬜ GitHub")
 
     def test_new_registry_entry_appears_in_menu_and_is_readable(self):
         from watari_cli import prompts
@@ -548,7 +548,7 @@ class RegistryExtensibilityTest(_XdgIsolated):
         rc, out, _err = _run(["connect"])
         self.assertEqual(rc, 0)
         # ラベルには接続状態が付く（未接続なら「（未接続）」）
-        self.assertIn(("FakeService（未接続）", "fakesvc"), captured["options"])
+        self.assertIn(("⬜ FakeService", "fakesvc"), captured["options"])
         self.assertIn("Fake Viewer", out)
         self.assertEqual(connectors.auth_key("fakesvc"), "fake-api-key")
         self.assertEqual(config.load_connectors()[0]["name"], "fakesvc")
