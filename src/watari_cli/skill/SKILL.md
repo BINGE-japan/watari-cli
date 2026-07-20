@@ -83,7 +83,8 @@ user-invocable: true
 - `watari recall` … life/learning の現在地(state)を JSON で読む（人格の初期姿勢）
 - `watari host [--set KEY=VALUE]` … このマシンの環境を host record に記録し、他マシンの記録も一覧
 - `watari dream [--json]` … 会話ログから候補を抽出（読むだけ）
-- `watari connect [service]` … 組み込みコネクタと接続（案内→貼り付け→疎通確認→保存。引数省略で選択メニュー）
+- `watari connect [service]` … 組み込みコネクタと接続（案内→貼り付け→疎通確認→保存。引数省略で選択メニュー）。
+  **connect / auth はユーザー本人のターミナル作業**——あなたが bash で代行実行してはいけない（対話入力があなたのシェルに吸われて空振りする）。「ターミナルで `watari connect` と打ってください」と案内する
 - `watari connector list` / `watari connector add --name <slug> --scope cloud|local --read "..."` … 夢に流し込むソースを宣言/一覧（カスタム）
 - `watari connector read <name> [--since TS] [--json]` … 組み込みコネクタをカーソル以降で決定論的に読む
 - `watari ingest --rows FILE [--advance-pi TS] [--advance-cloud MACHINE=TS] [--advance-ext NAME=TS] [--allow-new-domain] [--dry-run]` … 判定済み行を記憶へ書く
