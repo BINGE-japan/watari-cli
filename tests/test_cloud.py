@@ -24,12 +24,16 @@ class _Base(unittest.TestCase):
         os.environ.pop("WATARI_GOOGLE_CLIENT_ID", None)
         os.environ.pop("WATARI_GOOGLE_CLIENT_SECRET", None)
         os.environ["XDG_CONFIG_HOME"] = self._cfg.name
+        # 同梱既定(_BUNDLED_*)が焼き込まれていてもテストは「未設定」を再現できるよう空に固定
+        self._saved_bundled = (cloud._BUNDLED_CLIENT_ID, cloud._BUNDLED_CLIENT_SECRET)
+        cloud._BUNDLED_CLIENT_ID = cloud._BUNDLED_CLIENT_SECRET = ""
         self._saved_http = cloud._http
         config.save_config(google={"client_id": "cid", "client_secret": "csec",
                                    "refresh_token": "RT"})
         self.calls: list = []
 
     def tearDown(self):
+        cloud._BUNDLED_CLIENT_ID, cloud._BUNDLED_CLIENT_SECRET = self._saved_bundled
         cloud._http = self._saved_http
         for k, v in self._saved_env.items():
             if v is None:

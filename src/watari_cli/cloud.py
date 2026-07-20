@@ -30,8 +30,8 @@ _AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 
 # 配布時に OAuth アプリの client_id/secret を焼き込みたければここに既定を置く（インストール型では
 # secret は機密でない）。空のままでも、`watari auth` が env/対話で受け取って config に保存する。
-_BUNDLED_CLIENT_ID = ""
-_BUNDLED_CLIENT_SECRET = ""
+_BUNDLED_CLIENT_ID = '[REDACTED_GOOGLE_OAUTH_CLIENT_ID]'
+_BUNDLED_CLIENT_SECRET = '[REDACTED_GOOGLE_OAUTH_CLIENT_SECRET]'
 
 
 def _google_cfg() -> dict:
