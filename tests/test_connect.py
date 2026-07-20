@@ -142,7 +142,8 @@ class ConnectWizardTest(_XdgIsolated):
     def test_menu_dispatches_selected_service(self):
         from watari_cli import prompts
         self._viewer_ok(name="Binge", secret="key123")
-        prompts.select = lambda *a, **k: "linear"
+        picks = iter(["linear", None])  # 接続後はメニューに戻るので「終了」を選ぶ
+        prompts.select = lambda *a, **k: next(picks)
         prompts.text = lambda *a, **k: "key123"
         rc, out, _err = _run(["connect"])
         self.assertEqual(rc, 0)
@@ -505,9 +506,11 @@ class RegistryExtensibilityTest(_XdgIsolated):
         captured = {}
         saved = prompts.select
 
+        picks = iter(["linear", None])  # 1つ繋いだらメニューへ戻り「終了」を選ぶ
+
         def fake_select(prompt, options, default=0):
             captured["options"] = options
-            return "linear"
+            return next(picks)
         saved_text = prompts.text
         prompts.select = fake_select
         prompts.text = lambda *a, **k: "key-abc"  # メニュー後の貼り付けは検証対象外
@@ -538,17 +541,21 @@ class RegistryExtensibilityTest(_XdgIsolated):
 
         captured = {}
 
+        picks = iter(["fakesvc", None])  # 繋いだらメニューへ戻り「終了」を選ぶ
+
         def fake_select(message, options, default=0):
-            captured["options"] = options
-            return "fakesvc"
+            captured.setdefault("renders", []).append(options)
+            return next(picks)
         prompts.select = fake_select
         prompts.text = lambda *a, **k: "fake-api-key"
 
         # メニューに現れる（cli 側はレジストリを列挙しただけ・"fakesvc" を知らない）
         rc, out, _err = _run(["connect"])
         self.assertEqual(rc, 0)
-        # ラベルには接続状態が付く（未接続なら「（未接続）」）
-        self.assertIn(("⬜ FakeService", "fakesvc"), captured["options"])
+        first, second = captured["renders"][0], captured["renders"][1]
+        self.assertIn(("⬜ FakeService", "fakesvc"), first)
+        # 接続後にメニューへ戻ると状態が更新されている（毎回組み立て直しているため）
+        self.assertIn(("✅ FakeService（接続済み）", "fakesvc"), second)
         self.assertIn("Fake Viewer", out)
         self.assertEqual(connectors.auth_key("fakesvc"), "fake-api-key")
         self.assertEqual(config.load_connectors()[0]["name"], "fakesvc")
