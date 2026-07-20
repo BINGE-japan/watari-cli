@@ -20,3 +20,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 watari_cli = ["skill/*.md"]
+
+[dependency-groups]
+dev = ["pytest"]

@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 import unittest
 
 from watari_cli import cloud, relay
+from watari_cli.engine.watari_lib import fmt_ts, now_utc
 
 
 class _Base(unittest.TestCase):
@@ -95,6 +97,14 @@ class ToLineTest(_Base):
         self.assertIsNone(r._to_line(json.dumps({"type": "bashExecution"}), meta))
         self.assertIsNone(r._to_line("not json", meta))
 
+    def test_line_carries_session(self):
+        r = self._r()
+        line = r._to_line(json.dumps({"type": "message", "id": "t1",
+            "timestamp": "2026-07-19T00:00:00.000Z",
+            "message": {"role": "user", "content": "hi"}}), {"cwd": "/w", "session": "SESS"})
+        self.assertIn('"session": "SESS"', line)
+        self.assertIn('"turn_id": "t1"', line)
+
 
 class ExtractTest(_Base):
     def test_extract_new_then_empty(self):
@@ -143,6 +153,42 @@ class TickFlushTest(_Base):
         self.assertIn("hi", r._store.data["transcripts-m1.jsonl"])
         with open(relay._queue_path(), encoding="utf-8") as f:
             self.assertEqual(f.read(), "")
+
+
+class FirstRunSkipTest(_Base):
+    def _home_with_pi_cursor(self, cursor_ts):
+        home = tempfile.mkdtemp()
+        with open(os.path.join(home, "cursors.json"), "w", encoding="utf-8") as f:
+            json.dump({"transcripts_pi": cursor_ts}, f)
+        return home
+
+    def test_old_dreamed_file_skipped(self):
+        home = self._home_with_pi_cursor(fmt_ts(now_utc()))  # カーソル=今
+        p = self._session("s.jsonl", [
+            {"type": "session", "id": "S", "cwd": "/p", "timestamp": "2026-01-01T00:00:00.000Z"},
+            {"type": "message", "id": "a", "timestamp": "2026-01-01T00:00:01.000Z",
+             "message": {"role": "user", "content": "old"}},
+        ])
+        old = now_utc().timestamp() - 3600
+        os.utime(p, (old, old))  # mtime をカーソルより古く＝夢見済み
+        r = relay.Relay(self.pi_store, "m1", home=home)
+        try:
+            self.assertEqual(r._extract_new(), [])
+        finally:
+            shutil.rmtree(home)
+
+    def test_recent_file_not_skipped(self):
+        home = self._home_with_pi_cursor("2026-01-01T00:00:00.000Z")  # 古いカーソル
+        self._session("s.jsonl", [
+            {"type": "session", "id": "S", "cwd": "/p", "timestamp": fmt_ts(now_utc())},
+            {"type": "message", "id": "a", "timestamp": fmt_ts(now_utc()),
+             "message": {"role": "user", "content": "fresh"}},
+        ])
+        r = relay.Relay(self.pi_store, "m1", home=home)
+        try:
+            self.assertEqual(len(r._extract_new()), 1)
+        finally:
+            shutil.rmtree(home)
 
 
 class StartTest(_Base):

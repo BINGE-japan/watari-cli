@@ -138,9 +138,12 @@ def scan_cloud_stream(cursors, this_machine):
                 continue
             if cursor and tsp <= cursor:
                 continue
+            # dedup uuid はローカル scan_pi_store と完全一致させる（pi:<session>:<turn_id/id>）。
+            # A がローカルで、B がクラウド経由で同じ発話を夢に見ても (uuid,kind) dedup が効く。
+            session = d.get("session")
             msgs.append({
-                "ts": ts, "session": None,
-                "uuid": f"pi:{machine}:{d.get('turn_id') or ts}",
+                "ts": ts, "session": session,
+                "uuid": f"pi:{session or machine}:{d.get('turn_id') or ts}",
                 "cwd": d.get("cwd"), "file": name, "text": d.get("text"),
                 "role": d.get("role"),
             })

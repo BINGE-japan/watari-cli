@@ -62,10 +62,24 @@ def _message_text(message: dict) -> str:
     return ""
 
 
+def _pi_cursor_epoch(home):
+    """dream の transcripts_pi カーソルを epoch 秒で返す（無ければ None）。初見ファイルの取捨に使う。"""
+    if not home:
+        return None
+    try:
+        from watari_cli import host
+        from watari_cli.engine.watari_lib import parse_ts
+        cur = host.load_cursors(home).get("transcripts_pi")
+        return parse_ts(cur).timestamp() if cur else None
+    except Exception:
+        return None
+
+
 class Relay:
     """1 マシン分の中継。cmd_chat が start()→(Pi 実行)→stop_and_flush() で使う。"""
 
-    def __init__(self, pi_store: str, machine_id: str, poll_interval: float = 3.0):
+    def __init__(self, pi_store: str, machine_id: str, home: str | None = None,
+                 poll_interval: float = 3.0):
         self.pi_store = pi_store
         self.machine_id = machine_id
         self.cloud_name = f"transcripts-{machine_id}.jsonl"
@@ -74,7 +88,8 @@ class Relay:
         self._thread: threading.Thread | None = None
         self._store: cloud.CloudStore | None = None
         self._offsets = _load_offsets()
-        self._meta: dict[str, dict] = {}  # path -> {"cwd": ...}
+        self._meta: dict[str, dict] = {}  # path -> {"cwd", "session"}
+        self._pi_cursor = _pi_cursor_epoch(home)  # 初見ファイルの「夢見済み」判定用
 
     # --- ライフサイクル ---
     def start(self) -> None:
@@ -113,13 +128,14 @@ class Relay:
     def _header_meta(self, path: str) -> dict:
         if path in self._meta:
             return self._meta[path]
-        meta = {"cwd": None}
+        meta = {"cwd": None, "session": None}
         try:
             with open(path, encoding="utf-8") as f:
                 first = f.readline()
             d = json.loads(first)
             if d.get("type") == "session":
                 meta["cwd"] = d.get("cwd")
+                meta["session"] = d.get("id")  # dream の dedup uuid をローカル(scan_pi_store)と揃える
         except (OSError, json.JSONDecodeError):
             pass
         self._meta[path] = meta
@@ -140,7 +156,8 @@ class Relay:
             return None
         return json.dumps({
             "ts": d.get("timestamp"), "turn_id": d.get("id"), "machine": self.machine_id,
-            "cwd": meta.get("cwd"), "role": m["role"], "text": text,
+            "session": meta.get("session"), "cwd": meta.get("cwd"),
+            "role": m["role"], "text": text,
         }, ensure_ascii=False) + "\n"
 
     def _extract_new(self) -> list[str]:
@@ -150,6 +167,15 @@ class Relay:
                 size = os.path.getsize(path)
             except OSError:
                 continue
+            if path not in self._offsets and self._pi_cursor is not None:
+                # 初見ファイルが dream カーソル以前にしか書かれていない＝既に夢見済み（共有 log に蒸留済み）。
+                # 過去履歴を丸ごとアップロードして他マシンで再判定させないよう、末尾から始める。
+                try:
+                    mtime = os.path.getmtime(path)
+                except OSError:
+                    mtime = None
+                if mtime is not None and mtime < self._pi_cursor:
+                    self._offsets[path] = size
             offset = self._offsets.get(path, 0)
             if size <= offset:
                 continue
@@ -213,6 +239,13 @@ def prune_cloud(home: str, days: int = 90) -> None:
         if not (name.startswith("transcripts-") and name.endswith(".jsonl")):
             continue
         machine = name[len("transcripts-"):-len(".jsonl")]
+        mt = f.get("modifiedTime")
+        if mt:
+            try:
+                if parse_ts(mt) > now_utc() - timedelta(minutes=10):
+                    continue  # 直近更新＝発話元が追記中かも。read-modify-write の競合で未消化分を消さない
+            except (ValueError, TypeError):
+                pass
         key = f"cloud_{machine}"
         curs = [(h.get("cursors") or {}).get(key) for h in hosts
                 if h.get("machine_id") != machine]  # M 自身は自分の cloud を夢に見ない
