@@ -158,9 +158,14 @@ def _chatwork_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Chatwork", implemented=True,
         guide=[
-            "1. Chatwork 右上のプロフィールアイコン → 'サービス連携' を開く",
-            "2. 'API Token' で発行する",
-            "3. 発行されたトークンをここに貼り付ける",
+            "1. 次のページを開く（Chatwork にログインした状態で）:",
+            "   https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php",
+            "   ※画面から辿る場合: 右上のアカウント（利用者名）→『サービス連携』→ 左メニューの"
+            "『API』→『APIトークン』",
+            "2. ログインパスワードを入力すると API トークンが表示される",
+            "3. 『コピー』を押して、そのトークンをここに貼り付ける",
+            "※ 法人向けプランでは、組織の管理者が API 利用を有効にしていないとトークンを発行"
+            "できない（表示されない場合は管理者に有効化を依頼する）",
         ],
         verify=chatwork.verify, read=chatwork.read,
     )
