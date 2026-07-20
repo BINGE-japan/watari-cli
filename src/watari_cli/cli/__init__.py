@@ -668,10 +668,12 @@ def cmd_connector_list(args) -> int:
     for c in decls:
         name = c.get("name")
         if connectors_mod.is_builtin_name(name):
-            kind = "組み込み・接続済み" if connectors_status(name) else "組み込み・未接続"
+            mark = "✅" if connectors_status(name) else "⬜"
+            kind = "組み込み"
         else:
+            mark = "🔧"
             kind = "カスタム"
-        print(f"  {name} [{c.get('scope')}] ({kind}): {c.get('read') or '—'}")
+        print(f"  {mark} {name} [{c.get('scope')}] ({kind}): {c.get('read') or '—'}")
     return 0
 
 
@@ -773,11 +775,15 @@ def _connect_wizard(name: str) -> int:
 
 
 def _menu_label(name: str, service) -> str:
-    """メニュー1行の表示。接続済み/未接続/未対応がひと目で分かるようにする。"""
+    """メニュー1行の表示。状態は行頭の記号で示す（縦に並んだとき目が拾いやすい）。
+
+    ✅ 接続済み / ⬜ 未接続 / 🚧 未対応。記号だけに頼らず語も添える（記号が化ける端末・
+    読み上げ環境でも意味が落ちないように）。"""
     if not service.implemented:
-        return f"{service.label}（未対応）"
-    mark = "接続済み" if connectors_status(name) else "未接続"
-    return f"{service.label}（{mark}）"
+        return f"🚧 {service.label}（対応予定）"
+    if connectors_status(name):
+        return f"✅ {service.label}（接続済み）"
+    return f"⬜ {service.label}"
 
 
 def connectors_status(name: str) -> bool:
