@@ -4,7 +4,7 @@
 繰り返さないよう、ここに一枚で揃える。サービス固有の分岐（if name == "linear": ... elif ...）は
 どこにも書かない。REGISTRY に ServiceAdapter を1件足すだけで `watari connect`（メニュー含む）と
 `watari connector read` の両方に現れる（cli/__init__.py はレジストリを走査するだけで、サービス名を
-知らない）。未対応サービス（slack/gmail/calendar）も同じ REGISTRY に `implemented=False` の
+知らない）。未対応サービス（gmail/calendar）も同じ REGISTRY に `implemented=False` の
 プレースホルダとして載る（選ぶと「未対応です。対応予定」と案内するだけ）。
 
 認証情報は config.json の "connectors_auth" セクションへ {name: {"api_key": ...}} の形で保存する
@@ -79,6 +79,36 @@ def _notion_adapter() -> ServiceAdapter:
     )
 
 
+def _slack_adapter() -> ServiceAdapter:
+    from watari_cli import slack
+
+    return ServiceAdapter(
+        label="Slack", implemented=True,
+        guide=[
+            "1. https://api.slack.com/apps を開き 'Create New App' → 'From an app manifest' を"
+            "選ぶ",
+            "2. 対象ワークスペースを選び、次のマニフェストを貼り付ける:\n" + slack.SLACK_MANIFEST,
+            "3. 自分のワークスペースにインストールし、発行された User OAuth Token（xoxp-）を"
+            "ここに貼り付ける",
+        ],
+        verify=slack.verify, read=slack.read,
+    )
+
+
+def _chatwork_adapter() -> ServiceAdapter:
+    from watari_cli import chatwork
+
+    return ServiceAdapter(
+        label="Chatwork", implemented=True,
+        guide=[
+            "1. Chatwork 右上のプロフィールアイコン → 'サービス連携' を開く",
+            "2. 'API Token' で発行する",
+            "3. 発行されたトークンをここに貼り付ける",
+        ],
+        verify=chatwork.verify, read=chatwork.read,
+    )
+
+
 def _placeholder(label: str):
     """未対応サービスのアダプタ工場（実装が付くまでの枠）。"""
     def factory() -> ServiceAdapter:
@@ -92,7 +122,8 @@ REGISTRY = {
     "linear": _linear_adapter,
     "github": _github_adapter,
     "notion": _notion_adapter,
-    "slack": _placeholder("Slack"),
+    "slack": _slack_adapter,
+    "chatwork": _chatwork_adapter,
     "gmail": _placeholder("Gmail"),
     "calendar": _placeholder("Google カレンダー"),
 }

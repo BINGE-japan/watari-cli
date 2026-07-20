@@ -118,7 +118,9 @@ class ConnectWizardTest(_XdgIsolated):
         self.assertEqual(config.load_connectors(), [])
 
     def test_planned_service_reports_unimplemented_and_saves_nothing(self):
-        rc, out, _err = _run(["connect", "slack"])
+        # slack は実装済みになったため、未対応プレースホルダの例は gmail に差し替える
+        # （gmail/calendar は本タスクのスコープ外で未対応のまま）。
+        rc, out, _err = _run(["connect", "gmail"])
         self.assertEqual(rc, 0)
         self.assertIn("未対応", out)
         self.assertIn("対応予定", out)
