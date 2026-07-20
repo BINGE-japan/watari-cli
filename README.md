@@ -53,13 +53,15 @@ For services watari-cli ships a built-in adapter for, `watari connect
 <service>` walks you through it end to end: it explains what to open and what
 to paste, verifies the credential with a real API call before saving it, and
 registers the connector declaration for you. Built-in services so far: Linear
-(personal API key), GitHub (fine-grained personal access token), and Notion
-(internal integration token). Run `watari connect` with no argument for a menu
-of available services. Dream then reads it deterministically with `watari
-connector read <name> [--since TS] [--json]` (defaults to this machine's saved
-cursor); the cursor itself only advances via `watari ingest --advance-ext`, same
-as every other source. Slack, Gmail, and Google Calendar are listed in the menu
-but not implemented yet (`watari connect <name>` reports "not supported").
+(personal API key), GitHub (fine-grained personal access token), Notion
+(internal integration token), Slack (pasted user OAuth token, `xoxp-`, created
+from an app manifest), and Chatwork (pasted API token). Run `watari connect`
+with no argument for a menu of available services. Dream then reads it
+deterministically with `watari connector read <name> [--since TS] [--json]`
+(defaults to this machine's saved cursor); the cursor itself only advances via
+`watari ingest --advance-ext`, same as every other source. Gmail and Google
+Calendar are listed in the menu but not implemented yet (`watari connect
+<name>` reports "not supported").
 
 For anything without a built-in adapter — the original hand-rolled Watari's
 `knowledge/` folder of reference notes, an Obsidian vault, or any other
