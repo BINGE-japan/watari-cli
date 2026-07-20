@@ -28,17 +28,21 @@ class ServiceAdapter:
     """レジストリの1エントリ。実装済みサービスは guide/verify/read を持つ。未対応はラベルだけ。
 
     auth_kind="paste"（既定）は Linear/GitHub/Notion のようにユーザーがトークンを貼り付ける形。
-    auth_kind="oauth" は Google 系（gmail/calendar/gdrive）のように cloud.py の共有 OAuth を使う
-    形で、貼り付けは発生しない。verify/read の呼び出し方が違う（cli._connect_wizard /
+    auth_kind="oauth" は「貼り付けプロンプトを CLI 側が挟まず、verify() 自身が認可まで完結させる」
+    形（貼り付けは発生しない）。verify/read の呼び出し方が違う（cli._connect_wizard /
     connectors.read が auth_kind で分岐する。サービス名の if/elif はどこにも書かない）:
       - paste: verify(api_key) -> (ok, message) / read(api_key, since) -> rows
-      - oauth: verify() -> (ok, message)（内部で cloud.authorize(scopes) を必要時に起動）/
-               read(since) -> rows
+      - oauth: verify() -> (ok, message) / read(since) -> rows
+    oauth の内部実装は一様ではない: Google 系（gmail/calendar/gdrive）は cloud.py の共有 OAuth
+    （cloud.authorize(scopes)）を使い、接続判定も cloud.granted_scopes() で行う。freee のように
+    Google を共有しない独立した OAuth（Client ID/Secret 貼り付け→ブラウザ認可→自前のトークン
+    保存）を持つサービスは、`connected` にそのサービス自身の接続判定関数を渡す——
+    connectors.is_connected() はこれを優先し、無ければ Google 系の既定判定にフォールバックする。
     """
 
     def __init__(self, label: str, implemented: bool = True,
                 guide: list[str] | None = None, verify=None, read=None,
-                auth_kind: str = "paste", scopes: list[str] | None = None):
+                auth_kind: str = "paste", scopes: list[str] | None = None, connected=None):
         self.label = label
         self.implemented = implemented
         self.guide = guide or []  # 案内行（`watari connect <name>` がそのまま表示する短い日本語）
@@ -46,6 +50,9 @@ class ServiceAdapter:
         self.read = read
         self.auth_kind = auth_kind
         self.scopes = scopes or []  # auth_kind="oauth" のとき、このサービスに必要な追加スコープ
+        # auth_kind="oauth" のとき接続判定を自前で持つサービス用（例: freee）。無ければ
+        # Google 系の既定（cloud.granted_scopes()）にフォールバックする。
+        self.connected = connected
 
 
 def _linear_adapter() -> ServiceAdapter:
@@ -152,6 +159,26 @@ def _slack_adapter() -> ServiceAdapter:
     )
 
 
+def _freee_adapter() -> ServiceAdapter:
+    from watari_cli import freee
+
+    return ServiceAdapter(
+        label="freee（会計）", implemented=True, auth_kind="oauth", connected=freee.is_connected,
+        guide=[
+            "1. https://app.secure.freee.co.jp/developers/applications を開く",
+            "2. ログインし、アプリを作成する事業所を選ぶ（顧問先の事業所では作成できません）",
+            "3. 「アプリ管理」→「新規追加」でアプリ名・概要を入力して「作成」を押す",
+            "4. 表示された Client ID と Client Secret を控える（このあとの入力で使います）",
+            "5. コールバックURL欄に http://127.0.0.1:8787 を設定して保存する"
+            "（8787番が使用中の場合は空きポートに切り替わり、実際に使う値を改めて表示します。"
+            "ブラウザを開けない環境では代わりに urn:ietf:wg:oauth:2.0:oob を使います）",
+            "6. 続けて Client ID → Client Secret の順に貼り付けてください（ブラウザで認可画面が"
+            "開きます）",
+        ],
+        verify=freee.verify, read=freee.read,
+    )
+
+
 def _chatwork_adapter() -> ServiceAdapter:
     from watari_cli import chatwork
 
@@ -186,6 +213,7 @@ REGISTRY = {
     "notion": _notion_adapter,
     "slack": _slack_adapter,
     "chatwork": _chatwork_adapter,
+    "freee": _freee_adapter,
     "gmail": _gmail_adapter,
     "calendar": _calendar_adapter,
     "gdrive": _gdrive_adapter,
@@ -228,6 +256,8 @@ def is_connected(name: str) -> bool:
     if service is None:
         return False
     if service.auth_kind == "oauth":
+        if service.connected is not None:
+            return service.connected()
         from watari_cli import cloud
 
         granted = set(cloud.granted_scopes())

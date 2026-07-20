@@ -42,7 +42,7 @@
 - **実装済み・検証済み**：CLI 一式（status/host/dream/recall/ingest/audit/regen/init/install/auth/
   chat/connect/connector）、記憶エンジン、人格スキル同梱（wheel）。クリーンルーム(Docker)で「素の環境に導入→カセット
   clone→recall に実記憶→Pi 上で人格＋記憶付きに起動」を実証。人格は原本に寄せて調整済み。
-- **組み込みコネクタ（Linear / GitHub / Notion / Slack / Chatwork / Gmail / Google カレンダー /
+- **組み込みコネクタ（Linear / GitHub / Notion / Slack / Chatwork / freee / Gmail / Google カレンダー /
   Google ドライブ）**：`watari connect <name>` が
   案内→貼り付け→疎通確認→config 保存→ connector 宣言(scope既定cloud)まで一本道。`watari connector
   read <name> [--since TS] [--json]` が各サービスの決定論リーダーで統一形式 {ts,uuid,text,meta} を
@@ -57,7 +57,19 @@
   （`auth.test` で疎通確認、HTTP 200 でも body の ok を必ず検査、`after:` は日付粒度のため同日再取得は
   dedup 任せ）。Chatwork は API トークン貼り付け・`GET /rooms` で since 以降に更新された部屋を最大
   10件に絞り各部屋のメッセージを取得（`GET /me` で疎通確認）。urllib transport は
-  `connector_http.py` に共通化（重複回避）。Gmail / Google カレンダー / Google ドライブは
+  `connector_http.py` に共通化（重複回避）。freee は他と違い貼るのが Client ID/Secret で、
+  `verify()` 自身が「入力→ブラウザ認可(loopback 優先、127.0.0.1:8787固定→空きポート→
+  失敗時は oob `urn:ietf:wg:oauth:2.0:oob` にフォールバック)→トークン交換→事業所選択」まで
+  完結する（auth_kind="oauth" の「貼り付けプロンプトなし」経路に乗せ、専用の3個目の auth_kind は
+  増やさない。`ServiceAdapter.connected` にサービス自前の接続判定を持たせられるよう
+  connectors.py を汎用化し、cloud.py の Google OAuth 前提から独立させた）。アクセストークンは
+  6時間・リフレッシュトークンは90日で**使い捨て（ローテーション）**のため、更新のたびに新しい
+  refresh_token を必ず config へ上書き保存してから access_token を返す。invalid_grant/90日失効は
+  「再接続が必要です」と明示。事業所(company_id)は `GET /api/1/companies` を1回叩き、1件なら
+  自動選択・複数なら選ばせて保存。読み取りは `GET /api/1/deals`
+  （`start_issue_date=sinceの日付`, 1ページ=100件打ち切り）で、取引先/勘定科目は一覧応答が
+  ID しか返さないため名称が拾えるときだけ表示（正本は freee のまま）。Gmail / Google カレンダー /
+  Google ドライブは
   トークン貼り付けではなく、発話中継所（drive.appdata）用に確立済みの Google OAuth を
   **incremental scope**（`cloud.authorize(scopes)`、`include_granted_scopes=true`）で
   サービスごとに1スコープずつ拡張する方式（`cloud.granted_scopes()` が付与済み一覧を保持）。

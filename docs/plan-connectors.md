@@ -35,6 +35,37 @@ watari-cli の原則（コマンド一発・必要な選択は選択肢で・呪
 - 認証情報がカセット git に入らない（config.json のみ）。テスト追加・全 green。
 - SKILL/README/SPEC の該当箇所更新。
 
+## 付記: freee の接続手順（公式仕様の要点）
+
+freee は Linear/GitHub/Notion/Slack/Chatwork と違い「トークン1個を貼る」形にならない：
+ユーザーが貼るのは freee アプリの Client ID/Secret だけで、実際の認可はブラウザの freee 画面で
+行う。専用の3個目の auth_kind は増やさず、`auth_kind="oauth"`（貼り付けプロンプトを CLI 側が
+挟まない経路）に `freee.verify()` 自身が「Client ID/Secret 入力→ブラウザ認可→トークン交換→
+事業所選択→config 保存」まで一括で乗せる。gmail/calendar/gdrive と違い cloud.py の Google OAuth
+を共有しないため、接続判定は `ServiceAdapter.connected`（サービス自前のフック）を汎用的に
+持てるよう `connectors.py` を拡張した（サービス名の分岐は増やしていない）。
+
+- 認可URL: `https://accounts.secure.freee.co.jp/public_api/authorize`。トークンURL:
+  `https://accounts.secure.freee.co.jp/public_api/token`（交換は
+  `grant_type=authorization_code`、更新は `grant_type=refresh_token`）。
+- **アクセストークンは6時間（21600秒）、リフレッシュトークンは90日で使い捨て（1回使うと
+  ローテーションし、同じ refresh_token は2度と使えない）**。そのため `freee.access_token()` は
+  更新のたびに応答の新しい refresh_token を必ず config へ上書き保存してから access_token を
+  返す（保存前に返すと、保存に失敗した回だけ新しい refresh_token を失い次回から認証不能になる）。
+  invalid_grant/90日失効は「再接続が必要です（`watari connect freee`）」と明示するエラーにする。
+- 認可フローは **loopback を第一候補**にする：127.0.0.1 の固定ポート 8787 で待ち受け、使用中なら
+  空きポートへフォールバックする。ポートが確保できない、またはコールバックが来ないまま失敗した
+  場合は `redirect_uri=urn:ietf:wg:oauth:2.0:oob`（画面に認可コードが表示される方式）に
+  フォールバックし、その場合だけ認可コードの貼り付けプロンプトを出す。実際に使う redirect_uri は
+  毎回具体的な文字列で表示する（アプリのコールバックURL欄をその値に置き換えて保存してもらう
+  必要があるため）。
+- 事業所(company_id)はトークン取得後に `GET /api/1/companies` を1回叩き、1件なら自動選択、
+  複数なら `prompts.select` で選ばせて config に保存する。
+- 読み取りは `GET /api/1/deals?company_id=<id>&start_issue_date=<sinceの日付>&limit=100` の
+  単発取得（ページングは1ページで打ち切り）。取引先/勘定科目は一覧応答が ID しか返さないため、
+  名称が拾えるときだけ表示し、拾えないときは ID または摘要にフォールバックする（明細の全文は
+  書き写さない。正本は freee のまま）。
+
 ## 付記: Slack の接続手順（実画面に合わせる）
 
 `Create app from manifest` の 2 画面目は「空欄に貼る」ではなく **Demo App の雛形 JSON が入った
