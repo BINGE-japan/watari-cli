@@ -283,13 +283,17 @@ class ConnectWizardChatworkTest(_XdgIsolated):
         self.assertIsNone(connectors.auth_key("chatwork"))
         self.assertEqual(config.load_connectors(), [])
 
-    def test_guide_mentions_service_integration_menu(self):
+    def test_guide_gives_token_url_and_menu_path(self):
+        """案内は URL を直に示す（画面から辿る道と、管理者による有効化の注意も添える）。"""
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""  # 空入力で中止させ、案内文だけを見る
         rc, out, _err = _run(["connect", "chatwork"])
         self.assertEqual(rc, 1)
+        self.assertIn(
+            "https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php", out)
         self.assertIn("サービス連携", out)
-        self.assertIn("API Token", out)
+        self.assertIn("APIトークン", out)
+        self.assertIn("管理者", out)
 
 
 class ConnectorReadChatworkTest(_XdgIsolated):
