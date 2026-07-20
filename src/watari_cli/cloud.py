@@ -7,9 +7,11 @@ appDataFolder はユーザーの Drive UI に出ず、アプリ専用で、API �
 依存を増やさないため HTTP は標準ライブラリ(urllib)だけで叩く。バックエンドは `CloudStore` で
 抽象化し、今は Drive appDataFolder を第一実装とする（将来の差し替え余地。他実装は今は作らない）。
 
-認証 = Google OAuth（インストール型アプリ・loopback フロー）。client_id/secret は watari-cli 同梱
-（インストール型では secret は機密でない）。未登録の間は空——登録手順は docs/google-oauth-setup.md。
-リフレッシュトークンはユーザー設定(config.json)に保存する。
+認証 = Google OAuth（インストール型アプリ・loopback フロー）。client_id/secret は **config.json の
+google セクション**に保存し、環境変数で上書きもできる（解決順: env > config > 同梱既定）。
+`watari auth` の初回に env か対話入力で受け取って config に保存するので、以後は無人で読める。
+インストール型アプリの client_id/secret は機密ではない（＝config 保存/配布して問題ない）。
+リフレッシュトークンも同じ google セクションに保存する。登録手順は docs/google-oauth-setup.md。
 """
 from __future__ import annotations
 
@@ -26,10 +28,38 @@ SCOPE = "https://www.googleapis.com/auth/drive.appdata"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 
-# binge が登録した OAuth アプリの client_id/secret を同梱する。未登録の間は空。
-# docs/google-oauth-setup.md の手順で埋める（環境変数でも上書き可）。
-_CLIENT_ID = os.environ.get("WATARI_GOOGLE_CLIENT_ID", "")
-_CLIENT_SECRET = os.environ.get("WATARI_GOOGLE_CLIENT_SECRET", "")
+# 配布時に OAuth アプリの client_id/secret を焼き込みたければここに既定を置く（インストール型では
+# secret は機密でない）。空のままでも、`watari auth` が env/対話で受け取って config に保存する。
+_BUNDLED_CLIENT_ID = ""
+_BUNDLED_CLIENT_SECRET = ""
+
+
+def _google_cfg() -> dict:
+    return config.load_config().get("google") or {}
+
+
+def _client_id() -> str:
+    """client_id を解決する。優先順: 環境変数 > config.json(google) > 同梱既定。"""
+    return (os.environ.get("WATARI_GOOGLE_CLIENT_ID")
+            or _google_cfg().get("client_id") or _BUNDLED_CLIENT_ID)
+
+
+def _client_secret() -> str:
+    return (os.environ.get("WATARI_GOOGLE_CLIENT_SECRET")
+            or _google_cfg().get("client_secret") or _BUNDLED_CLIENT_SECRET)
+
+
+def credentials() -> tuple[str, str]:
+    """解決済みの (client_id, client_secret)。未設定は空文字。"""
+    return _client_id(), _client_secret()
+
+
+def save_credentials(client_id: str, client_secret: str) -> None:
+    """client_id/secret を config.json の google セクションへ保存（refresh_token は保持）。"""
+    google = _google_cfg()
+    google["client_id"] = client_id
+    google["client_secret"] = client_secret
+    config.save_config(google=google)
 
 
 class CloudError(Exception):
@@ -49,12 +79,12 @@ def _http(method: str, url: str, headers: dict | None = None, data: bytes | None
 
 
 def is_configured() -> bool:
-    """OAuth アプリ（client_id/secret）が同梱/設定されているか。"""
-    return bool(_CLIENT_ID and _CLIENT_SECRET)
+    """OAuth アプリ（client_id/secret）が設定されているか（env/config/同梱いずれか）。"""
+    return bool(_client_id() and _client_secret())
 
 
 def _refresh_token() -> str | None:
-    return (config.load_config().get("google") or {}).get("refresh_token")
+    return _google_cfg().get("refresh_token")
 
 
 def is_authorized() -> bool:
@@ -66,7 +96,7 @@ def _access_token() -> str:
     if not rt:
         raise CloudError("Google 未認証（watari install で承認、または docs/google-oauth-setup.md）")
     data = urllib.parse.urlencode({
-        "client_id": _CLIENT_ID, "client_secret": _CLIENT_SECRET,
+        "client_id": _client_id(), "client_secret": _client_secret(),
         "refresh_token": rt, "grant_type": "refresh_token",
     }).encode()
     status, body = _http("POST", _TOKEN_URL,
@@ -209,7 +239,7 @@ def authorize() -> tuple[bool, str]:
     redirect_uri = f"http://127.0.0.1:{server.server_address[1]}"
     state = secrets.token_urlsafe(16)
     auth_url = _AUTH_URL + "?" + urllib.parse.urlencode({
-        "client_id": _CLIENT_ID, "redirect_uri": redirect_uri, "response_type": "code",
+        "client_id": _client_id(), "redirect_uri": redirect_uri, "response_type": "code",
         "scope": SCOPE, "access_type": "offline", "prompt": "consent", "state": state,
     })
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -231,7 +261,7 @@ def authorize() -> tuple[bool, str]:
     if captured.get("state") != state:
         return False, "state 不一致（認証を中断しました）"
     data = urllib.parse.urlencode({
-        "code": captured["code"], "client_id": _CLIENT_ID, "client_secret": _CLIENT_SECRET,
+        "code": captured["code"], "client_id": _client_id(), "client_secret": _client_secret(),
         "redirect_uri": redirect_uri, "grant_type": "authorization_code",
     }).encode()
     status, body = _http("POST", _TOKEN_URL,

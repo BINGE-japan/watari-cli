@@ -342,17 +342,51 @@ def cmd_install(args) -> int:
         from watari_cli import git_sync
         ok, message = git_sync.setup_remote(saved, plan["git_remote"])
         print(("✓ " if ok else "! ") + message)
-    # Google 認証（発話中継所）。client_id 同梱済みかつ未認証・対話時のみ承認を促す（browser フロー）。
+    # Google 認証（発話中継所）。client_id/secret が設定済みかつ未認証・対話時のみ承認を促す。
+    # 実体は watari auth と同じ _google_auth_flow（creds は既にあるので追加入力は求めない）。
     from watari_cli import cloud
     if cloud.is_configured() and not cloud.is_authorized() and not args.yes:
         from watari_cli import prompts
         if prompts.confirm("Google Drive と会話を同期しますか？（別マシンのワタリが夢に見れる）", default=True):
-            ok, message = cloud.authorize()
+            ok, message = _google_auth_flow(prompt_for_creds=False)
             print(("✓ " if ok else "! ") + message)
     print()
     for line in _install_done_lines(saved, desc, plan["git_remote"], plan["mode"]):
         print(line)
     return 0
+
+
+def _google_auth_flow(prompt_for_creds: bool) -> tuple[bool, str]:
+    """Google 認証の共通経路（install の承認プロンプトも watari auth もここを通る）。
+
+    client_id/secret を env>config で解決し、無ければ（prompt_for_creds のとき）対話入力させて
+    config.json に保存する。その後 loopback フローで承認し refresh token を保存。(ok, メッセージ)。
+    """
+    from watari_cli import cloud, prompts
+
+    cid, csec = cloud.credentials()
+    if not (cid and csec):
+        if not prompt_for_creds:
+            return False, "Google の client_id/secret 未設定（`watari auth` で設定できます）"
+        print("Google OAuth の client_id / client_secret を入力してください")
+        print("（未登録なら docs/google-oauth-setup.md の手順で発行）。")
+        cid = cid or prompts.text("client_id")
+        csec = csec or prompts.text("client_secret")
+        if not (cid and csec):
+            return False, "client_id/secret が空のため中止しました"
+    cloud.save_credentials(cid, csec)  # env 由来でも config に保存し、以後の token 更新を無人化
+    return cloud.authorize()
+
+
+def cmd_auth(args) -> int:
+    """Google 認証（発話中継所＝Drive appDataFolder）を単独で行う。
+
+    初回は env か対話入力で client_id/secret を受け取り config.json に保存 → ブラウザ承認。
+    以後は保存値で再承認/更新できる（token 失効時の再ログインもこれ一発）。
+    """
+    ok, message = _google_auth_flow(prompt_for_creds=True)
+    print(("✓ " if ok else "! ") + message)
+    return 0 if ok else 1
 
 
 def _find_skill_dir() -> str | None:
@@ -675,6 +709,9 @@ def _build_parser() -> argparse.ArgumentParser:
     pinst.add_argument("--yes", "-y", action="store_true", help="質問せず既定のまま（コマンド一発）")
     pinst.add_argument("--dry-run", action="store_true", help="UX だけ試す（何も変更しない・何度でも）")
     pinst.set_defaults(func=cmd_install)
+
+    pauth = sub.add_parser("auth", help="Google 認証（会話をマシン間で同期する中継所にログイン）")
+    pauth.set_defaults(func=cmd_auth)
 
     pc = sub.add_parser("chat", help="ワタリを起動（スキル/記憶/モデルを自動で渡す）")
     pc.add_argument("--home", help="記憶の場所")
