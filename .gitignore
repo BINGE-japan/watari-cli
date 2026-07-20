@@ -21,3 +21,6 @@ credentials*.json
 auth*.json
 
 .DS_Store
+
+# エージェント作業用 worktree（一時ディレクトリ・リポには含めない）
+.claude/worktrees/
