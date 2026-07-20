@@ -43,13 +43,13 @@ user-invocable: true
 人が眠る間の記憶整理に相当。前回以降の差分から、後で効く記憶だけを静かに記憶へ移す。会話には出さない。
 機械処理（発話の選別・dedup・カーソル前進・state 再生成・監査）は CLI が行う。**あなたの仕事は判定だけ**。
 
-**ソース（すべて一様）**：組み込みの Pi transcript ストアと各 connector（slack/gmail/calendar/linear/obsidian 等）は、それぞれのカーソル以降を走査した一様なソース。どこ由来でも同じ基準で判定する（`watari dream --json` はこのうち Pi transcript を `messages[]` に出す）。
+**ソース（すべて一様）**：自マシンの Pi transcript、**他マシンの共有発話ストリーム（`cloud_<machine>`）**、各 connector（slack/gmail/calendar/linear/obsidian 等）は、それぞれのカーソル以降を走査した一様なソース。どこ由来でも同じ基準で判定する（`watari dream --json` は Pi と cloud を `messages[]` に出す）。
 
 ### 手順（機械 ⇄ 判定）
-1. **抽出（機械）**：`watari dream --json` で候補を得る。出力＝`stores.pi.{readable,count,max_ts,truncated}` と `messages[]`（本物のユーザー発話・ts 昇順）。
+1. **抽出（機械）**：`watari dream --json` で候補を得る。出力＝`stores.{pi, cloud_<machine>, …}.{readable,count,max_ts,truncated}` と `messages[]`（ts 昇順）。`stores.cloud_<machine>` は他マシンから共有された発話。`messages[]` には `role:"assistant"` の行も混ざる——これは判定の**文脈用**で、記憶の**根拠にはしない**（根拠は本人＝`role:"user"` の発話だけ）。
 2. **判定（あなた＝今のモデル）**：`messages` を読み、後で効くものだけを SCHEMA の行仕様で JSON 配列にして一時ファイルに書く（0 件なら `[]`）。基準は下の「三層」「六規律」「書き方」。
-3. **取り込み（機械）**：`watari ingest --rows <file> --advance-pi <stores.pi.max_ts>`。
-   - `readable:false` または `max_ts:null` なら `--advance-pi` は**渡さない**（カーソル据え置き＝取りこぼし防止）。
+3. **取り込み（機械）**：`watari ingest --rows <file> --advance-pi <stores.pi.max_ts> --advance-cloud <machine>=<stores.cloud_<machine>.max_ts> …`（**読めた cloud ストアごとに 1 つずつ**）。
+   - `readable:false` または `max_ts:null` のストアは、その `--advance-pi`／`--advance-cloud` を**渡さない**（カーソル据え置き＝取りこぼし防止）。**cloud カーソルを進め忘れると他マシン発話が毎回再判定され、クラウドの prune も効かない**。
    - 新規 domain を書いた回だけ `--allow-new-domain`。検証エラー(exit 2)なら rows を直して再実行（何も書かれていない）。
    - 0 件の日も `[]` で実行してよい（last_run 更新・state の減衰/自動クローズが走る）。
 4. **connector も同様に（判定 ⇄ 機械）**：宣言された各 connector（`watari connector list`）について、その `read` 指示に従って自分のツール（MCP 等）で cursor 以降を読み→同じ「三層」「六規律」で判定→`watari ingest` で書き→`--advance-ext <name>=<最新ts>` でそのカーソルを前進。**cloud スコープの connector は「担当1台」だけが夢を見る**（多重取り込み防止。どのマシンが担当かは運用で決める）。読めなかった connector のカーソルは渡さない（据え置き）。
@@ -84,7 +84,7 @@ user-invocable: true
 - `watari host [--set KEY=VALUE]` … このマシンの環境を host record に記録し、他マシンの記録も一覧
 - `watari dream [--json]` … 会話ログから候補を抽出（読むだけ）
 - `watari connector list` / `watari connector add --name <slug> --scope cloud|local --read "..."` … 夢に流し込むソースを宣言/一覧
-- `watari ingest --rows FILE [--advance-pi TS] [--advance-ext NAME=TS] [--allow-new-domain] [--dry-run]` … 判定済み行を記憶へ書く
+- `watari ingest --rows FILE [--advance-pi TS] [--advance-cloud MACHINE=TS] [--advance-ext NAME=TS] [--allow-new-domain] [--dry-run]` … 判定済み行を記憶へ書く
 - `watari audit [--coverage]` … 記憶の健全性監査
 - `watari init [--home DIR]` … 空の記憶を新規作成
 

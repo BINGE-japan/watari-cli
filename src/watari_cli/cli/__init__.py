@@ -501,7 +501,7 @@ def cmd_chat(args) -> int:
     import signal
     from watari_cli import host, relay
 
-    relayer = relay.Relay(wl.PI_STORE, host.machine_id())
+    relayer = relay.Relay(wl.PI_STORE, host.machine_id(), home=home)
     relayer.start()  # 会話を別マシンへ中継（クラウド未認証なら内部で no-op）
     _spawn_background_dream(home, runtime, skill)  # 裏で夢を回す（非ブロッキング・二重起動ガード）
 

@@ -93,6 +93,7 @@ class EntrypointContractTests(unittest.TestCase):
                 "package-dir": {"": "src"}, "packages": {"find": {"where": ["src"]}},
                 "package-data": {"watari_cli": ["skill/*.md"]},
             }},
+            "dependency-groups": {"dev": ["pytest"]},
         })
         temporary = tempfile.TemporaryDirectory(prefix="watari-b002-")
         self.__class__._temporary = temporary

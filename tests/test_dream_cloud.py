@@ -27,9 +27,10 @@ def _line(ts, tid, machine, role, text, cwd="/w"):
 class FakeStore(cloud.CloudStore):
     def __init__(self):
         self.files_data: dict = {}
+        self.mtimes: dict = {}
 
     def list(self):
-        return [{"name": n} for n in self.files_data]
+        return [{"name": n, "modifiedTime": self.mtimes.get(n)} for n in self.files_data]
 
     def read(self, name):
         return self.files_data.get(name, "")
@@ -79,6 +80,14 @@ class ScanCloudTest(_Cloud):
     def test_unauthorized_empty(self):
         cloud.get_store = lambda: None
         self.assertEqual(extract.scan_cloud_stream({}, "me"), [])
+
+    def test_uuid_uses_session_matches_local(self):
+        # relay が session を運ぶので、クラウド側 uuid はローカル pi:<session>:<id> と完全一致する
+        self.store.files_data["transcripts-A.jsonl"] = json.dumps(
+            {"ts": "2026-07-19T00:00:01.000Z", "turn_id": "t1", "machine": "A",
+             "session": "S", "cwd": "/w", "role": "user", "text": "hi"}) + "\n"
+        _, _, _, msgs = extract.scan_cloud_stream({}, "me")[0]
+        self.assertEqual(msgs[0]["uuid"], "pi:S:t1")
 
 
 class RunWithCloudTest(_Cloud):
@@ -149,6 +158,19 @@ class PruneCloudTest(_Cloud):
             shutil.rmtree(home)
         self.assertNotIn("dreamed", kept)
         self.assertIn("notyet", kept)
+
+    def test_skips_recently_modified_file(self):
+        # min=late なので本来 t1 は削除対象だが、直近更新（追記中かも）なのでファイルごとスキップ
+        home = self._home_with_hosts({"B": {"cloud_A": "2026-07-19T23:59:59.000Z"}})
+        self.store.files_data["transcripts-A.jsonl"] = _line(
+            "2026-07-19T00:00:01.000Z", "t1", "A", "user", "x")
+        self.store.mtimes["transcripts-A.jsonl"] = fmt_ts(now_utc())
+        try:
+            relay.prune_cloud(home, days=90)
+        finally:
+            kept = self.store.files_data["transcripts-A.jsonl"]
+            shutil.rmtree(home)
+        self.assertIn("x", kept)
 
     def test_90day_cap_when_not_all_dreamed(self):
         home = self._home_with_hosts({"B": {}})  # B は未読 → min なし → 保険のみ
