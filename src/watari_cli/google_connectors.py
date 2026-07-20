@@ -33,6 +33,20 @@ GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
 DRIVE_API = "https://www.googleapis.com/drive/v3"
 
+# カーソル未設定（初回接続）の既定。1970 年にすると全履歴を一度に引き込み、夢が過去の
+# 全ファイル/全メールを再判定する羽目になる。初回は直近 INITIAL_LOOKBACK_DAYS 日だけ見る
+# （以後はカーソルが進むので窓は自然に閉じる）。
+INITIAL_LOOKBACK_DAYS = 14
+
+
+def _default_since() -> str:
+    from datetime import timedelta
+
+    from watari_cli.engine.watari_lib import fmt_ts, now_utc
+
+    return fmt_ts(now_utc() - timedelta(days=INITIAL_LOOKBACK_DAYS))
+
+
 _EPOCH = "1970-01-01T00:00:00.000Z"
 
 
@@ -117,10 +131,11 @@ def gmail_read(since: str | None) -> list[dict]:
     messages.list は `q=after:<epoch秒>` で絞り込み、maxResults=100 まで一覧を取ってから、
     本文は取らずヘッダ(From/Subject/Date)+snippet だけを1リクエストずつ(format=metadata)取得する
     （50件/回で打ち切り、超過分は次回の呼び出しに回る＝linear/github と同じ「1回で取り切らない」
-    設計）。since 省略時は全件相当（epoch 0）。
+    設計）。since 省略時（初回接続）は直近 INITIAL_LOOKBACK_DAYS 日だけ見る。
     """
     token = cloud.access_token()
-    q = urllib.parse.urlencode({"q": f"after:{_epoch_seconds(since)}", "maxResults": "100"})
+    q = urllib.parse.urlencode(
+        {"q": f"after:{_epoch_seconds(since or _default_since())}", "maxResults": "100"})
     listing = _get_json("gmail", f"{GMAIL_API}/users/me/messages?{q}", token)
     ids = [m["id"] for m in (listing.get("messages") or [])][:50]
 
@@ -165,11 +180,11 @@ def calendar_read(since: str | None) -> list[dict]:
 
     events.list(updatedMin=since, maxResults=100, showDeleted=true) の単発取得（ページングなし。
     since 以降の更新がこれを超える規模は運用スコープ外＝他アダプタと同じ前提）。
+    since 省略時（初回接続）は直近 INITIAL_LOOKBACK_DAYS 日だけ見る。
     """
     token = cloud.access_token()
-    params = {"maxResults": "100", "showDeleted": "true"}
-    if since:
-        params["updatedMin"] = since
+    params = {"maxResults": "100", "showDeleted": "true",
+              "updatedMin": since or _default_since()}
     q = urllib.parse.urlencode(params)
     data = _get_json("calendar", f"{CALENDAR_API}/calendars/primary/events?{q}", token)
     rows = []
@@ -210,7 +225,7 @@ def gdrive_read(since: str | None) -> list[dict]:
     Drive のまま）。
     """
     token = cloud.access_token()
-    since_q = (since or _EPOCH).replace("Z", "")
+    since_q = (since or _default_since()).replace("Z", "")
     params = urllib.parse.urlencode({
         "q": f"modifiedTime > '{since_q}' and trashed = false",
         "orderBy": "modifiedTime",

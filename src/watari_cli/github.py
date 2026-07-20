@@ -65,6 +65,12 @@ def verify(token: str) -> tuple[bool, str]:
     return True, login
 
 
+def _to_search_ts(since: str) -> str:
+    """カーソル ISO を GitHub 検索が受ける秒精度 ISO8601 (YYYY-MM-DDTHH:MM:SSZ) に丸める。"""
+    base = since.replace("Z", "").split("+")[0].split(".")[0]
+    return base + "Z" if "T" in base else base
+
+
 def _repo_full_name(item: dict) -> str:
     return item.get("repository_url", "").split("/repos/", 1)[-1]
 
@@ -91,7 +97,9 @@ def read(token: str, since: str | None) -> list[dict]:
     login = user.get("login")
     if not login:
         raise ConnectorError("github: login が取得できませんでした")
-    since_q = since or "1970-01-01T00:00:00Z"
+    # GitHub の検索修飾子 `updated:>` は秒精度まで。カーソルのミリ秒（...T05:07:01.176Z）を
+    # そのまま渡すと 422 Unprocessable Entity になるため、秒に丸めてから渡す。
+    since_q = _to_search_ts(since) if since else "1970-01-01T00:00:00Z"
     query = f"involves:{login} updated:>{since_q}"
     params = urllib.parse.urlencode(
         {"q": query, "sort": "updated", "order": "asc", "per_page": "100"})
