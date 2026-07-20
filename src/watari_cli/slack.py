@@ -4,9 +4,11 @@ Slack Web API（https://slack.com/api）に `Authorization: Bearer <token>` ヘ�
 禁止のため HTTP は urllib のみ（transport 部分は connector_http.py に共通化して linear/github/
 notion/chatwork と同じ形にしている）。
 
-案内（`SLACK_MANIFEST`）: https://api.slack.com/apps で「Create New App → From an app manifest」を
-選び、このマニフェストを貼り付けて自分のワークスペースにインストールし、発行された User OAuth
-Token を貼り付けてもらう3段の wizard（connectors.py 側で guide として組み立てる）。
+案内（`SLACK_MANIFEST`）: https://api.slack.com/apps →「Create New App」→「From an app manifest」
+→ ワークスペース選択 → **既定で JSON タブが開き Demo App の雛形が入っているので全選択して置換**
+→ Create → Install to Workspace → OAuth & Permissions の User OAuth Token（xoxp-）を貼る、という
+実画面どおりの手順を connectors.py 側で guide として組み立てる。マニフェストを **JSON** で持つのは
+その置換画面の既定タブが JSON だから（YAML に切り替えさせる手間を省く）。
 
 - 疎通確認（`verify`）は `POST /auth.test`。Slack API は **HTTP 200 でも body の `ok` が
   false** になり得るため、ステータスコードだけでなく必ず `ok` を検査する。成功時は
@@ -32,14 +34,25 @@ from watari_cli.connectors import ConnectorError
 AUTH_TEST_URL = "https://slack.com/api/auth.test"
 SEARCH_URL = "https://slack.com/api/search.messages"
 
-# guide の2段目でそのまま貼り付けてもらうマニフェスト（printable な定数として保持）。
+# 「Create app from manifest」の JSON タブへ全選択して貼り替えてもらうマニフェスト。
+# Slack の必須項目は display_information.name のみ。ワタリが要るのは検索の読み取り(search:read)を
+# 自分の権限で使う user scope だけで、bot も対話機能も要らない。
 SLACK_MANIFEST = """\
-display_information:
-  name: Watari
-oauth_config:
-  scopes:
-    user:
-      - search:read
+{
+  "display_information": {
+    "name": "Watari"
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": ["search:read"]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
 """
 
 

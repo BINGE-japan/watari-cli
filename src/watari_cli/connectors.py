@@ -138,11 +138,15 @@ def _slack_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Slack", implemented=True,
         guide=[
-            "1. https://api.slack.com/apps を開き 'Create New App' → 'From an app manifest' を"
-            "選ぶ",
-            "2. 対象ワークスペースを選び、次のマニフェストを貼り付ける:\n" + slack.SLACK_MANIFEST,
-            "3. 自分のワークスペースにインストールし、発行された User OAuth Token（xoxp-）を"
-            "ここに貼り付ける",
+            "1. https://api.slack.com/apps を開き 'Create New App' → 'From an app manifest'",
+            "2. 使うワークスペースを選んで Next",
+            "3. JSON タブの中身（Demo App の雛形）を全選択（Ctrl+A / Cmd+A）して消し、"
+            "下のマニフェストで置き換えて Next → Create:",
+            slack.SLACK_MANIFEST,
+            "4. 作成後の画面で 'Install to Workspace'（左メニュー OAuth & Permissions からでも可）"
+            "を押し、Allow で許可する",
+            "5. OAuth & Permissions の 'User OAuth Token'（xoxp- で始まる方。bot の xoxb- ではない）"
+            "をコピーしてここに貼り付ける",
         ],
         verify=slack.verify, read=slack.read,
     )
