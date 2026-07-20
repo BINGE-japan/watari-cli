@@ -57,8 +57,9 @@ before saving it. Built-in services so far: Linear (personal API key), GitHub
 (fine-grained personal access token), Notion (internal integration token),
 Slack (pasted user OAuth token, `xoxp-`, created from an app manifest),
 Chatwork (pasted API token), freee (Client ID/Secret — see below), Gmail,
-Google Calendar, and Google Drive (no paste — see below). Run `watari
-connect` with no argument for a menu of available services. Dream then reads
+Google Calendar, and Google Drive (no paste — see below), and Claude
+Code/Codex (no auth at all — they're local transcript files, see below). Run
+`watari connect` with no argument for a menu of available services. Dream then reads
 it deterministically with `watari connector read <name> [--since TS]
 [--json]` (defaults to this machine's saved cursor); the cursor itself only
 advances via `watari ingest --advance-ext`, same as every other source.
@@ -84,6 +85,24 @@ already granted. See
 add to the consent screen, and a note on Gmail/Drive being restricted scopes
 (blocked for unverified External apps — switch the consent screen to
 Internal if you're on Google Workspace).
+
+Claude Code and Codex don't take a token or an OAuth approval either — their
+CLI conversation logs sit on disk with no auth needed, so `watari connect
+claude-code` / `watari connect codex` just look for the usual location
+(`~/.claude/projects`, `~/.codex/sessions`), report what they found ("Claude
+Code の会話ログを見つけました（<path> / セッション N 件）"), and save the
+path; if nothing's there they ask you to paste the directory instead. Unlike
+every other built-in connector, these declare `scope="local"`, not `cloud`:
+each machine dreams its own copy of these logs (there's no single shared
+position to dedupe against, the way there is for a mailbox). `watari
+connector read claude-code`/`codex` rows carry a `role` field
+(`"user"`/`"assistant"`) exactly like the built-in Pi transcript — only
+`role:"user"` rows are grounds for a memory; `assistant` rows are
+context-only. Codex specifically rewrites its entire prior conversation with
+a new session id and new timestamps every time a session is resumed or
+forked; the reader detects and drops that replayed prefix per session (kept
+in file/timestamp order) so the same exchange doesn't get re-ingested under
+a new id, while still keeping anything genuinely new that follows it.
 
 For anything without a built-in adapter — the original hand-rolled Watari's
 `knowledge/` folder of reference notes, an Obsidian vault, or any other

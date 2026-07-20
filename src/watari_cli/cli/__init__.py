@@ -719,13 +719,22 @@ def cmd_connector_read(args) -> int:
     return 0
 
 
-def _declare_builtin_connector(name: str, message: str) -> int:
-    """成功時の共通の締め（connector 宣言 → 完了表示）。paste/oauth 両経路から呼ぶ。"""
+def _declare_builtin_connector(name: str, message: str, scope: str = "cloud",
+                                auth_kind: str = "paste") -> int:
+    """成功時の共通の締め（connector 宣言 → 完了表示）。paste/oauth/local 全経路から呼ぶ。
+
+    scope はサービスの ServiceAdapter.scope（transcript 系は "local"、他は既定 "cloud"）。
+    local は「認証した」わけではなくログ置き場を見つけただけなので文言を変える（サービス名の
+    分岐ではなく auth_kind の分岐——他の場所と同じ形）。
+    """
     config.save_connector({
-        "name": name, "scope": "cloud",
+        "name": name, "scope": scope,
         "read": f"組み込み: `watari connector read {name}` で読む",
     })
-    print(f"✓ 接続しました（{message} として認証）")
+    if auth_kind == "local":
+        print(f"✓ {message}")
+    else:
+        print(f"✓ 接続しました（{message} として認証）")
     return 0
 
 
@@ -734,7 +743,8 @@ def _connect_wizard(name: str) -> int:
 
     サービスごとの分岐はここに書かない——レジストリ(connectors.REGISTRY)から引いた
     ServiceAdapter を汎用に駆動するだけ。新サービスはレジストリに1件足せばここを触らず動く。
-    分岐は auth_kind の2種類だけ（paste=トークン貼り付け / oauth=cloud.py の共有 Google 認可）。
+    分岐は auth_kind の3種類だけ（paste=トークン貼り付け / oauth=cloud.py の共有 Google 認可 /
+    local=認証不要・ログ置き場の自動検出——例: 他 AI CLI の transcript）。
     """
     from watari_cli import connectors as connectors_mod, prompts
 
@@ -751,12 +761,13 @@ def _connect_wizard(name: str) -> int:
     for line in service.guide:
         print(f"  {line}")
 
-    if service.auth_kind == "oauth":
+    if service.auth_kind in ("oauth", "local"):
         ok, message = service.verify()
         if not ok:
             sys.stderr.write(f"! 接続に失敗しました: {message}\n")
             return 1
-        return _declare_builtin_connector(name, message)
+        return _declare_builtin_connector(name, message, scope=service.scope,
+                                          auth_kind=service.auth_kind)
 
     try:
         api_key = prompts.text("貼り付けてください")

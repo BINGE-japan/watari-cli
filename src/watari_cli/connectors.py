@@ -29,20 +29,28 @@ class ServiceAdapter:
 
     auth_kind="paste"（既定）は Linear/GitHub/Notion のようにユーザーがトークンを貼り付ける形。
     auth_kind="oauth" は「貼り付けプロンプトを CLI 側が挟まず、verify() 自身が認可まで完結させる」
-    形（貼り付けは発生しない）。verify/read の呼び出し方が違う（cli._connect_wizard /
-    connectors.read が auth_kind で分岐する。サービス名の if/elif はどこにも書かない）:
+    形（貼り付けは発生しない）。auth_kind="local" は他 AI CLI の会話ログ（transcript）のように
+    認証そのものが不要なソース用——verify() は「ログ置き場を自動検出→保存、無ければパス入力を
+    促して検証→保存」まで自己完結させる（例: transcripts/claude_code.py, transcripts/codex.py）。
+    verify/read の呼び出し方が違う（cli._connect_wizard / connectors.read が auth_kind で
+    分岐する。サービス名の if/elif はどこにも書かない）:
       - paste: verify(api_key) -> (ok, message) / read(api_key, since) -> rows
-      - oauth: verify() -> (ok, message) / read(since) -> rows
+      - oauth / local: verify() -> (ok, message) / read(since) -> rows
     oauth の内部実装は一様ではない: Google 系（gmail/calendar/gdrive）は cloud.py の共有 OAuth
     （cloud.authorize(scopes)）を使い、接続判定も cloud.granted_scopes() で行う。freee のように
     Google を共有しない独立した OAuth（Client ID/Secret 貼り付け→ブラウザ認可→自前のトークン
     保存）を持つサービスは、`connected` にそのサービス自身の接続判定関数を渡す——
     connectors.is_connected() はこれを優先し、無ければ Google 系の既定判定にフォールバックする。
+    auth_kind="local" は常に `connected` を渡す（Google の既定判定は当てはまらないため）。
+
+    `scope` は接続成功時に登録する connector 宣言の scope（既定 "cloud"）。transcript 系は
+    各マシンが自分のログを自分で夢に見るため "local" を渡す（cloud の「担当1台」ルールとは別）。
     """
 
     def __init__(self, label: str, implemented: bool = True,
                 guide: list[str] | None = None, verify=None, read=None,
-                auth_kind: str = "paste", scopes: list[str] | None = None, connected=None):
+                auth_kind: str = "paste", scopes: list[str] | None = None, connected=None,
+                scope: str = "cloud"):
         self.label = label
         self.implemented = implemented
         self.guide = guide or []  # 案内行（`watari connect <name>` がそのまま表示する短い日本語）
@@ -50,9 +58,10 @@ class ServiceAdapter:
         self.read = read
         self.auth_kind = auth_kind
         self.scopes = scopes or []  # auth_kind="oauth" のとき、このサービスに必要な追加スコープ
-        # auth_kind="oauth" のとき接続判定を自前で持つサービス用（例: freee）。無ければ
-        # Google 系の既定（cloud.granted_scopes()）にフォールバックする。
+        # auth_kind="oauth"/"local" のとき接続判定を自前で持つサービス用（例: freee, transcript 系）。
+        # 無ければ Google 系の既定（cloud.granted_scopes()）にフォールバックする（oauth のみ）。
         self.connected = connected
+        self.scope = scope  # 接続成功時に登録する connector 宣言の scope
 
 
 def _linear_adapter() -> ServiceAdapter:
@@ -198,6 +207,34 @@ def _chatwork_adapter() -> ServiceAdapter:
     )
 
 
+def _claude_code_adapter() -> ServiceAdapter:
+    from watari_cli.transcripts import claude_code as cc
+
+    return ServiceAdapter(
+        label=cc.LABEL, implemented=True, auth_kind="local", scope="local",
+        connected=cc.is_connected,
+        guide=[
+            "認証は不要です。Claude Code の会話ログ（~/.claude/projects）を探します。",
+            "見つからない場合はログが入っているディレクトリのパスを聞きます。",
+        ],
+        verify=cc.verify, read=cc.read,
+    )
+
+
+def _codex_adapter() -> ServiceAdapter:
+    from watari_cli.transcripts import codex
+
+    return ServiceAdapter(
+        label=codex.LABEL, implemented=True, auth_kind="local", scope="local",
+        connected=codex.is_connected,
+        guide=[
+            "認証は不要です。Codex の会話ログ（~/.codex/sessions）を探します。",
+            "見つからない場合はログが入っているディレクトリのパスを聞きます。",
+        ],
+        verify=codex.verify, read=codex.read,
+    )
+
+
 def _placeholder(label: str):
     """未対応サービスのアダプタ工場（実装が付くまでの枠）。"""
     def factory() -> ServiceAdapter:
@@ -217,6 +254,10 @@ REGISTRY = {
     "gmail": _gmail_adapter,
     "calendar": _calendar_adapter,
     "gdrive": _gdrive_adapter,
+    "claude-code": _claude_code_adapter,
+    "codex": _codex_adapter,
+    # opencode 等: パス/形式が未検証のため実装せず、枠だけ置く（対応予定）。
+    "opencode": _placeholder("OpenCode"),
 }
 
 
@@ -255,6 +296,9 @@ def is_connected(name: str) -> bool:
     service = get_service(name)
     if service is None:
         return False
+    if service.auth_kind == "local":
+        # 認証不要のソース（transcript 系）。自前の判定関数（configured_path の有無）が必須。
+        return service.connected() if service.connected is not None else False
     if service.auth_kind == "oauth":
         if service.connected is not None:
             return service.connected()
@@ -272,7 +316,7 @@ def read(name: str, since: str | None) -> list[dict]:
         raise ConnectorError(f"組み込みコネクタではありません: {name}")
     if not service.implemented:
         raise ConnectorError(f"{service.label} は未対応です（対応予定）")
-    if service.auth_kind == "oauth":
+    if service.auth_kind in ("oauth", "local"):
         if not is_connected(name):
             raise ConnectorError(f"{name} は未接続です（先に `watari connect {name}`）")
         return service.read(since)

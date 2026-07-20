@@ -81,6 +81,22 @@
   貼り付けを求めずブラウザ承認のみ（未接続時に必要スコープだけを追加要求）。Gmail/ドライブは
   「制限付き(restricted)スコープ」のため External・未確認のままだと使えない場合がある
   （`docs/google-oauth-setup.md`、Google Workspace なら Internal 推奨）。
+  Claude Code / Codex は他の組み込みコネクタと違い**認証そのものが不要**（ローカルの会話ログを
+  読むだけ）なので auth_kind に第3の値 "local" を追加した：`watari connect claude-code` /
+  `watari connect codex` は既定の置き場（`~/.claude/projects` / `~/.codex/sessions`）を自動検出し、
+  見つかれば「◯◯ の会話ログを見つけました（<パス> / セッション<n>件）」と表示して保存、
+  見つからなければパスの直接入力を促して検証・保存する。scope は他の組み込みコネクタの既定
+  "cloud" と違い **"local"**（各マシンが自分のログを自分で夢に見る。cloud の「担当1台」ルールは
+  当てはまらない）。読み取り行には Pi transcript と同じ `role`（"user"/"assistant"）を必ず持たせ、
+  記憶の根拠にしてよいのは role=user のみ（assistant は文脈用）。Claude Code の本物のユーザー発話は
+  `type=="user"` かつ `message.content` が文字列（配列除外）かつ `toolUseResult` 無し・
+  isMeta/isCompactSummary/isSidechain 無し・timestamp 有り・合成行（`<system-reminder>` 等）でない
+  行。Codex は `session_meta`（1ファイルに複数回現れうる）で cwd/session を逐次更新しつつ
+  `event_msg`（payload.type が user_message/agent_message）を拾う——**Codex はセッション再開の
+  たびに過去の全発話を新 session id・新 timestamp で丸ごと再記録する実バグがある**ため、
+  セッションを (最初の発話ts, パス) で順序付けし、ファイル先頭から連続する「既出の
+  (cwd,role,text)」プレフィックスをリプレイと判定して捨てる（novel な発話以降は同文でも残す）。
+  opencode 等パス/形式が未検証の CLI は REGISTRY に `implemented=False` の枠だけ置く。
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
   （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。196 テスト＋packaging green。
