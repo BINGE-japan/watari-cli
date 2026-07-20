@@ -52,15 +52,17 @@ runs local-only.
 For services watari-cli ships a built-in adapter for, `watari connect
 <service>` walks you through it end to end: it explains what to open and what
 to paste, verifies the credential with a real API call before saving it, and
-registers the connector declaration for you. The first built-in service is
-Linear (personal API key). Run `watari connect` with no argument for a menu of
-available services. Dream then reads it deterministically with `watari
+registers the connector declaration for you. Built-in services so far: Linear
+(personal API key), GitHub (fine-grained personal access token), and Notion
+(internal integration token). Run `watari connect` with no argument for a menu
+of available services. Dream then reads it deterministically with `watari
 connector read <name> [--since TS] [--json]` (defaults to this machine's saved
 cursor); the cursor itself only advances via `watari ingest --advance-ext`, same
-as every other source.
+as every other source. Slack, Gmail, and Google Calendar are listed in the menu
+but not implemented yet (`watari connect <name>` reports "not supported").
 
 For anything without a built-in adapter — the original hand-rolled Watari's
-`knowledge/` folder of reference notes, an Obsidian vault, Gmail, or any other
+`knowledge/` folder of reference notes, an Obsidian vault, or any other
 tool — declare a custom connector instead: `watari connector add --name <slug>
 --scope cloud|local --read "..."` records free-text instructions the agent
 follows with its own tools (MCP, etc.) during dream. `watari connector list`
