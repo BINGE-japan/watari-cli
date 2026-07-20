@@ -37,13 +37,14 @@
   スケジューラも同梱しない（cron 等の外部に任せる。`docs/headless-dream.md`）。
 
 ## 現在地（status — 変わったら更新する）
-- **実装済み・検証済み**：CLI 一式（status/host/dream/recall/ingest/audit/regen/init/install/chat/
-  connector）、記憶エンジン、人格スキル同梱（wheel）。クリーンルーム(Docker)で「素の環境に導入→カセット
+- **実装済み・検証済み**：CLI 一式（status/host/dream/recall/ingest/audit/regen/init/install/auth/
+  chat/connector）、記憶エンジン、人格スキル同梱（wheel）。クリーンルーム(Docker)で「素の環境に導入→カセット
   clone→recall に実記憶→Pi 上で人格＋記憶付きに起動」を実証。人格は原本に寄せて調整済み。
-- **進行中ブランチ `transcript-sync`**：マルチマシン同期を実装（git 同期層／Drive appDataFolder 中継／
-  chat の抽出スレッド／夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream）。107 テスト＋packaging green。
+- **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
+  夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
+  （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。122 テスト＋packaging green。
 - **未了（本物で動かす）**：Google OAuth アプリの登録（binge 手動・`docs/google-oauth-setup.md`）→ 各マシンで
-  承認 → A↔B の会話同期を実地確認。client_id 未設定の間は同期はスキップされ、ローカルのみで普通に動く。
+  `watari auth` → A↔B の会話同期を実地確認。client_id 未設定の間は同期はスキップされ、ローカルのみで普通に動く。
 
 ## 主要決定（蒸し返さない）
 - ランタイムは **Pi 専用**。`watari chat` は Pi ランチャー。モデルは Pi 側で選ぶ（install は非依存）。

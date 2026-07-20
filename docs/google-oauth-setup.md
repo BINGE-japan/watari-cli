@@ -2,8 +2,9 @@
 
 watari-cli はマルチマシン同期のため、各マシンの会話（user＋assistant 発話）を **Google Drive の
 appDataFolder** に中継する（ユーザーの Drive UI には出ない・アプリ専用・API で削除可）。これを使うには
-Google の OAuth アプリ（インストール型）が1つ必要。**この登録は手動**で、`watari-cli` に client_id /
-client_secret を同梱すれば、以後は各ユーザーが `watari install` の承認ステップでログインするだけ。
+Google の OAuth アプリ（インストール型）が1つ必要。**この登録は手動**（下記）。発行した client_id /
+client_secret は `watari auth` に渡せば `config.json` に保存され、以後は各マシンで `watari auth`
+（または `watari install` の承認ステップ）でログインするだけ。
 
 ## 登録手順（一度だけ・binge が実施）
 
@@ -18,16 +19,19 @@ client_secret を同梱すれば、以後は各ユーザーが `watari install` 
 4. **Credentials → Create credentials → OAuth client ID**:
    - Application type: **Desktop app**（インストール型。loopback リダイレクトを使う）。
    - 発行された **client ID** と **client secret** を控える。
-5. **watari-cli に入れる**（どちらか）:
-   - 環境変数: `WATARI_GOOGLE_CLIENT_ID` / `WATARI_GOOGLE_CLIENT_SECRET` を設定する、または
-   - `src/watari_cli/cloud.py` の `_CLIENT_ID` / `_CLIENT_SECRET` の既定値に埋めて同梱する
-     （インストール型では client secret は機密ではない＝配布してよい）。
+5. **watari-cli に渡す**：`watari auth` を実行し、client ID / client secret を入力する（対話。
+   環境変数 `WATARI_GOOGLE_CLIENT_ID` / `WATARI_GOOGLE_CLIENT_SECRET` があればそれを採用）。入力値は
+   `~/.config/watari/config.json` の `google` セクションに保存され、以後は無人で使われる。手で埋める
+   必要はない。**全ユーザーに配布**したいときだけ `src/watari_cli/cloud.py` の `_BUNDLED_CLIENT_ID` /
+   `_BUNDLED_CLIENT_SECRET` に焼き込む（インストール型では client secret は機密でない＝配布可）。
 
 ## 各マシンでのログイン
 
-`watari install`（または未認証で再実行）すると、`client_id/secret` が設定済みなら承認するか聞かれる。
-承認するとブラウザが開き、Google ログイン→許可→ローカルにリダイレクトされて **refresh token** が
-`config.json` に保存される。以降は無人で access token を更新して Drive に読み書きする。
+各マシンで **`watari auth`** を一度実行する（`watari install` の「Google Drive と同期しますか？」でも
+同じ承認が走る）。client_id/secret が未保存なら初回だけ入力を求め、以後は保存値を使う。承認すると
+ブラウザが開き、Google ログイン→許可→ローカルにリダイレクトされて **refresh token** が `config.json`
+に保存される。以降は無人で access token を更新して Drive に読み書きする（token 失効時も `watari auth`
+で再ログインするだけ）。
 
 - スコープは `drive.appdata` のみ。**あなたの Drive の他のファイルには一切アクセスしない**。
 - 中継所に置くのは user＋assistant の発話テキストだけ（tool 出力・秘密は入れない）。夢で消化した分は

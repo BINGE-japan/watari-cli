@@ -23,8 +23,8 @@ Pi). The Pi runtime needs **Node ≥22.19** on PATH; without it Pi fails to
 start.
 
 Run `watari --help`, or `watari <subcommand> --help`, for the full set of
-subcommands: status/host/dream/recall/ingest/audit/regen/init/install/chat/
-connector.
+subcommands: status/host/dream/recall/ingest/audit/regen/init/install/auth/
+chat/connector.
 
 Memory grows automatically: `watari chat` kicks off a background "dream" at
 startup that distils recent conversations into the log (you can also say
@@ -41,8 +41,11 @@ appDataFolder) so a dream on machine B can pick up what you said on machine A.
 Raw transcripts never enter the git history (git can't forget); the cloud relay
 is prunable and self-expires. Choose "sync" vs "local only" during `watari
 install`. The relay needs a one-time Google OAuth app registration — see
-[`docs/google-oauth-setup.md`](docs/google-oauth-setup.md); until it is set up,
-sync is skipped and Watari runs local-only.
+[`docs/google-oauth-setup.md`](docs/google-oauth-setup.md) — after which each
+machine logs in with `watari auth` (it takes the client_id/secret once, from a
+prompt or `WATARI_GOOGLE_CLIENT_*`, and saves them to `config.json`; `watari
+install` runs the same step). Until it is set up, sync is skipped and Watari
+runs local-only.
 
 ## Your own reference material
 
@@ -58,7 +61,7 @@ ordinary recorded fact through the normal ingest flow.
 Status: the `watari` CLI is implemented — memory engine (`src/watari_cli/`) and
 bundled persona skill (`src/watari_cli/skill/`, shipped as package data in the
 wheel), with subcommands status/host/dream/recall/ingest/audit/regen/init/
-install/chat/connector. The project's goal, scope, current status, and settled
+install/auth/chat/connector. The project's goal, scope, current status, and settled
 decisions are in [`SPEC.md`](SPEC.md).
 
 The memory schema (log/state model, cursors, and the deterministic folding

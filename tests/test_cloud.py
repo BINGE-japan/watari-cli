@@ -14,21 +14,28 @@ from watari_cli import cloud, config
 
 
 class _Base(unittest.TestCase):
+    # client_id/secret は config.json(google) から解決される（env で上書き可）。テストは XDG_CONFIG_HOME
+    # を temp に隔離し、実環境の WATARI_GOOGLE_* env は消してから config に埋める。
+    _ENV_KEYS = ("WATARI_GOOGLE_CLIENT_ID", "WATARI_GOOGLE_CLIENT_SECRET", "XDG_CONFIG_HOME")
+
     def setUp(self):
         self._cfg = tempfile.TemporaryDirectory(prefix="watari-cloud-")
-        self._saved_xdg = os.environ.get("XDG_CONFIG_HOME")
+        self._saved_env = {k: os.environ.get(k) for k in self._ENV_KEYS}
+        os.environ.pop("WATARI_GOOGLE_CLIENT_ID", None)
+        os.environ.pop("WATARI_GOOGLE_CLIENT_SECRET", None)
         os.environ["XDG_CONFIG_HOME"] = self._cfg.name
-        self._saved = (cloud._CLIENT_ID, cloud._CLIENT_SECRET, cloud._http)
-        cloud._CLIENT_ID, cloud._CLIENT_SECRET = "cid", "csec"
-        config.save_config(google={"refresh_token": "RT"})
+        self._saved_http = cloud._http
+        config.save_config(google={"client_id": "cid", "client_secret": "csec",
+                                   "refresh_token": "RT"})
         self.calls: list = []
 
     def tearDown(self):
-        cloud._CLIENT_ID, cloud._CLIENT_SECRET, cloud._http = self._saved
-        if self._saved_xdg is None:
-            os.environ.pop("XDG_CONFIG_HOME", None)
-        else:
-            os.environ["XDG_CONFIG_HOME"] = self._saved_xdg
+        cloud._http = self._saved_http
+        for k, v in self._saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         self._cfg.cleanup()
 
     def fake(self, router):
@@ -54,7 +61,7 @@ class AuthTest(_Base):
         self.assertIsNone(cloud.get_store())
 
     def test_unconfigured_is_not_authorized(self):
-        cloud._CLIENT_ID = ""
+        config.save_config(google={"refresh_token": "RT"})  # client_id/secret を消す
         self.assertFalse(cloud.is_configured())
         self.assertFalse(cloud.is_authorized())
 
@@ -62,6 +69,26 @@ class AuthTest(_Base):
         self.fake(lambda m, u, d: (200, b'{"access_token":"AT"}'))
         self.assertEqual(cloud._access_token(), "AT")
         self.assertEqual(self.calls[0][1], cloud._TOKEN_URL)
+
+
+class CredentialsTest(_Base):
+    def test_resolve_from_config(self):
+        self.assertEqual(cloud.credentials(), ("cid", "csec"))
+
+    def test_env_overrides_config(self):
+        os.environ["WATARI_GOOGLE_CLIENT_ID"] = "ENVID"
+        os.environ["WATARI_GOOGLE_CLIENT_SECRET"] = "ENVSEC"
+        self.assertEqual(cloud.credentials(), ("ENVID", "ENVSEC"))
+
+    def test_save_credentials_persists_and_keeps_refresh_token(self):
+        cloud.save_credentials("newid", "newsec")
+        google = config.load_config()["google"]
+        self.assertEqual((google["client_id"], google["client_secret"]), ("newid", "newsec"))
+        self.assertEqual(google["refresh_token"], "RT")  # 既存の refresh_token は保持
+
+    def test_bundled_default_used_when_config_empty(self):
+        config.save_config(google={})
+        self.assertEqual(cloud.credentials(), ("", ""))  # 既定は空（未配布）
 
 
 class DriveOpsTest(_Base):
