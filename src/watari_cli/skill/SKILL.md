@@ -52,7 +52,7 @@ user-invocable: true
    - `readable:false` または `max_ts:null` のストアは、その `--advance-pi`／`--advance-cloud` を**渡さない**（カーソル据え置き＝取りこぼし防止）。**cloud カーソルを進め忘れると他マシン発話が毎回再判定され、クラウドの prune も効かない**。
    - 新規 domain を書いた回だけ `--allow-new-domain`。検証エラー(exit 2)なら rows を直して再実行（何も書かれていない）。
    - 0 件の日も `[]` で実行してよい（last_run 更新・state の減衰/自動クローズが走る）。
-4. **connector も同様に（判定 ⇄ 機械）**：宣言された各 connector（`watari connector list`）について、その `read` 指示に従って自分のツール（MCP 等）で cursor 以降を読み→同じ「三層」「六規律」で判定→`watari ingest` で書き→`--advance-ext <name>=<最新ts>` でそのカーソルを前進。**cloud スコープの connector は「担当1台」だけが夢を見る**（多重取り込み防止。どのマシンが担当かは運用で決める）。読めなかった connector のカーソルは渡さない（据え置き）。
+4. **connector も同様に（判定 ⇄ 機械）**：宣言された各 connector（`watari connector list`）について、**組み込み**（例 linear）は `watari connector read <name>`（--since 省略時はカーソルの続きから）で機械的に読む。**カスタム**はその `read` 指示に従って自分のツール（MCP 等）で cursor 以降を読む。どちらも得た発話を同じ「三層」「六規律」で判定→`watari ingest` で書き→`--advance-ext <name>=<最新ts>` でそのカーソルを前進。**cloud スコープの connector は「担当1台」だけが夢を見る**（多重取り込み防止。どのマシンが担当かは運用で決める）。読めなかった connector（`watari connector read` が非ゼロ終了・または自分のツールで読めない）のカーソルは渡さない（据え置き）。
 5. **監査（機械）**：`watari audit`。「要修正」が出たらその場で直してから終える。
 
 ### 何を残すか（三層）
@@ -83,7 +83,9 @@ user-invocable: true
 - `watari recall` … life/learning の現在地(state)を JSON で読む（人格の初期姿勢）
 - `watari host [--set KEY=VALUE]` … このマシンの環境を host record に記録し、他マシンの記録も一覧
 - `watari dream [--json]` … 会話ログから候補を抽出（読むだけ）
-- `watari connector list` / `watari connector add --name <slug> --scope cloud|local --read "..."` … 夢に流し込むソースを宣言/一覧
+- `watari connect [service]` … 組み込みコネクタと接続（案内→貼り付け→疎通確認→保存。引数省略で選択メニュー）
+- `watari connector list` / `watari connector add --name <slug> --scope cloud|local --read "..."` … 夢に流し込むソースを宣言/一覧（カスタム）
+- `watari connector read <name> [--since TS] [--json]` … 組み込みコネクタをカーソル以降で決定論的に読む
 - `watari ingest --rows FILE [--advance-pi TS] [--advance-cloud MACHINE=TS] [--advance-ext NAME=TS] [--allow-new-domain] [--dry-run]` … 判定済み行を記憶へ書く
 - `watari audit [--coverage]` … 記憶の健全性監査
 - `watari init [--home DIR]` … 空の記憶を新規作成

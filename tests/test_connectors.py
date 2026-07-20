@@ -2,7 +2,8 @@
 
 薄い宣言機構だけを固める：config への宣言(load/save・スラッグ検証)、`watari connector list/add`、
 そして --advance-ext が「宣言済み connector 名」だけを受理し、カーソルをマシンごとの host 記録へ
-着地させること（未宣言は拒否・原子性）。ツール固有のアダプタは対象外（存在しない）。
+着地させること（未宣言は拒否・原子性）。ツール固有のアダプタ（linear 等の組み込みコネクタの
+`watari connect` / `watari connector read`）は tests/test_connect.py で扱う。
 
 注: connectors は WATARI_HOME ではなく config.json（XDG_CONFIG_HOME 配下）に載る。テストは
 XDG_CONFIG_HOME を一時ディレクトリへ向けて分離する。ingest は MEM を値で import するため、

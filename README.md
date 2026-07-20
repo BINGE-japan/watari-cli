@@ -47,22 +47,30 @@ prompt or `WATARI_GOOGLE_CLIENT_*`, and saves them to `config.json`; `watari
 install` runs the same step). Until it is set up, sync is skipped and Watari
 runs local-only.
 
-## Your own reference material
+## Connectors: other sources dream should read
 
-The original hand-rolled Watari kept a `knowledge/` folder of the user's own
-reference notes (style guides, glossaries, and the like) that the assistant
-read on demand for specific topics. watari-cli does not ship or hardcode a
-directory for this — keep such material wherever suits you (a synced notes
-vault, a project's own docs, ...), and let Watari know where: declare it as a
-`connector` (`watari connector add`) if it should be scanned automatically
-during dream, or just mention the location in conversation so it lands as an
-ordinary recorded fact through the normal ingest flow.
+For services watari-cli ships a built-in adapter for, `watari connect
+<service>` walks you through it end to end: it explains what to open and what
+to paste, verifies the credential with a real API call before saving it, and
+registers the connector declaration for you. The first built-in service is
+Linear (personal API key). Run `watari connect` with no argument for a menu of
+available services. Dream then reads it deterministically with `watari
+connector read <name> [--since TS] [--json]` (defaults to this machine's saved
+cursor); the cursor itself only advances via `watari ingest --advance-ext`, same
+as every other source.
+
+For anything without a built-in adapter — the original hand-rolled Watari's
+`knowledge/` folder of reference notes, an Obsidian vault, Gmail, or any other
+tool — declare a custom connector instead: `watari connector add --name <slug>
+--scope cloud|local --read "..."` records free-text instructions the agent
+follows with its own tools (MCP, etc.) during dream. `watari connector list`
+shows both kinds, labelled built-in vs. custom.
 
 Status: the `watari` CLI is implemented — memory engine (`src/watari_cli/`) and
 bundled persona skill (`src/watari_cli/skill/`, shipped as package data in the
 wheel), with subcommands status/host/dream/recall/ingest/audit/regen/init/
-install/auth/chat/connector. The project's goal, scope, current status, and settled
-decisions are in [`SPEC.md`](SPEC.md).
+install/auth/chat/connect/connector. The project's goal, scope, current status, and
+settled decisions are in [`SPEC.md`](SPEC.md).
 
 The memory schema (log/state model, cursors, and the deterministic folding
 rules) is specified in
