@@ -106,6 +106,25 @@ def _access_token() -> str:
     return json.loads(body)["access_token"]
 
 
+def access_token() -> str:
+    """有効な access token を返す（組み込み Google コネクタ用の公開口）。
+
+    毎回 refresh_token から取り直すだけでキャッシュはしない（呼び出し頻度は connector read の
+    1回の実行内で数十件程度に収まる規模のため、素朴な実装で十分）。
+    """
+    return _access_token()
+
+
+def granted_scopes() -> list[str]:
+    """これまでに付与されたスコープ一覧（config.google.scopes）。未認証/未記録なら空リスト。
+
+    authorize() が incremental 承認のたびに書き込む。組み込み Google コネクタ（gmail/calendar/
+    gdrive）の verify がここを見て、自分に必要なスコープが既にあるかを判定する。
+    """
+    scopes = _google_cfg().get("scopes")
+    return scopes if isinstance(scopes, list) else []
+
+
 class CloudStore:
     """発話中継所の抽象。名前付き JSONL ファイル群を list/read/append/write/delete する。"""
 
@@ -205,8 +224,27 @@ def get_store() -> CloudStore | None:
     return DriveAppDataStore()
 
 
-def authorize() -> tuple[bool, str]:
-    """インストール型 OAuth（loopback）。ブラウザで承認 → refresh token を config に保存。(ok, メッセージ)。
+def _union_scopes(scopes: list[str] | None) -> list[str]:
+    """要求スコープ = drive.appdata ＋引数の和集合（順序保持・重複排除）。authorize() が使う。
+
+    純粋関数として切り出し（loopback サーバを介さずに単体テストできるように）。
+    """
+    requested = [SCOPE]
+    for scope in scopes or ():
+        if scope not in requested:
+            requested.append(scope)
+    return requested
+
+
+def authorize(scopes: list[str] | None = None) -> tuple[bool, str]:
+    """インストール型 OAuth（loopback、incremental 対応）。ブラウザで承認 → refresh token
+    ＋付与済みスコープ一覧を config に保存。(ok, メッセージ)。
+
+    要求スコープは常に drive.appdata（発話中継所）＋ 引数の和集合。`include_granted_scopes=true`
+    を付けるので、Google 側は過去に承認済みの別スコープも合算して返す（gmail を先に繋いだ後で
+    calendar を繋いでも、同意画面はその回に増える分だけを見せ、drive.appdata や gmail の
+    権限を失わない）。引数なし（`watari auth` / install の経路）は従来どおり drive.appdata のみを
+    要求し、挙動は変わらない。
 
     ブラウザが無い/開けない環境向けに URL は標準出力にも出す。既に承認済みなら再承認して更新。
     """
@@ -217,6 +255,8 @@ def authorize() -> tuple[bool, str]:
     import threading
     import time
     import webbrowser
+
+    requested_scopes = _union_scopes(scopes)
 
     captured: dict = {}
 
@@ -240,7 +280,8 @@ def authorize() -> tuple[bool, str]:
     state = secrets.token_urlsafe(16)
     auth_url = _AUTH_URL + "?" + urllib.parse.urlencode({
         "client_id": _client_id(), "redirect_uri": redirect_uri, "response_type": "code",
-        "scope": SCOPE, "access_type": "offline", "prompt": "consent", "state": state,
+        "scope": " ".join(requested_scopes), "access_type": "offline", "prompt": "consent",
+        "include_granted_scopes": "true", "state": state,
     })
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print("ブラウザで Google 認証を開きます。開かなければ次の URL を貼ってください:")
@@ -268,10 +309,14 @@ def authorize() -> tuple[bool, str]:
                          {"Content-Type": "application/x-www-form-urlencoded"}, data)
     if status != 200:
         return False, f"token 交換失敗({status}): {body[:200]!r}"
-    rt = json.loads(body).get("refresh_token")
+    payload = json.loads(body)
+    rt = payload.get("refresh_token")
     if not rt:
         return False, "refresh_token が返りませんでした（同意画面で offline アクセスの許可が必要）"
     google = config.load_config().get("google") or {}
     google["refresh_token"] = rt
+    granted = payload.get("scope") or ""
+    if granted:
+        google["scopes"] = granted.split()
     config.save_config(google=google)
     return True, "Google 認証を保存しました"

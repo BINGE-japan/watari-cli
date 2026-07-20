@@ -42,7 +42,8 @@
 - **実装済み・検証済み**：CLI 一式（status/host/dream/recall/ingest/audit/regen/init/install/auth/
   chat/connect/connector）、記憶エンジン、人格スキル同梱（wheel）。クリーンルーム(Docker)で「素の環境に導入→カセット
   clone→recall に実記憶→Pi 上で人格＋記憶付きに起動」を実証。人格は原本に寄せて調整済み。
-- **組み込みコネクタ（Linear / GitHub / Notion / Slack / Chatwork）**：`watari connect <name>` が
+- **組み込みコネクタ（Linear / GitHub / Notion / Slack / Chatwork / Gmail / Google カレンダー /
+  Google ドライブ）**：`watari connect <name>` が
   案内→貼り付け→疎通確認→config 保存→ connector 宣言(scope既定cloud)まで一本道。`watari connector
   read <name> [--since TS] [--json]` が各サービスの決定論リーダーで統一形式 {ts,uuid,text,meta} を
   昇順で返す（HTTP は urllib のみ）。Linear は「自分が担当/作成した issue の updatedAt>since」
@@ -56,11 +57,21 @@
   （`auth.test` で疎通確認、HTTP 200 でも body の ok を必ず検査、`after:` は日付粒度のため同日再取得は
   dedup 任せ）。Chatwork は API トークン貼り付け・`GET /rooms` で since 以降に更新された部屋を最大
   10件に絞り各部屋のメッセージを取得（`GET /me` で疎通確認）。urllib transport は
-  `connector_http.py` に共通化（重複回避）。gmail/calendar は枠だけ（`watari connect <name>` で
-  「未対応」）。
+  `connector_http.py` に共通化（重複回避）。Gmail / Google カレンダー / Google ドライブは
+  トークン貼り付けではなく、発話中継所（drive.appdata）用に確立済みの Google OAuth を
+  **incremental scope**（`cloud.authorize(scopes)`、`include_granted_scopes=true`）で
+  サービスごとに1スコープずつ拡張する方式（`cloud.granted_scopes()` が付与済み一覧を保持）。
+  Gmail は `gmail.readonly`・`GET /users/me/messages`（`q=after:<since の epoch秒>`）→ 各
+  メッセージを `format=metadata`（From/Subject/Date）+snippet で取得（50件/回打ち切り、本文は
+  書き写さない）。カレンダーは `calendar.readonly`・primary カレンダーの `events.list
+  (updatedMin=since, showDeleted=true)`。ドライブは `drive.metadata.readonly`・`files.list
+  (q=modifiedTime>since, orderBy=modifiedTime)` でメタデータのみ。3つとも `watari connect` は
+  貼り付けを求めずブラウザ承認のみ（未接続時に必要スコープだけを追加要求）。Gmail/ドライブは
+  「制限付き(restricted)スコープ」のため External・未確認のままだと使えない場合がある
+  （`docs/google-oauth-setup.md`、Google Workspace なら Internal 推奨）。
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
-  （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。154 テスト＋packaging green。
+  （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。196 テスト＋packaging green。
 - **未了（本物で動かす）**：Google OAuth アプリの登録（binge 手動・`docs/google-oauth-setup.md`）→ 各マシンで
   `watari auth` → A↔B の会話同期を実地確認。client_id 未設定の間は同期はスキップされ、ローカルのみで普通に動く。
 
