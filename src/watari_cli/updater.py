@@ -129,15 +129,22 @@ def update_checkout(source: Path, *, run=_run, git: str = "git", uv: str = "uv")
     return UpdateResult("updated", before=before, after=after, changes=changes)
 
 
+def executable_is_in_tool_dir(executable: str | Path, tool_dir: str | Path) -> bool:
+    """Check the invoked venv path without following uv's Python symlink."""
+    executable_path = Path(os.path.abspath(executable))
+    tool_path = Path(os.path.abspath(tool_dir))
+    try:
+        executable_path.relative_to(tool_path)
+        return True
+    except ValueError:
+        return False
+
+
 def _is_running_from_uv_tool(uv: str, *, run=_run) -> bool:
     result = run([uv, "tool", "dir"])
     if not _successful(result) or not _text(result):
         return False
-    try:
-        Path(sys.executable).resolve().relative_to(Path(_text(result)).resolve())
-        return True
-    except ValueError:
-        return False
+    return executable_is_in_tool_dir(sys.executable, _text(result))
 
 
 def update_installed_tool(*, run=_run) -> UpdateResult:
