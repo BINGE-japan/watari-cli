@@ -719,6 +719,38 @@ def _spawn_background_dream(home: str, runtime: str, skill: str) -> None:
         pass
 
 
+def _auto_update_before_chat() -> bool:
+    """Apply a safe main update before loading the rest of the installed package."""
+    from watari_cli import updater
+
+    notice = updater.consume_notice()
+    if notice is not None:
+        for line in updater.notice_lines(notice):
+            print(line)
+        return False
+
+    result = updater.update_installed_tool()
+    if result.status == "updated":
+        try:
+            if updater.restart_with_notice(result):
+                return True
+        except OSError:
+            pass
+        # If process replacement is unavailable, the package files are already
+        # updated; report completion and continue with the code currently loaded.
+        for line in updater.notice_lines(result):
+            print(line)
+    elif result.status == "failed":
+        sys.stderr.write("ワタリの自動更新に失敗したため、現在の版で起動します。\n")
+    elif result.reason == "dirty":
+        sys.stderr.write(
+            "watari-cliの取得フォルダに未コミットの変更があるため、自動更新を見送りました。\n")
+    elif result.reason == "diverged":
+        sys.stderr.write(
+            "watari-cliのmainとorigin/mainの履歴が分かれているため、自動更新を見送りました。\n")
+    return False
+
+
 def cmd_chat(args) -> int:
     """ワタリを起動する。スキル・記憶を自動で渡すランチャー（モデルは Pi 側の関心事）。
 
@@ -726,6 +758,9 @@ def cmd_chat(args) -> int:
     """
     import shlex
     import subprocess
+
+    if not args.show and not args.no_update and _auto_update_before_chat():
+        return 0
 
     config.apply(args.home)
     from watari_cli.engine import watari_lib as wl
@@ -775,7 +810,8 @@ def cmd_chat(args) -> int:
     env = dict(os.environ)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
     # Pi が TUI を組み立てる前に process-local の表示設定を当てる。reasoning/effort と会話ログは
-    # 変えず、途中の思考文と tool 実行行だけを隠す。Pi のグローバル settings.json は触らない。
+    # 変えず、途中の思考文を隠し、tool 実行は通常1行・Ctrl+Oで詳細表示にする。
+    # Pi のグローバル settings.json は触らない。
     from pathlib import Path
     preload = f"--import={Path(quiet_ui).resolve().as_uri()}"
     env["NODE_OPTIONS"] = " ".join(x for x in (env.get("NODE_OPTIONS", "").strip(), preload) if x)
@@ -1250,6 +1286,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--runtime",
                     help="ワタリを動かす AI 実行環境（既定: 保存値か pi）。通常は変更不要")
     pc.add_argument("--show", action="store_true", help="起動せず、実行するコマンドだけ表示する")
+    pc.add_argument("--no-update", action="store_true", help="今回だけ本体の自動更新を確認しない")
     pc.add_argument("extra", nargs="*", help="実行環境（Pi）へそのまま渡す追加引数（上級者向け）")
     pc.set_defaults(func=cmd_chat)
 

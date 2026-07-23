@@ -28,6 +28,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   未観測・推測表現は保存・表示前に fail closed する。
 - **能動brief**：期限・予定・未返信・未読をread-onlyの実状態から共通signalへ変換し、重要度順に
   最大3件を提示する。通知履歴はXDG stateにfingerprintだけを持ち、各サービスを正本のまま保つ。
+- **本体の自動更新**：`git clone`→`uv tool install .` の導入元が clean な main のときだけ、
+  `watari chat` 起動時に origin/main へ fast-forward・再インストール・再起動し、反映したcommit件名を表示する。
+  dirty/diverged/非main/非uv-tool/オフラインは上書きせず現在版で起動する。
 - **持ち運び**：記憶は WATARI_HOME（git リポ）。`watari install` で挿せば「その人のワタリ」。
 - **ユーザーに生コマンドを手組みさせない**：`watari install` で watari の担当（記憶カセットの用意）が
   menu で完結し home も保存される。以後ユーザーは `watari chat` を打つだけ（`--home` も不要）。
@@ -63,11 +66,15 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   - `watari brief` と同梱 `pi/briefing.ts`：記憶・Gmail・Google Calendar・Linearの現状態から
     deadline / upcoming event / unread / latest-inbound-without-later-send を抽出。起動時＋15分ごと、
     最大3件、同一fingerprintは24時間抑制。サービス更新と記憶取り込みcursorは一切動かさない。
+  - `watari chat` 起動時の本体自動更新：PEP 610 `direct_url.json` から導入元checkoutを特定し、
+    uv tool配下で実行中・clean main・origin/mainへfast-forward可能な場合だけfetch→merge→
+    `uv tool install --force --refresh`→process再起動。失敗時はcheckoutを旧HEADへ戻し、次回再試行できる。
+    更新後は旧/新SHAとcommit件名を最大10件表示。`--no-update`で1回だけ無効化できる。
   - 同梱 `pi/verification-guard.ts`：質問ターンで成功したtool callを追跡し、`watari_evidence` で
     evidence登録されない最終回答と推測表現を保存・表示前にfail closedする。
   - `watari chat` は同梱 preload `pi/quiet-ui.mjs` を Pi プロセスの起動時だけ読み込み、reasoning と
-    effort、会話ログを変えずに途中の思考文と tool 実行行を TUI から隠す。最終回答は完了まで
-    バッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
+    effort、会話ログを変えずに途中の思考文を隠す。tool 実行は通常1操作1行、Ctrl+OでPi本来の詳細へ
+    展開する。最終回答は完了までバッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
     決定論で書き換え、未知の違反は安全な敬語文へ fail closed する。モデル・effort・Pi の
     グローバル設定はユーザー側のまま。
   - 焼き込みの Google OAuth クライアント（`_BUNDLED_CLIENT_ID` / `_BUNDLED_CLIENT_SECRET`）は

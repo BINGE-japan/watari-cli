@@ -14,8 +14,10 @@ import io
 import os
 import tempfile
 import unittest
+from unittest import mock
 
-from watari_cli.cli import _build_parser
+from watari_cli import updater
+from watari_cli.cli import _auto_update_before_chat, _build_parser
 from watari_cli.engine import watari_lib as wl
 
 
@@ -54,7 +56,7 @@ class ChatLaunchTest(unittest.TestCase):
         # 旧 `--skill <dir>`（オンデマンド＝自動発動しない）に戻っていないこと
         self.assertNotIn("--skill ", out)
 
-    def test_work_logs_are_hidden_without_changing_model_or_effort(self):
+    def test_work_logs_are_compact_without_changing_model_or_effort(self):
         rc, out, _ = _run(["chat", "--show"])
         self.assertEqual(rc, 0)
         self.assertIn("NODE_OPTIONS=", out)
@@ -71,6 +73,32 @@ class ChatLaunchTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("--append-system-prompt", out)
         self.assertIn("-p hi", out)
+
+    def test_completed_auto_update_notice_is_shown_once(self):
+        result = updater.UpdateResult(
+            status="updated", before="aaa111", after="bbb222", changes=["表示を改善"])
+        with mock.patch.object(updater, "consume_notice", return_value=result), \
+             mock.patch.object(updater, "update_installed_tool") as update:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                restarted = _auto_update_before_chat()
+        self.assertFalse(restarted)
+        update.assert_not_called()
+        self.assertIn("ワタリを更新しました", out.getvalue())
+        self.assertIn("表示を改善", out.getvalue())
+
+    def test_auto_update_can_be_disabled_for_one_launch(self):
+        args = _build_parser().parse_args(["chat", "--no-update"])
+        self.assertTrue(args.no_update)
+
+    def test_available_update_restarts_before_chat_launch(self):
+        result = updater.UpdateResult(
+            status="updated", before="aaa111", after="bbb222", changes=["自動更新"])
+        with mock.patch.object(updater, "consume_notice", return_value=None), \
+             mock.patch.object(updater, "update_installed_tool", return_value=result), \
+             mock.patch.object(updater, "restart_with_notice", return_value=True) as restart:
+            self.assertTrue(_auto_update_before_chat())
+        restart.assert_called_once_with(result)
 
 
 if __name__ == "__main__":
