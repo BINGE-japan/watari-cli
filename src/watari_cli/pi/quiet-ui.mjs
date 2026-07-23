@@ -2,6 +2,18 @@ import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, parse } from "node:path";
 import { pathToFileURL } from "node:url";
 
+function stripTerminalControls(text) {
+  return String(text)
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+export function compactToolLines(lines, expanded) {
+  if (expanded) return lines;
+  const action = lines.find((line) => stripTerminalControls(line).trim());
+  return action ? [action] : [];
+}
+
 function findPiRoot(entry) {
   if (!entry) return undefined;
 
@@ -48,9 +60,13 @@ if (piRoot) {
   // with Pi's static "Thinking..." label.
   SettingsManager.prototype.getHideThinkingBlock = () => true;
 
-  // Tool calls/results remain in the session and model context, but do not
-  // consume the user's terminal scrollback while Watari is working.
-  ToolExecutionComponent.prototype.render = () => [];
+  // Keep one action line per tool by default. Pi's Ctrl+O expansion still
+  // reveals the complete native call/result component when details are needed.
+  const renderToolExecution = ToolExecutionComponent.prototype.render;
+  ToolExecutionComponent.prototype.render = function (width) {
+    const lines = renderToolExecution.call(this, width);
+    return compactToolLines(lines, this.expanded);
+  };
 
   // Buffer assistant prose until the message is final. This prevents a casual
   // partial token from appearing before the deterministic message_end guard can
