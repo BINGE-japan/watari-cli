@@ -5,8 +5,22 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "watari-cli"
 version = "0.1.0"
+description = "Watari — a personal AI companion that learns about you from conversation, running on the Pi runtime"
 readme = "README.md"
 requires-python = ">=3.11"
+keywords = ["agent", "memory", "assistant", "companion", "cli", "pi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: Japanese",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Utilities",
+]
 dependencies = []
 
 [project.scripts]
@@ -19,7 +33,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-watari_cli = ["skill/*.md"]
+watari_cli = ["skill/*.md", "skill/prompts/*.md", "pi/*.mjs", "pi/*.ts"]
 
 [dependency-groups]
 dev = ["pytest"]

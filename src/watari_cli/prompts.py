@@ -34,16 +34,24 @@ def text(message: str, default: str | None = None) -> str:
 
 
 def confirm(message: str, default: bool = True) -> bool:
+    """はい/いいえの確認。認識できない入力は既定に落とさず、聞き直す。"""
     hint = "Y/n" if default else "y/N"
-    try:
-        line = input(f"◆ {message} [{hint}]: ").strip().lower()
-    except EOFError:
-        return default
-    except KeyboardInterrupt:
-        raise Cancelled()
-    if not line:
-        return default
-    return line in ("y", "yes", "はい")
+    yes = ("y", "yes", "ｙ", "はい")
+    no = ("n", "no", "ｎ", "いいえ")
+    while True:
+        try:
+            line = input(f"◆ {message} [{hint}]: ").strip().lower()
+        except EOFError:
+            return default  # 入力が尽きた（スクリプト実行）ときだけ既定を採用
+        except KeyboardInterrupt:
+            raise Cancelled()
+        if not line:
+            return default
+        if line in yes:
+            return True
+        if line in no:
+            return False
+        print("  y（はい）か n（いいえ）で答えてください")
 
 
 def select(message: str, options: list[tuple[str, object]], default: int = 0) -> object:
@@ -63,21 +71,24 @@ def _select_lines(message: str, options, default: int) -> object:
     for i, (label, _) in enumerate(options):
         mark = "❯" if i == default else " "
         print(f"  {mark} {i + 1}) {label}")
-    try:
-        line = input(f"  番号を選択 [{default + 1}]: ").strip()
-    except EOFError:
-        return options[default][1]
-    except KeyboardInterrupt:
-        raise Cancelled()
-    if not line:
-        return options[default][1]
-    try:
-        idx = int(line) - 1
+    while True:
+        try:
+            line = input(f"  番号を選択 [{default + 1}]: ").strip()
+        except EOFError:
+            return options[default][1]  # 入力が尽きたときだけ既定を採用
+        except KeyboardInterrupt:
+            raise Cancelled()
+        if not line:
+            return options[default][1]
+        try:
+            idx = int(line) - 1
+        except ValueError:
+            # 解析できない入力を黙って既定にしない（何が選ばれたか分からなくなる）
+            print(f"  1〜{len(options)} の番号を入力してください")
+            continue
         if 0 <= idx < len(options):
             return options[idx][1]
-    except ValueError:
-        pass
-    return options[default][1]
+        print(f"  1〜{len(options)} の番号を入力してください")
 
 
 def _select_tty(message: str, options, default: int) -> object:
@@ -99,7 +110,7 @@ def _select_tty(message: str, options, default: int) -> object:
             sys.stdout.write("\r\x1b[2K" + body + "\r\n")
         sys.stdout.flush()
 
-    sys.stdout.write(f"◆ {message}  (↑↓ / j k で選択, Enter 決定)\r\n")
+    sys.stdout.write(f"◆ {message}  (↑↓ で選択、Enter で決定)\r\n")
     sys.stdout.flush()
     try:
         tty.setraw(fd)

@@ -188,6 +188,17 @@ def run():
     return result
 
 
+def render_store_summary(store, info):
+    """人間向けの1行サマリ（cli の `watari scan`（--json なし）の表示用。文言の正本はここ）。
+
+    JSON のフィールド（readable/truncated 等）はエージェント用にそのまま維持し、
+    画面表示だけを平易な日本語にする。
+    """
+    reading = "OK" if info.get("readable") else "失敗（今回の分は次回に持ち越します）"
+    cut = "あり（量が多いため30日分ずつ処理します）" if info.get("truncated") else "なし"
+    return f"{store}: 読み取り={reading} 新しい発話={info.get('count', 0)}件 区切り={cut}"
+
+
 def main():
     print(json.dumps(run(), ensure_ascii=False, indent=1))
 

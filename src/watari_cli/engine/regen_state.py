@@ -31,10 +31,14 @@ import json
 import sys
 
 from .watari_lib import (
-    DORMANT_DAYS, GENRES, HEAT_DECAY_DAYS, SINK_DAYS,
+    DORMANT_DAYS, GENRES, HEAT_DECAY_DAYS, MSG_SETUP_REQUIRED, SINK_DAYS,
     atomic_write_json, fmt_ts, load_aliases, load_log, now_utc, parse_ts,
     sorted_rows, state_path,
 )
+
+# --check の結果文言（表示の正本。engine main と cli(watari regen) が共用する）
+MSG_CHECK_OK = "まとめは記録と一致しています"
+MSG_STATE_MISSING = "まとめが未生成です。watari regen で生成できます"
 
 
 def fold_learning(rows, aliases):
@@ -140,9 +144,9 @@ def semantic_diff(current, generated):
                 if k == "updated":
                     continue
                 if k not in a:
-                    diffs.append(f"+ {path}.{k} (生成側のみ)")
+                    diffs.append(f"+ {path}.{k}（記録から作り直した側にのみ存在）")
                 elif k not in b:
-                    diffs.append(f"- {path}.{k} (現stateのみ)")
+                    diffs.append(f"- {path}.{k}（現在のまとめにのみ存在）")
                 else:
                     cmp(f"{path}.{k}", a[k], b[k])
         elif isinstance(a, list) and isinstance(b, list):
@@ -154,9 +158,9 @@ def semantic_diff(current, generated):
                 bm = {x["topic"]: x for x in b}
                 for k in am.keys() | bm.keys():
                     if k not in am:
-                        diffs.append(f"+ {path}[{k}] (生成側のみ)")
+                        diffs.append(f"+ {path}[{k}]（記録から作り直した側にのみ存在）")
                     elif k not in bm:
-                        diffs.append(f"- {path}[{k}] (現stateのみ)")
+                        diffs.append(f"- {path}[{k}]（現在のまとめにのみ存在）")
                     else:
                         cmp(f"{path}[{k}]", am[k], bm[k])
         elif a != b:
@@ -166,26 +170,51 @@ def semantic_diff(current, generated):
     return diffs
 
 
+def load_current_states():
+    """現在の state.json を全ジャンル分読み込む（--check 用）。無ければ FileNotFoundError。"""
+    return {g: json.load(open(state_path(g), encoding="utf-8")) for g in GENRES}
+
+
+def render_check_diffs(diffs):
+    """--check で差分があったときの表示行（文言の正本。engine main と cli が共用する）。"""
+    lines = [f"まとめと記録に食い違い {len(diffs)} 件:"]
+    lines += [f"  {x}" for x in diffs]
+    lines.append("→ watari regen で作り直せます")
+    return lines
+
+
+def done_message(now):
+    """再生成完了の表示文言（engine main と cli が共用する）。"""
+    return f"まとめを作り直しました（基準時刻 {fmt_ts(now)}）"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--now", help="再生成時刻 (UTC ISO)。省略時は現在時刻")
     ap.add_argument("--check", action="store_true", help="書き込まず現 state と比較")
     args = ap.parse_args()
     now = parse_ts(args.now) if args.now else now_utc()
-    gen = regen(now)
+    try:
+        gen = regen(now)
+    except FileNotFoundError:
+        print(MSG_SETUP_REQUIRED, file=sys.stderr)
+        sys.exit(1)
     if args.check:
-        current = {g: json.load(open(state_path(g), encoding="utf-8")) for g in GENRES}
+        try:
+            current = load_current_states()
+        except FileNotFoundError:
+            print(MSG_STATE_MISSING, file=sys.stderr)
+            sys.exit(1)
         diffs = semantic_diff(current, gen)
         if diffs:
-            print(f"state と log 再生成結果に差分 {len(diffs)} 件:")
-            for x in diffs:
-                print(" ", x)
+            for line in render_check_diffs(diffs):
+                print(line)
             sys.exit(1)
-        print("OK: state は log から再生成した結果と一致（決定論が保たれている）")
+        print(MSG_CHECK_OK)
         return
     for g in GENRES:
         atomic_write_json(state_path(g), gen[g])
-    print(f"state 再生成完了 (now={fmt_ts(now)})")
+    print(done_message(now))
 
 
 if __name__ == "__main__":

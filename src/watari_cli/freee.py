@@ -91,7 +91,9 @@ def _save_auth(**fields) -> None:
     try:
         config.save_config(connectors_auth=root)
     except OSError as error:
-        raise ConnectorError(f"freee: 認証情報の保存に失敗しました（再接続が必要になる場合があります）: {error}")
+        raise ConnectorError(
+            f"freee: 認証情報の保存に失敗しました: {error}。"
+            f"次回エラーになる場合は、{connector_http.reconnect_hint('freee')}")
 
 
 def is_connected() -> bool:
@@ -141,8 +143,9 @@ def _authorize_url(client_id: str, redirect_uri: str, state: str) -> str:
 
 
 def _open_browser(auth_url: str) -> None:
-    print("ブラウザで freee の認可画面を開きます。開かなければ次の URL を貼ってください:")
-    print(f"  {auth_url}")
+    print("ブラウザで freee の承認画面を開きます。自動で開かない場合は、"
+          "次の URL をブラウザのアドレス欄に貼り付けて開いてください:", flush=True)
+    print(f"  {auth_url}", flush=True)
     try:
         webbrowser.open(auth_url)
     except Exception:
@@ -155,8 +158,10 @@ def _run_authorization_loopback(client_id: str, server) -> tuple[str, str] | Non
     """
     port = server.server_address[1]
     redirect_uri = f"http://127.0.0.1:{port}"
-    print(f"アプリの「コールバックURL」欄をこの値に置き換えて保存してください: {redirect_uri}")
-    prompts.text("置き換えて保存したら Enter を押してください", default="")
+    print(f"freee アプリの「コールバックURL」欄が {redirect_uri} になっているか確認してください"
+          "（手順どおり設定済みならそのままで大丈夫です。違う値ならこの値に置き換えて"
+          "保存してください）。", flush=True)
+    prompts.text("確認できたら Enter を押してください", default="")
     state = secrets.token_urlsafe(16)
     _open_browser(_authorize_url(client_id, redirect_uri, state))
     server.timeout = 1
@@ -177,12 +182,15 @@ def _run_authorization_oob(client_id: str) -> tuple[str, str]:
     """loopback が使えない/失敗したときのフォールバック。画面に出る認可コードを貼ってもらう
     （貼り付けプロンプトが出るのはこの経路だけ）。"""
     redirect_uri = OOB_REDIRECT_URI
-    print(f"アプリの「コールバックURL」欄をこの値に置き換えて保存してください: {redirect_uri}")
+    print(f"freee アプリの「コールバックURL」欄をこの値に置き換えて保存してください: "
+          f"{redirect_uri}", flush=True)
     state = secrets.token_urlsafe(16)
     _open_browser(_authorize_url(client_id, redirect_uri, state))
-    code = prompts.text("画面に出た認可コードを貼り付けてください")
+    code = prompts.text("承認後に画面に表示されたコードを貼り付けてください")
     if not code:
-        raise ConnectorError("freee: 認可コードが空のため中止しました")
+        raise ConnectorError(
+            "freee: コードが入力されなかったため中止しました。"
+            f"{connector_http.reconnect_hint('freee')}")
     return code, redirect_uri
 
 
@@ -210,26 +218,30 @@ def _token_request(data: dict, context: str) -> dict:
         except json.JSONDecodeError:
             parsed = {}
         if parsed.get("error") == "invalid_grant":
-            raise ConnectorError("freee: 再接続が必要です（`watari connect freee`）")
-        raise ConnectorError(f"freee: {context}に失敗しました({status}): {body[:200]!r}")
+            raise ConnectorError("freee: 再接続が必要です（watari connect freee）")
+        raise ConnectorError(
+            f"freee: {context}に失敗しました({status}): {connector_http.body_text(body)}。"
+            f"{connector_http.reconnect_hint('freee')}")
     try:
         return json.loads(body)
     except json.JSONDecodeError:
-        raise ConnectorError(f"freee: 応答が JSON ではありません: {body[:200]!r}")
+        raise ConnectorError(
+            f"freee: 応答を読み取れませんでした: {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください")
 
 
 def _exchange_code(client_id: str, client_secret: str, code: str, redirect_uri: str) -> dict:
     return _token_request({
         "grant_type": "authorization_code", "client_id": client_id,
         "client_secret": client_secret, "code": code, "redirect_uri": redirect_uri,
-    }, "認可コードの交換")
+    }, "認証情報の取得")
 
 
 def _refresh(client_id: str, client_secret: str, refresh_token: str) -> dict:
     return _token_request({
         "grant_type": "refresh_token", "client_id": client_id,
         "client_secret": client_secret, "refresh_token": refresh_token,
-    }, "トークン更新")
+    }, "認証情報の更新")
 
 
 def access_token() -> str:
@@ -244,15 +256,18 @@ def access_token() -> str:
     client_secret = section.get("client_secret")
     refresh_token = section.get("refresh_token")
     if not (client_id and client_secret and refresh_token):
-        raise ConnectorError("freee: 未接続です（先に `watari connect freee`）")
+        raise ConnectorError("freee: 未接続です（接続するには: watari connect freee）")
     token = _refresh(client_id, client_secret, refresh_token)
     new_refresh_token = token.get("refresh_token")
     if not new_refresh_token:
-        raise ConnectorError("freee: refresh_token が返りませんでした（再接続が必要です `watari connect freee`）")
+        raise ConnectorError(
+            "freee: 認証の更新情報を受け取れませんでした。再接続が必要です（watari connect freee）")
     _save_auth(refresh_token=new_refresh_token)  # ローテーション対応：必ず新しい値へ差し替える
     access = token.get("access_token")
     if not access:
-        raise ConnectorError("freee: access_token が返りませんでした")
+        raise ConnectorError(
+            "freee: 認証情報を取得できませんでした。"
+            f"{connector_http.reconnect_hint('freee')}")
     return access
 
 
@@ -261,13 +276,17 @@ def access_token() -> str:
 def _get_json(url: str, token: str) -> dict:
     status, body = _http("GET", url, {"Authorization": f"Bearer {token}"})
     if status == 401:
-        raise ConnectorError("freee: 認証エラー（再接続が必要です `watari connect freee`）")
+        raise ConnectorError("freee: 認証に失敗しました。再接続が必要です（watari connect freee）")
     if status != 200:
-        raise ConnectorError(f"freee: API エラー({status}): {body[:200]!r}")
+        raise ConnectorError(
+            f"freee: API エラー({status}): {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください（続くようなら、{connector_http.reconnect_hint('freee')}）")
     try:
         return json.loads(body)
     except json.JSONDecodeError:
-        raise ConnectorError(f"freee: 応答が JSON ではありません: {body[:200]!r}")
+        raise ConnectorError(
+            f"freee: 応答を読み取れませんでした: {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください")
 
 
 def _company_label(company: dict) -> str:
@@ -279,7 +298,9 @@ def _resolve_company(access_token_: str) -> tuple[int, str]:
     data = _get_json(COMPANIES_URL, access_token_)
     companies = data.get("companies") or []
     if not companies:
-        raise ConnectorError("freee: 事業所が見つかりませんでした")
+        raise ConnectorError(
+            "freee: 事業所が見つかりませんでした。承認した freee アカウントに事業所が"
+            f"登録されているか確認してください（{connector_http.reconnect_hint('freee')}）")
     if len(companies) == 1:
         company = companies[0]
         return company["id"], _company_label(company)
@@ -301,7 +322,8 @@ def verify() -> tuple[bool, str]:
     client_id = prompts.text("freee アプリの Client ID を貼り付けてください")
     client_secret = prompts.text("freee アプリの Client Secret を貼り付けてください")
     if not client_id or not client_secret:
-        return False, "Client ID / Client Secret が空です"
+        return False, ("Client ID / Client Secret が入力されなかったため中止しました。"
+                       "watari connect freee でやり直せます")
     try:
         code, redirect_uri = _run_authorization(client_id)
         token = _exchange_code(client_id, client_secret, code, redirect_uri)
@@ -310,7 +332,8 @@ def verify() -> tuple[bool, str]:
     refresh_token = token.get("refresh_token")
     access = token.get("access_token")
     if not refresh_token or not access:
-        return False, "freee: access_token/refresh_token が返りませんでした"
+        return False, ("freee から認証情報を受け取れませんでした。"
+                       f"{connector_http.reconnect_hint('freee')}")
     try:
         _save_auth(client_id=client_id, client_secret=client_secret, refresh_token=refresh_token)
         company_id, company_name = _resolve_company(access)
@@ -358,7 +381,7 @@ def read(since: str | None) -> list[dict]:
     section = _auth_section()
     company_id = section.get("company_id")
     if not company_id:
-        raise ConnectorError("freee: 未接続です（先に `watari connect freee`）")
+        raise ConnectorError("freee: 未接続です（接続するには: watari connect freee）")
     token = access_token()
     since_date = (since or "1970-01-01")[:10]
     params = urllib.parse.urlencode({

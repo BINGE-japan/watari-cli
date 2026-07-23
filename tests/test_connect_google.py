@@ -9,7 +9,8 @@ slack/chatwork の作業が進行中で、そちらのファイル群には一�
   「貼り付けてください」プロンプトは一切出ない。
 - 既に必要スコープが付与済みなら authorize を呼ばずに疎通確認だけで完了する。
 - `watari connector read <name>`：統一形式 {ts,uuid,text,meta} を ts 昇順で返す。
-- 401/403 は明確な非ゼロ終了（403 はスコープ不足の可能性を案内）。
+- 401/403 は明確な非ゼロ終了（401 は再接続コマンド、403 は承認のやり直しを案内。英語
+  フィールド名や bytes repr は出さない）。
 - 未接続（必要スコープ無し）の read は「未接続」で非ゼロ。
 - REGISTRY 拡張：gdrive が新規に、gmail/calendar のプレースホルダが実装済みとしてメニュー/
   connector read の両方に現れる。
@@ -244,14 +245,16 @@ class ConnectorReadGmailTest(_GoogleIsolated):
         rc, out, err = _run(["connector", "read", "gmail", "--since", "2026-01-01", "--json"])
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
-        self.assertIn("認証エラー", err)
+        self.assertIn("watari connect gmail", err)  # 再接続コマンドを必ず案内
 
-    def test_forbidden_403_mentions_scope_shortage(self):
+    def test_forbidden_403_mentions_reauthorize(self):
         gconn._http = _fake_http(lambda m, u, h, d: (403, b'{"error":"insufficient scope"}'))
         rc, out, err = _run(["connector", "read", "gmail", "--since", "2026-01-01", "--json"])
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
-        self.assertIn("スコープ不足", err)
+        self.assertIn("アクセスが拒否されました", err)
+        self.assertIn("watari connect gmail", err)
+        self.assertNotIn("b'", err)  # bytes repr を出さない
 
     def test_unconnected_without_required_scope_is_rejected(self):
         config.save_config(google={"client_id": "cid", "client_secret": "csec",
@@ -334,7 +337,7 @@ class ConnectorReadCalendarTest(_GoogleIsolated):
         rc, out, err = _run(["connector", "read", "calendar", "--since", "2026-07-01", "--json"])
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
-        self.assertIn("認証エラー", err)
+        self.assertIn("watari connect calendar", err)
 
 
 class ConnectWizardGdriveTest(_GoogleIsolated):
@@ -390,12 +393,24 @@ class ConnectorReadGdriveTest(_GoogleIsolated):
         self.assertIn("text/plain", rows[0]["text"])
         self.assertIn("modifiedTime", urllib.parse.unquote(captured["url"]))
 
-    def test_forbidden_403_mentions_scope_shortage(self):
+    def test_forbidden_403_mentions_reauthorize(self):
         gconn._http = _fake_http(lambda m, u, h, d: (403, b'{"error":"insufficient scope"}'))
         rc, out, err = _run(["connector", "read", "gdrive", "--since", "2026-07-01", "--json"])
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
-        self.assertIn("スコープ不足", err)
+        self.assertIn("アクセスが拒否されました", err)
+        self.assertIn("watari connect gdrive", err)
+
+
+class GoogleGuideTest(_GoogleIsolated):
+    """gmail/calendar/gdrive の guide に「watari auth と同じアカウント」「初回は直近14日分」の
+    2点が必ず入っていること（別アカウント承認の罠と初回窓の仕様を接続前に伝える）。"""
+
+    def test_guides_mention_same_account_and_initial_window(self):
+        for name in ("gmail", "calendar", "gdrive"):
+            guide = "\n".join(connectors.get_service(name).guide)
+            self.assertIn("watari auth と同じ Google アカウント", guide, name)
+            self.assertIn("14 日", guide, name)
 
 
 class RegistryGoogleExtensionTest(_GoogleIsolated):

@@ -62,17 +62,20 @@ def detect_or_prompt(name: str, label: str, default_root, count_sessions) -> tup
             return True, f"{label} の会話ログを見つけました（{root} / セッション {count} 件）"
 
     print(f"{label} の会話ログが既定の場所（{root}）に見つかりませんでした。")
-    entered = prompts.text("会話ログが入っているディレクトリのパスを直接入力しますか？（空で中止）")
+    entered = prompts.text("会話ログのフォルダのパスを入力してください（空 Enter で中止）")
     if not entered:
-        return False, f"{label}: パスが入力されなかったため中止しました"
+        return False, (f"{label}: パスが入力されなかったため中止しました"
+                       "（watari connect からやり直せます）")
     entered = os.path.abspath(os.path.expanduser(entered))
     if not os.path.isdir(entered):
-        return False, f"{entered} はディレクトリではありません"
+        return False, (f"{entered} というフォルダが見つかりません。watari connect から"
+                       "もう一度やり直し、正しいパスを入力してください")
     count = count_sessions(entered)
     if count == 0:
-        return False, f"{entered} にセッションが見つかりませんでした"
+        return False, (f"{entered} に会話ログ（.jsonl ファイル）が見つかりませんでした。"
+                       "パスが正しいか確認して、watari connect からやり直してください")
     save_path(name, entered)
-    return True, f"{label} の会話ログ（{entered} / セッション {count} 件）"
+    return True, f"{label} の会話ログを見つけました（{entered} / セッション {count} 件）"
 
 
 def unify(rows: list[dict], since: str | None, max_rows: int = MAX_ROWS) -> list[dict]:

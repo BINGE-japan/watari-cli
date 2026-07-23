@@ -41,14 +41,20 @@ def _headers(token: str) -> dict:
 
 def _get(token: str, url: str) -> dict:
     status, body = _http("GET", url, _headers(token))
+    hint = connector_http.reconnect_hint("github")
     if status == 401:
-        raise ConnectorError("github: 認証エラー（Personal Access Token を確認してください）")
+        raise ConnectorError(
+            f"github: 認証に失敗しました。トークンが無効か期限切れです。{hint}")
     if status != 200:
-        raise ConnectorError(f"github: API エラー({status}): {body[:200]!r}")
+        raise ConnectorError(
+            f"github: API エラー({status}): {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください（続くようなら、{hint}）")
     try:
         return json.loads(body)
     except json.JSONDecodeError:
-        raise ConnectorError(f"github: 応答が JSON ではありません: {body[:200]!r}")
+        raise ConnectorError(
+            f"github: 応答を読み取れませんでした: {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください")
 
 
 def verify(token: str) -> tuple[bool, str]:
@@ -61,7 +67,8 @@ def verify(token: str) -> tuple[bool, str]:
         return False, str(error)
     login = user.get("login")
     if not login:
-        return False, "login が取得できませんでした"
+        return False, ("GitHub のユーザー名を取得できませんでした。トークンの権限を確認して"
+                       f"ください（{connector_http.reconnect_hint('github')}）")
     return True, login
 
 
@@ -96,7 +103,9 @@ def read(token: str, since: str | None) -> list[dict]:
     user = _get(token, f"{API_BASE}/user")
     login = user.get("login")
     if not login:
-        raise ConnectorError("github: login が取得できませんでした")
+        raise ConnectorError(
+            "github: GitHub のユーザー名を取得できませんでした。トークンの権限を確認して"
+            f"ください（{connector_http.reconnect_hint('github')}）")
     # GitHub の検索修飾子 `updated:>` は秒精度まで。カーソルのミリ秒（...T05:07:01.176Z）を
     # そのまま渡すと 422 Unprocessable Entity になるため、秒に丸めてから渡す。
     since_q = _to_search_ts(since) if since else "1970-01-01T00:00:00Z"

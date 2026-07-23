@@ -148,10 +148,10 @@ class IngestApplyTest(unittest.TestCase):
 
     def test_dedup_by_uuid_and_kind(self):
         s1 = ingest.apply([self._row()])
-        self.assertIn("life=1", s1)
+        self.assertIn("生活 1 件", s1)
         s2 = ingest.apply([self._row()])  # 同 (uuid,kind) は黙ってスキップ
-        self.assertIn("dedupスキップ=1", s2)
-        self.assertIn("life=0", s2)
+        self.assertIn("重複スキップ 1 件", s2)
+        self.assertIn("生活 0 件", s2)
         self.assertEqual(len(wl.load_log("life")), 1)
 
     def test_validation_error_writes_nothing(self):
@@ -164,7 +164,9 @@ class IngestApplyTest(unittest.TestCase):
         ingest.apply([self._row(uuid="u1")], advance_pi="2026-07-10T00:00:00.000Z")
         with self.assertRaises(ValueError) as cm:
             ingest.apply([self._row(uuid="u2")], advance_pi="2026-07-01T00:00:00.000Z")
-        self.assertTrue(any("後退禁止" in e for e in cm.exception.args[0]))
+        self.assertTrue(any("巻き戻せません" in e for e in cm.exception.args[0]))
+        # エラー文は実際に打たれたフラグ構文で示す（存在しないフラグ表記を出さない）
+        self.assertTrue(any(e.startswith("--advance-pi 2026-07-01") for e in cm.exception.args[0]))
         # 後退拒否で u2 は書かれない（原子性）
         self.assertEqual([d["refs"]["uuid"] for d in wl.load_log("life")], ["u1"])
 
@@ -178,8 +180,54 @@ class IngestApplyTest(unittest.TestCase):
 
     def test_dry_run_does_not_append(self):
         summary = ingest.apply([self._row(uuid="u1")], dry_run=True)
-        self.assertIn("dry-run", summary)
+        self.assertIn("お試し実行", summary)
+        self.assertIn("何も書き込んでいません", summary)
         self.assertEqual(wl.load_log("life"), [])
+
+    def test_summary_mentions_cursor_update_and_state_rebuild(self):
+        # 成功サマリは平易語（読み取り位置・まとめ）で構成し、内部語(dedup/カーソル/state)を出さない
+        summary = ingest.apply([self._row(uuid="u1")], advance_pi="2026-07-10T00:00:00.000Z")
+        self.assertIn("記憶に追記", summary)
+        self.assertIn("読み取り位置を更新", summary)
+        self.assertIn("transcripts_pi=2026-07-10T00:00:00.000Z", summary)
+        self.assertIn("まとめを再生成しました", summary)
+        for jargon in ("dedup", "カーソル", "state 再生成"):
+            self.assertNotIn(jargon, summary)
+
+    def test_naive_ts_error_shows_iso_example_without_jargon(self):
+        with self.assertRaises(ValueError) as cm:
+            ingest.apply([self._row(uuid="u1", ts="2026-07-10T00:00:00")])  # naive
+        joined = "\n".join(cm.exception.args[0])
+        self.assertIn("UTC の ISO 形式", joined)
+        self.assertIn("2026-01-01T00:00:00.000Z", joined)  # 実際に使える例を見せる
+        for jargon in ("naive", "aware", "regen", "クラッシュ"):
+            self.assertNotIn(jargon, joined)
+
+    def test_invalid_kind_lists_valid_values(self):
+        with self.assertRaises(ValueError) as cm:
+            ingest.apply([self._row(uuid="u1", kind="memo")])
+        joined = "\n".join(cm.exception.args[0])
+        self.assertIn("study", joined)
+        self.assertIn("thread", joined)
+
+    def test_domain_kebab_error_is_plain_language(self):
+        row = self._row(uuid="u1", kind="study", domain="Bad_Domain",
+                        topic="t", mastery=1, note="n")
+        with self.assertRaises(ValueError) as cm:
+            ingest.apply([row])
+        joined = "\n".join(cm.exception.args[0])
+        self.assertIn("小文字の英数字とハイフン", joined)
+        self.assertNotIn("ケバブ", joined)
+
+    def test_new_domain_error_points_to_recall_and_flag(self):
+        row = self._row(uuid="u1", kind="study", domain="new-dom",
+                        topic="t", mastery=1, note="n")
+        with self.assertRaises(ValueError) as cm:
+            ingest.apply([row])
+        joined = "\n".join(cm.exception.args[0])
+        self.assertIn("watari recall", joined)
+        self.assertIn("--allow-new-domain", joined)
+        self.assertNotIn("既存に寄せる", joined)
 
     def test_deadline_must_be_tz_aware(self):
         with self.assertRaises(ValueError) as cm:
@@ -189,6 +237,85 @@ class IngestApplyTest(unittest.TestCase):
     def test_valid_deadline_accepted_and_stored_in_log(self):
         ingest.apply([self._row(uuid="u1", deadline="2026-12-01T00:00:00.000Z")])
         self.assertEqual(wl.load_log("life")[0]["deadline"], "2026-12-01T00:00:00.000Z")
+
+
+class AdvanceExtErrorTest(IngestApplyTest):
+    """--advance-ext のエラーは実際に打てる構文例で示す（config は一時ディレクトリに隔離）。"""
+
+    def setUp(self):
+        super().setUp()
+        self._cfg = tempfile.TemporaryDirectory(prefix="watari-cfg-")
+        self._saved_cfg = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = self._cfg.name
+
+    def tearDown(self):
+        if self._saved_cfg is None:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        else:
+            os.environ["XDG_CONFIG_HOME"] = self._saved_cfg
+        self._cfg.cleanup()
+        super().tearDown()
+
+    def test_undeclared_connectors_get_add_command_not_placeholder(self):
+        with self.assertRaises(ValueError) as cm:
+            ingest.apply([self._row(uuid="u1")], advance_ext=["mail=2026-07-10T00:00:00.000Z"])
+        joined = "\n".join(cm.exception.args[0])
+        self.assertIn("watari connector add", joined)
+        self.assertNotIn("宣言なし", joined)  # 「<宣言なし>=<UTC ts>」を出さない（回帰防止）
+
+    def test_malformed_spec_shows_typable_example(self):
+        with self.assertRaises(ValueError) as cm:
+            ingest.apply([self._row(uuid="u1")], advance_ext=["mail"])
+        joined = "\n".join(cm.exception.args[0])
+        self.assertIn("--advance-ext mail=2026-01-01T00:00:00.000Z", joined)
+
+    def test_unknown_name_lists_declared_names(self):
+        from watari_cli import config
+        config.save_connector({"name": "mail", "scope": "cloud", "read": "r"})
+        with self.assertRaises(ValueError) as cm:
+            ingest.apply([self._row(uuid="u1")], advance_ext=["typo=2026-07-10T00:00:00.000Z"])
+        joined = "\n".join(cm.exception.args[0])
+        self.assertIn("宣言されていない名前", joined)
+        self.assertIn("mail", joined)
+
+    def test_non_iso_ts_shows_real_flag_syntax(self):
+        from watari_cli import config
+        config.save_connector({"name": "mail", "scope": "cloud", "read": "r"})
+        with self.assertRaises(ValueError) as cm:
+            ingest.apply([self._row(uuid="u1")], advance_ext=["mail=notatime"])
+        joined = "\n".join(cm.exception.args[0])
+        self.assertIn("--advance-ext mail=notatime", joined)     # 打たれた形
+        self.assertIn("--advance-ext mail=2026-01-01", joined)   # 正しく打てる例
+        self.assertNotIn("--advance-ext mail が", joined)        # 存在しないフラグ表記を出さない
+
+
+class FormatErrorLinesTest(unittest.TestCase):
+    """検証エラー表示の整形は ingest.format_error_lines に一元化（engine main と cli が共用）。"""
+
+    def test_header_and_indent(self):
+        lines = ingest.format_error_lines(["a", "b"])
+        self.assertIn("検証エラー 2 件", lines[0])
+        self.assertIn("何も書き込んでいません", lines[0])
+        self.assertIn("修正して再実行", lines[0])
+        self.assertEqual(lines[1], "  - a")
+        self.assertEqual(lines[2], "  - b")
+
+
+class RenderStoreSummaryTest(unittest.TestCase):
+    """scan（旧 dream）の人間向け1行サマリ。英語フィールド名(readable/truncated)を出さない。"""
+
+    def test_ok_line(self):
+        line = extract.render_store_summary("pi", {"readable": True, "count": 3, "truncated": False})
+        self.assertIn("読み取り=OK", line)
+        self.assertIn("新しい発話=3件", line)
+        self.assertIn("区切り=なし", line)
+        self.assertNotIn("readable", line)
+        self.assertNotIn("truncated", line)
+
+    def test_unreadable_and_truncated(self):
+        line = extract.render_store_summary("pi", {"readable": False, "count": 0, "truncated": True})
+        self.assertIn("次回に持ち越します", line)
+        self.assertIn("30日分", line)
 
 
 class LoadRowsTest(unittest.TestCase):

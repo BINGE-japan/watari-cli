@@ -3,10 +3,11 @@
 実 API は叩かず HTTP をモックしてオフライン検証する（slack._http / chatwork._http を差し替える）。
 固めること:
 - verify 成功/失敗（Slack は HTTP 200 でも ok:false を返しうるので、その分岐も別に固める）。
+- Slack は xoxp- で始まらないトークン（特に bot 用の xoxb-）を verify 冒頭で拒否する。
 - read の統一形式 {ts,uuid,text,meta} と ts 昇順。
 - Slack は2クエリ（from:/mention）統合時の重複排除。
-- 認証エラーは非ゼロ終了・出力なし。
-- guide（案内文）に URL とマニフェスト文字列が含まれること。
+- 認証失敗は非ゼロ終了・出力なし・再接続コマンド（watari connect <name>）の案内付き。
+- guide（案内文）に URL とマニフェスト文字列が含まれ、複数行要素は行ごとに分割されている。
 """
 from __future__ import annotations
 
@@ -125,6 +126,27 @@ class ConnectWizardSlackTest(_XdgIsolated):
         self.assertIsNone(connectors.auth_key("slack"))
         self.assertEqual(config.load_connectors(), [])
 
+    def test_bot_token_xoxb_is_rejected_before_any_api_call(self):
+        """guide が最も警告する貼り間違い（xoxb-）は verify 冒頭で拒否し、正しい方を案内する。"""
+        from watari_cli import prompts
+        prompts.text = lambda *a, **k: "xoxb-bot-token-123"
+        slack._http = _fake_http(
+            lambda m, u, h, d: self.fail("接頭辞チェックで拒否すべき（API を叩かない）"))
+        rc, _out, err = _run(["connect", "slack"])
+        self.assertEqual(rc, 1)
+        self.assertIn("xoxp-", err)  # 正しいトークンの見分け方を案内
+        self.assertIn("bot", err)
+        self.assertIsNone(connectors.auth_key("slack"))
+        self.assertEqual(config.load_connectors(), [])
+
+    def test_guide_manifest_is_split_into_single_lines(self):
+        """複数行のマニフェストは guide 内で1行ずつに分割されている（表示側が各行に
+        プレフィックスを付けても崩れない）。"""
+        service = connectors.get_service("slack")
+        self.assertTrue(all("\n" not in line for line in service.guide))
+        joined = "\n".join(line.strip() for line in service.guide)
+        self.assertIn('"search:read"', joined)
+
     def test_guide_mentions_apps_url_and_manifest(self):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""  # 空入力で中止させ、案内文だけを見る
@@ -206,7 +228,8 @@ class ConnectorReadSlackTest(_XdgIsolated):
         rc, out, err = _run(["connector", "read", "slack", "--since", "2023-11-14", "--json"])
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
-        self.assertIn("認証エラー", err)
+        self.assertIn("認証に失敗しました", err)
+        self.assertIn("watari connect slack", err)  # 再接続コマンドを必ず案内
 
     def test_search_ok_false_is_nonzero_with_no_partial_output(self):
         def router(method, url, headers, data):
@@ -219,6 +242,35 @@ class ConnectorReadSlackTest(_XdgIsolated):
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
         self.assertIn("ratelimited", err)
+        self.assertIn("watari connect slack", err)
+
+    def test_bot_token_error_code_is_translated(self):
+        """not_allowed_token_type（xoxb を保存してしまった後の読み取り失敗）は英語コードの
+        ままにせず、日本語の原因＋貼り直し手順に写像される。"""
+        def router(method, url, headers, data):
+            if url == slack.AUTH_TEST_URL:
+                return 200, json.dumps(
+                    {"ok": True, "user": "binge", "team": "Yogo", "user_id": "U123"}).encode()
+            return 200, json.dumps({"ok": False, "error": "not_allowed_token_type"}).encode()
+        slack._http = _fake_http(router)
+        rc, out, err = _run(["connector", "read", "slack", "--since", "2023-11-14", "--json"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("bot 用トークンでは読めません", err)
+        self.assertIn("watari connect slack", err)
+
+    def test_missing_scope_error_code_is_translated(self):
+        def router(method, url, headers, data):
+            if url == slack.AUTH_TEST_URL:
+                return 200, json.dumps(
+                    {"ok": True, "user": "binge", "team": "Yogo", "user_id": "U123"}).encode()
+            return 200, json.dumps({"ok": False, "error": "missing_scope"}).encode()
+        slack._http = _fake_http(router)
+        rc, out, err = _run(["connector", "read", "slack", "--since", "2023-11-14", "--json"])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "")
+        self.assertIn("search:read", err)
+        self.assertIn("watari connect slack", err)
 
     def test_unconnected_service_is_rejected(self):
         config.save_config(connectors_auth={})  # 未接続に戻す
@@ -367,7 +419,8 @@ class ConnectorReadChatworkTest(_XdgIsolated):
         rc, out, err = _run(["connector", "read", "chatwork", "--since", "2023-11-14", "--json"])
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
-        self.assertIn("認証エラー", err)
+        self.assertIn("認証に失敗しました", err)
+        self.assertIn("watari connect chatwork", err)
 
     def test_unconnected_service_is_rejected(self):
         config.save_config(connectors_auth={})  # 未接続に戻す

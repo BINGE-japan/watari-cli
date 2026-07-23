@@ -82,19 +82,28 @@ class EntrypointContractTests(unittest.TestCase):
         self.assertNotIn("0.1.0", cli_source)
         with PYPROJECT.open("rb") as stream:
             project = tomllib.load(stream)
-        self.assertEqual(project, {
-            "build-system": {"requires": ["setuptools==80.9.0"], "build-backend": "setuptools.build_meta"},
-            "project": {
-                "name": "watari-cli", "version": "0.1.0", "readme": "README.md",
-                "requires-python": ">=3.11", "dependencies": [],
-                "scripts": {"watari": "watari_cli.cli:main"},
-            },
-            "tool": {"setuptools": {
-                "package-dir": {"": "src"}, "packages": {"find": {"where": ["src"]}},
-                "package-data": {"watari_cli": ["skill/*.md"]},
-            }},
-            "dependency-groups": {"dev": ["pytest"]},
-        })
+        # pyproject はパッケージング契約に効くキーだけを固定する（description /
+        # keywords / classifiers 等のメタデータ追加でこのテストが壊れないように）。
+        self.assertEqual(
+            project["build-system"],
+            {"requires": ["setuptools==80.9.0"], "build-backend": "setuptools.build_meta"},
+        )
+        metadata = project["project"]
+        self.assertEqual(metadata["name"], "watari-cli")
+        self.assertEqual(metadata["version"], "0.1.0")
+        self.assertEqual(metadata["readme"], "README.md")
+        self.assertEqual(metadata["requires-python"], ">=3.11")
+        self.assertEqual(metadata["dependencies"], [])  # 実行時依存ゼロ（オフライン契約）
+        self.assertEqual(metadata["scripts"], {"watari": "watari_cli.cli:main"})
+        setuptools_config = project["tool"]["setuptools"]
+        self.assertEqual(setuptools_config["package-dir"], {"": "src"})
+        self.assertEqual(setuptools_config["packages"], {"find": {"where": ["src"]}})
+        package_data = setuptools_config["package-data"]["watari_cli"]
+        self.assertIn("skill/*.md", package_data)  # SKILL.md / SCHEMA.md 同梱
+        self.assertIn("skill/prompts/*.md", package_data)  # スラッシュコマンド同梱
+        self.assertIn("pi/*.mjs", package_data)  # process-local TUI / 敬語ガード
+        self.assertIn("pi/*.ts", package_data)  # Pi event hook
+        self.assertIn("pytest", project["dependency-groups"]["dev"])
         temporary = tempfile.TemporaryDirectory(prefix="watari-b002-")
         self.__class__._temporary = temporary
         root, source, output, wheelhouse = Path(temporary.name), Path(temporary.name) / "source", Path(temporary.name) / "output", Path(temporary.name) / "wheelhouse"
@@ -139,6 +148,10 @@ class EntrypointContractTests(unittest.TestCase):
         wheel, dist_info = wheels[0], "watari_cli-0.1.0.dist-info"
         expected_members = {"watari_cli/__init__.py", "watari_cli/cli/__init__.py",
             "watari_cli/skill/SKILL.md", "watari_cli/skill/SCHEMA.md",
+            *(f"watari_cli/skill/prompts/{name}.md"
+              for name in ("remember", "organize", "profile", "forget", "goal", "watari-help")),
+            "watari_cli/pi/quiet-ui.mjs", "watari_cli/pi/politeness.mjs",
+            "watari_cli/pi/politeness-guard.ts",
             *(f"{dist_info}/{name}" for name in ("METADATA", "WHEEL", "entry_points.txt", "top_level.txt", "RECORD"))}
         with zipfile.ZipFile(wheel) as archive:
             names = archive.namelist()
@@ -210,7 +223,11 @@ class EntrypointContractTests(unittest.TestCase):
         result = _run((str(executable), "--help"), protected, environment)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("status", result.stdout)
-        self.assertIn("dream", result.stdout)
+        # 抽出サブコマンドが載っていること（公開名は scan。旧名 dream からの移行期間中はどちらでも可）
+        self.assertTrue(
+            "scan" in result.stdout or "dream" in result.stdout,
+            f"--help に抽出サブコマンド（scan/dream）が見当たらない:\n{result.stdout}",
+        )
         self._assert_unchanged(protected, snapshot)
 
     def test_t_pkg_version(self) -> None:

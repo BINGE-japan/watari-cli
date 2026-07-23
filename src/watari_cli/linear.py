@@ -63,17 +63,23 @@ def _post(api_key: str, query: str, variables: dict | None = None) -> dict:
     status, body = _http(
         "POST", API_URL,
         {"Content-Type": "application/json", "Authorization": api_key}, payload)
+    hint = connector_http.reconnect_hint("linear")
     if status == 401:
-        raise ConnectorError("linear: 認証エラー（API キーを確認してください）")
+        raise ConnectorError(
+            f"linear: 認証に失敗しました。API キーが無効か削除されています。{hint}")
     if status != 200:
-        raise ConnectorError(f"linear: API エラー({status}): {body[:200]!r}")
+        raise ConnectorError(
+            f"linear: API エラー({status}): {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください（続くようなら、{hint}）")
     try:
         parsed = json.loads(body)
     except json.JSONDecodeError:
-        raise ConnectorError(f"linear: 応答が JSON ではありません: {body[:200]!r}")
+        raise ConnectorError(
+            f"linear: 応答を読み取れませんでした: {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください")
     if parsed.get("errors"):
         messages = "; ".join(e.get("message", "") for e in parsed["errors"])
-        raise ConnectorError(f"linear: {messages}")
+        raise ConnectorError(f"linear: {messages}（{hint}）")
     return parsed.get("data") or {}
 
 
@@ -88,7 +94,8 @@ def verify(api_key: str) -> tuple[bool, str]:
     viewer = data.get("viewer") or {}
     name = viewer.get("name") or viewer.get("email")
     if not name:
-        return False, "viewer が取得できませんでした"
+        return False, ("アカウント情報を取得できませんでした。API キーの権限を確認してください"
+                       f"（{connector_http.reconnect_hint('linear')}）")
     return True, name
 
 

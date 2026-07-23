@@ -1,75 +1,78 @@
-# Google OAuth セットアップ（発話中継所 = Drive appDataFolder）
+# Google OAuth セットアップ（複数のパソコンで会話を同期するための準備）
 
-watari-cli はマルチマシン同期のため、各マシンの会話（user＋assistant 発話）を **Google Drive の
-appDataFolder** に中継する（ユーザーの Drive UI には出ない・アプリ専用・API で削除可）。これを使うには
-Google の OAuth アプリ（インストール型）が1つ必要。**この登録は手動**（下記）。発行した client_id /
-client_secret は `watari auth` に渡せば `config.json` に保存され、以後は各マシンで `watari auth`
-（または `watari install` の承認ステップ）でログインするだけ。
+**この設定は、複数のパソコンで同じワタリを使う場合だけ必要です。**
+1 台で使う分には不要で、未設定でもワタリはそのまま動きます（同期だけがスキップされます）。
 
-## 登録手順（一度だけ・binge が実施）
+ワタリは複数のパソコンで使うとき、各パソコンの会話（あなたとワタリの発話テキスト）を
+**Google Drive のアプリ専用領域**（あなたの Drive の画面には表示されず、このアプリだけが
+読み書きできる場所）を通じて同期します。これを使うには、Google の OAuth アプリ
+（インストール型）を一度だけ登録する必要があります。発行された client ID / client secret は
+`watari auth` に入力すれば保存され、以後は各パソコンで `watari auth`（または
+`watari install` の承認ステップ）でログインするだけです。
 
-1. **Google Cloud Console**（<https://console.cloud.google.com/>）でプロジェクトを作成/選択。
-2. **APIs & Services → Library → 「Google Drive API」を Enable**。
-3. **OAuth consent screen**:
-   - User type: **External**（Google Workspace なら **Internal** を推奨。理由は下記「組み込み
-     コネクタ（gmail/calendar/gdrive）を使う場合」を参照）。
-   - Scopes: **`.../auth/drive.appdata`** を追加（アプリ専用フォルダのみ。Drive 全体は触らない）。
-     `watari connect gmail|calendar|gdrive` を使うなら、それぞれ下記のスコープも同じ画面で
-     追加する（未追加でも `drive.appdata` だけで発話中継所は動く。使う分だけ足せばよい）:
-     - Gmail: `.../auth/gmail.readonly`
-     - Google カレンダー: `.../auth/calendar.readonly`
-     - Google ドライブ（メタデータのみ）: `.../auth/drive.metadata.readonly`
+## 登録手順（一度だけ）
+
+1. **Google Cloud Console**（<https://console.cloud.google.com/>）でプロジェクトを作成または選択する。
+2. **APIs & Services → Library → 「Google Drive API」を有効化（Enable）** する。
+3. **OAuth consent screen**（同意画面）を設定する:
+   - User type: **External**（Google Workspace をお使いなら **Internal** を推奨。
+     理由は後述「Gmail / Google カレンダー / Google ドライブを接続する場合」を参照）。
+   - Scopes: **`.../auth/drive.appdata`** を追加する（アプリ専用領域のみ。あなたの Drive の
+     他のファイルには触れません）。`watari connect gmail|calendar|gdrive` を使う予定が
+     あれば、後述の表のスコープも同じ画面で追加する（未追加でも会話の同期は動きます。
+     使う分だけ足せば十分です）。
    - **Publishing status: 「本番（In production）」に発行**する。
-     ⚠ **Testing のままは不可**——テストモードの refresh token は **7 日で失効**する。本番なら失効しない。
-   - アプリは「未確認（unverified）」表示になるが、個人利用/少人数なら承認して進めば使える
-     （ただし gmail/drive を使うときは次項の制限に注意）。
+     ⚠ **Testing のままは不可** — テストモードではログイン状態が **7 日で切れます**
+     （refresh token の失効）。本番なら切れません。
+   - アプリは「未確認（unverified）」表示になりますが、個人で使う分には承認して進めば
+     使えます（Gmail / Google ドライブを使うときだけ後述の制限に注意）。
 4. **Credentials → Create credentials → OAuth client ID**:
-   - Application type: **Desktop app**（インストール型。loopback リダイレクトを使う）。
+   - Application type: **Desktop app**（インストール型）。
    - 発行された **client ID** と **client secret** を控える。
-5. **watari-cli に渡す**：`watari auth` を実行し、client ID / client secret を入力する（対話。
-   環境変数 `WATARI_GOOGLE_CLIENT_ID` / `WATARI_GOOGLE_CLIENT_SECRET` があればそれを採用）。入力値は
-   `~/.config/watari/config.json` の `google` セクションに保存され、以後は無人で使われる。手で埋める
-   必要はない。**全ユーザーに配布**したいときだけ `src/watari_cli/cloud.py` の `_BUNDLED_CLIENT_ID` /
-   `_BUNDLED_CLIENT_SECRET` に焼き込む（インストール型では client secret は機密でない＝配布可）。
+5. **`watari auth` を実行して、client ID / client secret を入力する**（対話式。環境変数
+   `WATARI_GOOGLE_CLIENT_ID` / `WATARI_GOOGLE_CLIENT_SECRET` があればそちらを使います）。
+   入力値は設定ファイルに保存され、以後は自動で使われます。ファイルを手で編集する必要は
+   ありません。
 
-## 各マシンでのログイン
+## 各パソコンでのログイン
 
-各マシンで **`watari auth`** を一度実行する（`watari install` の「Google Drive と同期しますか？」でも
-同じ承認が走る）。client_id/secret が未保存なら初回だけ入力を求め、以後は保存値を使う。承認すると
-ブラウザが開き、Google ログイン→許可→ローカルにリダイレクトされて **refresh token** が `config.json`
-に保存される。以降は無人で access token を更新して Drive に読み書きする（token 失効時も `watari auth`
-で再ログインするだけ）。
+各パソコンで **`watari auth`** を一度実行します（`watari install` の「Google Drive 経由で
+同期しますか？」の質問でも同じ承認が走ります）。承認するとブラウザが開き、
+Google ログイン → 許可 → 完了で、以後は無人で同期されます。ログインが切れたときも
+`watari auth` をもう一度実行するだけです。
 
-- 既定のスコープは `drive.appdata` のみ。**あなたの Drive の他のファイルには一切アクセスしない**
-  （`watari connect gmail|calendar|gdrive` で個別に増やすまでは、これだけ）。
-- 中継所に置くのは user＋assistant の発話テキストだけ（tool 出力・秘密は入れない）。夢で消化した分は
-  API で削除され、90 日を上限に自動で消える。
-- 未設定（client_id 空）の間は同期はスキップされ、watari-cli はローカルのみで普通に動く。
+- 既定の権限は `drive.appdata`（アプリ専用領域）のみです。**あなたの Drive の他のファイルには
+  一切アクセスしません**（`watari connect gmail|calendar|gdrive` で個別に増やすまでは、
+  これだけです）。
+- 同期領域に置かれるのは、あなたとワタリの発話テキストだけです（ツールの出力や秘密は
+  入れません）。読み終えた分は自動で削除され、最長 90 日で消えます。
+- 未設定（client ID が空）の間は同期はスキップされ、ワタリは 1 台のパソコンで普通に動きます。
 
-## 組み込みコネクタ（gmail / calendar / gdrive）を使う場合
+## Gmail / Google カレンダー / Google ドライブを接続する場合
 
-`watari connect gmail`（同様に `calendar` / `gdrive`）は、上の発話中継所とは**別トークンを発行
-せず**、同じ Google 認可を **incremental scope**（`include_granted_scopes=true`）で拡張する。
-未接続のサービスに繋ぐたびに、そのサービスに要る1スコープだけを追加でブラウザ承認すればよい
-（`drive.appdata` を含む既存の権限は失われない）。必要スコープ:
+`watari connect gmail`（同様に `calendar` / `gdrive`）は、上の同期用とは別のログインを
+増やしません。同じ Google の承認に、そのサービスに必要な権限を 1 つずつ追加するだけです
+（既存の権限は失われません）。承認は `watari auth` と同じ Google アカウントで行ってください。
+必要スコープ:
 
-| コネクタ | スコープ | 分類 |
+| サービス | スコープ | Google 上の分類 |
 | --- | --- | --- |
 | gmail | `.../auth/gmail.readonly` | **制限付き（restricted）** |
 | calendar | `.../auth/calendar.readonly` | 機密（sensitive） |
 | gdrive | `.../auth/drive.metadata.readonly` | **制限付き（restricted）** |
 
-⚠ **gmail / gdrive は「制限付きスコープ」**——OAuth consent screen が **External** かつ
-**未確認（unverified）** のままだと、Google の審査（CASA によるセキュリティ評価。有償・年次更新）を
-通さない限り実質使えない（同意画面で明示的にブロックされるか、テストユーザー登録した本人以外は
-承認できない）。個人の binge しか使わないなら、次のどちらかを選ぶ:
+⚠ **gmail / gdrive は「制限付きスコープ」** — 同意画面が **External** かつ
+**未確認（unverified）** のままだと、Google の審査（有償・年次更新のセキュリティ評価）を
+通さない限り実質使えません（同意画面でブロックされるか、Test user 登録した本人以外は
+承認できません）。使うのが自分ひとりだけなら、次のどちらかを選んでください:
 
-- **Google Workspace アカウントなら、consent screen の User Type を Internal に切り替える**
-  （**推奨**）。審査不要・トークンは失効せず・ドメイン内のユーザーだけが対象になる。個人利用の
-  実態に一番合う。
-- 個人の Gmail アカウント（Workspace でない）しかない場合は Internal を選べないため、External の
-  まま **Testing** で自分を Test user に登録して使う（この場合は前述のとおり refresh token が
-  7 日で失効するため、`watari auth` / `watari connect gmail` 等での再承認が定期的に要る）。
-  `drive.appdata`・`calendar.readonly` だけを使うなら、そのまま Production 発行でも動く
-  （sensitive scope は unverified でも「詳細設定」から本人が承認を続行できる。gmail/drive の
-  restricted scope だけがこの回避策を塞がれている）。
+- **Google Workspace アカウントなら、同意画面の User Type を Internal に切り替える**
+  （**推奨**）。審査不要で、ログインは切れず、対象はドメイン内のユーザーだけになります。
+  個人利用の実態に一番合います。
+- 個人の Gmail アカウント（Workspace でない）しかない場合は Internal を選べないため、
+  External のまま **Testing** にして自分を Test user に登録して使います（この場合は
+  前述のとおりログイン状態が 7 日で切れるため、`watari auth` や `watari connect gmail`
+  などでの再承認が定期的に必要です）。`drive.appdata` と `calendar.readonly` だけを
+  使うなら、そのまま本番発行でも動きます（機密（sensitive）スコープは未確認でも
+  「詳細設定」から本人が承認を続行できます。gmail / gdrive の制限付きスコープだけが
+  この回避策を使えません）。

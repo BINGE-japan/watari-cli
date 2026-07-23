@@ -18,7 +18,7 @@ import os
 import tempfile
 import unittest
 
-from watari_cli import config, host
+from watari_cli import config, connectors, host
 from watari_cli.cli import _build_parser
 from watari_cli.engine import ingest, watari_lib as wl
 
@@ -113,13 +113,34 @@ class ConnectorCliTest(_XdgIsolated):
         rc, _out, err = self._run(
             ["connector", "add", "--name", "Bad Name", "--scope", "cloud", "--read", "x"])
         self.assertEqual(rc, 2)
-        self.assertIn("スラッグ", err)
+        # 「スラッグ」という内輪語を使わず、正しい形式（小文字の英数字とハイフン）を案内する
+        self.assertIn("小文字の英数字とハイフン", err)
+        self.assertNotIn("スラッグ", err)
         self.assertEqual(config.load_connectors(), [])
 
     def test_add_bad_scope_is_argparse_error(self):
         # scope は argparse の choices で弾かれる（SystemExit）。宣言まで届かない。
         with self.assertRaises(SystemExit):
             self._run(["connector", "add", "--name", "mail", "--scope", "remote", "--read", "x"])
+
+
+class UnknownServiceMessageTest(_XdgIsolated):
+    """未知サービスのエラーは内輪語（組み込みコネクタ）を使わず、一覧の調べ方を案内する。"""
+
+    def test_unknown_name_mentions_supported_list(self):
+        with self.assertRaises(connectors.ConnectorError) as cm:
+            connectors.read("ghost", None)
+        message = str(cm.exception)
+        self.assertIn("対応サービスにありません: ghost", message)
+        self.assertIn("watari connect", message)
+        self.assertNotIn("コネクタ", message)
+
+    def test_unconnected_service_mentions_connect_command(self):
+        with self.assertRaises(connectors.ConnectorError) as cm:
+            connectors.read("linear", None)
+        message = str(cm.exception)
+        self.assertIn("未接続", message)
+        self.assertIn("watari connect linear", message)
 
 
 class AdvanceExtConnectorTest(_XdgIsolated):

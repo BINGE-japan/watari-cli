@@ -11,8 +11,8 @@ OAuth（drive.appdata 用に既に確立済み）の incremental scope 拡張**�
 if/elif はどこにも書かない）。
 
 HTTP は他アダプタと同じく urllib のみ（`connector_http.py` 経由）。トランスポートは3サービス共通の
-`_http` を1つ持つ（テストはこれを差し替える）。認証エラー(401)/権限エラー(403・スコープ不足の
-可能性を案内)は ConnectorError にまとめる。
+`_http` を1つ持つ（テストはこれを差し替える）。認証失効(401)は再接続コマンドを、アクセス拒否
+(403)は再承認のやり直しを案内する ConnectorError にまとめる。
 
 各サービスの中身は書き写さない（正本は Gmail/Calendar/Drive のまま）: 要点だけを text に畳む。
 """
@@ -58,14 +58,18 @@ def _http(method: str, url: str, headers: dict | None = None, data: bytes | None
 def _raise_for_status(service: str, status: int, body: bytes) -> None:
     if status == 401:
         raise ConnectorError(
-            f"{service}: 認証エラー（Google の認可が失効しています。`watari connect {service}` で再承認）")
+            f"{service}: Google へのログインが無効になっています。"
+            f"{connector_http.reconnect_hint(service)}")
     if status == 403:
         raise ConnectorError(
-            f"{service}: 権限エラー(403)。スコープ不足、または同梱の OAuth アプリを承認できない"
-            f"アカウントの可能性があります（docs/google-oauth-setup.md の Internal/自分のアプリ登録を参照）"
-            f"（`watari connect {service}` で権限を再承認してください）: {body[:200]!r}")
+            f"{service}: アクセスが拒否されました(403)。watari connect {service} を実行して、"
+            f"ブラウザでの承認をやり直してください。それでも失敗する場合は、お使いの Google "
+            f"アカウントがこのアプリを利用できない設定になっている可能性があります"
+            f"（詳細: {connector_http.body_text(body)}）")
     if status != 200:
-        raise ConnectorError(f"{service}: API エラー({status}): {body[:200]!r}")
+        raise ConnectorError(
+            f"{service}: API エラー({status}): {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください")
 
 
 def _get_json(service: str, url: str, token: str) -> dict:
@@ -74,7 +78,9 @@ def _get_json(service: str, url: str, token: str) -> dict:
     try:
         return json.loads(body)
     except json.JSONDecodeError:
-        raise ConnectorError(f"{service}: 応答が JSON ではありません: {body[:200]!r}")
+        raise ConnectorError(
+            f"{service}: 応答を読み取れませんでした: {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください")
 
 
 def _ensure_scope_and_describe(scope: str, describe) -> tuple[bool, str]:

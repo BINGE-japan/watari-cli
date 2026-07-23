@@ -3,10 +3,13 @@
 - 本文抽出：user/assistant の text だけ（thinking/toolcall/toolResult は除外）。
 - バイトオフセット tail：新規行だけ抽出し offset を進める。
 - クラウド送信：成功で queue クリア、offline は queue に繰り越し→復帰後に再送。
-- 未認証（get_store None）は start() が no-op。
+- start() の告知規律：完全未設定は無言 / 設定済みでログインできていないときだけ1行 /
+  送信キュー肥大（QUEUE_WARN_BYTES 超）で1行。
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -192,15 +195,53 @@ class FirstRunSkipTest(_Base):
 
 
 class StartTest(_Base):
-    def test_start_noop_when_unauthorized(self):
-        saved = cloud.get_store
-        cloud.get_store = lambda: None
+    def _start(self, *, configured, store):
+        saved = (cloud.get_store, cloud.is_configured)
+        cloud.get_store = lambda: store
+        cloud.is_configured = lambda: configured
+        r = relay.Relay(self.pi_store, "m1")
+        err = io.StringIO()
         try:
-            r = relay.Relay(self.pi_store, "m1")
-            r.start()
-            self.assertIsNone(r._thread)
+            with contextlib.redirect_stderr(err):
+                r.start()
         finally:
-            cloud.get_store = saved
+            cloud.get_store, cloud.is_configured = saved
+            r._stop.set()
+            if r._thread is not None:
+                r._thread.join(timeout=5)
+        return r, err.getvalue()
+
+    def test_start_silent_noop_when_fully_unconfigured(self):
+        # クラウド同期を使っていないユーザーにはノイズを出さない（従来どおり無言）
+        r, err = self._start(configured=False, store=None)
+        self.assertIsNone(r._thread)
+        self.assertEqual(err, "")
+
+    def test_start_warns_relogin_when_configured_but_not_authorized(self):
+        # 設定はあるのにログインできていない（トークン失効等）→ 1行だけ知らせる
+        r, err = self._start(configured=True, store=None)
+        self.assertIsNone(r._thread)  # 中継はしない
+        self.assertIn("会話の同期にログインし直しが必要です", err)
+        self.assertIn("watari auth", err)
+        self.assertEqual(err.count("!"), 1)
+
+    def test_start_warns_when_queue_exceeds_limit(self):
+        with open(relay._queue_path(), "w", encoding="utf-8") as f:
+            f.write("x" * 64)
+        saved_limit = relay.QUEUE_WARN_BYTES
+        relay.QUEUE_WARN_BYTES = 10  # しきい値だけ下げて検証（10MB を実際に書かない）
+        try:
+            r, err = self._start(configured=True, store=FakeStore())
+        finally:
+            relay.QUEUE_WARN_BYTES = saved_limit
+        self.assertIn("たまっています", err)
+        self.assertIn("watari auth", err)
+
+    def test_start_no_queue_warning_under_limit(self):
+        with open(relay._queue_path(), "w", encoding="utf-8") as f:
+            f.write("x")
+        r, err = self._start(configured=True, store=FakeStore())
+        self.assertEqual(err, "")
 
 
 if __name__ == "__main__":
