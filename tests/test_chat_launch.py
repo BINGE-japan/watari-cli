@@ -61,6 +61,8 @@ class ChatLaunchTest(unittest.TestCase):
         self.assertIn("quiet-ui.mjs", out)
         self.assertIn("--extension", out)
         self.assertIn("politeness-guard.ts", out)
+        self.assertIn("verification-guard.ts", out)
+        self.assertIn("briefing.ts", out)
         self.assertNotIn("--model", out)
         self.assertNotIn("--thinking", out)
 

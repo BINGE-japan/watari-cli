@@ -25,6 +25,7 @@ _TOP_HELP = """\
   install   初回セットアップ（記憶フォルダの用意と設定の保存）
   chat      ワタリと話す（Pi を起動します）
   connect   外部サービスと接続（Gmail・カレンダー・Slack など）
+  brief     期限・予定・未返信・未読をまとめて確認
   status    記憶の様子を確認
   auth      Google にログイン（複数のパソコンで会話を同期する場合）
 
@@ -753,7 +754,9 @@ def cmd_chat(args) -> int:
     skill_md = os.path.join(skill, "SKILL.md")
     quiet_ui = _find_pi_runtime_file("quiet-ui.mjs")
     politeness_guard = _find_pi_runtime_file("politeness-guard.ts")
-    if not quiet_ui or not politeness_guard:
+    verification_guard = _find_pi_runtime_file("verification-guard.ts")
+    briefing_extension = _find_pi_runtime_file("briefing.ts")
+    if not all((quiet_ui, politeness_guard, verification_guard, briefing_extension)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -765,6 +768,8 @@ def cmd_chat(args) -> int:
     cmd += [
         "--append-system-prompt", skill_md,
         "--extension", politeness_guard,
+        "--extension", verification_guard,
+        "--extension", briefing_extension,
     ] + args.extra
 
     env = dict(os.environ)
@@ -811,6 +816,45 @@ def cmd_chat(args) -> int:
     finally:
         signal.signal(signal.SIGTERM, prev_term)
         relayer.stop_and_flush()  # 正常/SIGINT/例外いずれも最終 flush
+
+
+def cmd_brief(args) -> int:
+    """期限・予定・未返信・未読を実状態から read-only でまとめる。"""
+    from datetime import datetime, timezone
+
+    config.apply(args.home)
+    from watari_cli import briefing, git_sync
+    from watari_cli.engine import watari_lib as wl
+
+    git_sync.sync_before_read(wl.MEM)
+    _ensure_state()
+    try:
+        with open(wl.state_path("life"), encoding="utf-8") as stream:
+            life = json.load(stream)
+    except FileNotFoundError:
+        life = {}
+    if args.now:
+        now = datetime.fromisoformat(args.now.replace("Z", "+00:00"))
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = datetime.now(timezone.utc)
+    result = briefing.collect(life, now)
+    result["signals"] = briefing.select_for_delivery(
+        result["signals"], now, limit=None if args.all else 3, mark=args.mark_shown,
+        suppress_recent=args.mark_shown)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+        return 0
+    if not result["signals"]:
+        print("今すぐ伝える確認事項はありません。")
+    else:
+        print("確認事項:")
+        for signal in result["signals"]:
+            print(f"  - {signal['title']}: {signal['reason']}")
+    if result["errors"]:
+        print(f"  ※確認できなかったサービス: {', '.join(x['source'] for x in result['errors'])}")
+    return 0
 
 
 def cmd_regen(args) -> int:
@@ -1208,6 +1252,16 @@ def _build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--show", action="store_true", help="起動せず、実行するコマンドだけ表示する")
     pc.add_argument("extra", nargs="*", help="実行環境（Pi）へそのまま渡す追加引数（上級者向け）")
     pc.set_defaults(func=cmd_chat)
+
+    pb = sub.add_parser(
+        "brief", help="期限・予定・未返信・未読をまとめて確認",
+        description="記憶と接続サービスの実状態から、今伝える確認事項を最大3件に絞ります。")
+    pb.add_argument("--home", help="記憶フォルダの場所")
+    pb.add_argument("--json", action="store_true", help="JSONで表示")
+    pb.add_argument("--all", action="store_true", help="3件に絞らずすべて表示")
+    pb.add_argument("--mark-shown", action="store_true", help=argparse.SUPPRESS)
+    pb.add_argument("--now", help=argparse.SUPPRESS)
+    pb.set_defaults(func=cmd_brief)
 
     pi = sub.add_parser(
         "ingest", help="（内部用）選別済みの記憶データを書き込む",

@@ -75,7 +75,7 @@ class ConnectWizardTest(_XdgIsolated):
         linear._http = self._saved_http
         super().tearDown()
 
-    def _viewer_ok(self, name="Binge", secret="sekret-key-123"):
+    def _viewer_ok(self, name="Example User", secret="sekret-key-123"):
         def router(method, url, headers, data):
             payload = json.loads(data)
             self.assertEqual(headers.get("Authorization"), secret)  # 生キーをそのまま送る
@@ -91,7 +91,7 @@ class ConnectWizardTest(_XdgIsolated):
         prompts.text = lambda *a, **k: "sekret-key-123"
         rc, out, err = _run(["connect", "linear"])
         self.assertEqual(rc, 0)
-        self.assertIn("Binge", out)
+        self.assertIn("Example User", out)
         self.assertNotIn("sekret-key-123", out)  # 認証情報は print しない
         self.assertNotIn("sekret-key-123", err)
         self.assertEqual(connectors.auth_key("linear"), "sekret-key-123")
@@ -144,7 +144,7 @@ class ConnectWizardTest(_XdgIsolated):
 
     def test_menu_dispatches_selected_service(self):
         from watari_cli import prompts
-        self._viewer_ok(name="Binge", secret="key123")
+        self._viewer_ok(name="Example User", secret="key123")
         picks = iter(["linear", None])  # 接続後はメニューに戻るので「終了」を選ぶ
         prompts.select = lambda *a, **k: next(picks)
         prompts.text = lambda *a, **k: "key123"
@@ -241,7 +241,7 @@ class ConnectWizardGithubTest(_XdgIsolated):
         github._http = self._saved_http
         super().tearDown()
 
-    def _user_ok(self, login="bingedev", token="ghp-secret-123"):
+    def _user_ok(self, login="exampledev", token="ghp-secret-123"):
         def router(method, url, headers, data):
             self.assertEqual(headers.get("Authorization"), f"Bearer {token}")
             if url == "https://api.github.com/user":
@@ -255,7 +255,7 @@ class ConnectWizardGithubTest(_XdgIsolated):
         prompts.text = lambda *a, **k: "ghp-secret-123"
         rc, out, err = _run(["connect", "github"])
         self.assertEqual(rc, 0)
-        self.assertIn("bingedev", out)
+        self.assertIn("exampledev", out)
         self.assertNotIn("ghp-secret-123", out)  # 認証情報は print しない
         self.assertNotIn("ghp-secret-123", err)
         self.assertEqual(connectors.auth_key("github"), "ghp-secret-123")
@@ -306,7 +306,7 @@ class ConnectorReadGithubTest(_XdgIsolated):
         self._home.cleanup()
         super().tearDown()
 
-    def _item(self, number, updated, repo="binge/watari-cli", title="t", state="open"):
+    def _item(self, number, updated, repo="example/watari-cli", title="t", state="open"):
         return {
             "number": number, "title": title, "state": state, "updated_at": updated,
             "html_url": f"https://github.com/{repo}/issues/{number}",
@@ -322,7 +322,7 @@ class ConnectorReadGithubTest(_XdgIsolated):
         def router(method, url, headers, data):
             self.assertEqual(headers.get("Authorization"), "Bearer ghp-secret")
             if url == "https://api.github.com/user":
-                return 200, json.dumps({"login": "bingedev"}).encode()
+                return 200, json.dumps({"login": "exampledev"}).encode()
             parsed = urllib.parse.urlparse(url)
             qs = urllib.parse.parse_qs(parsed.query)
             captured["q"] = qs["q"][0]
@@ -335,11 +335,11 @@ class ConnectorReadGithubTest(_XdgIsolated):
         self.assertEqual(rc, 0, err)
         rows = json.loads(out)
         self.assertEqual([r["uuid"] for r in rows],
-                         ["github:binge/watari-cli#10@2026-07-10",
-                          "github:binge/watari-cli#20@2026-07-15"])
+                         ["github:example/watari-cli#10@2026-07-10",
+                          "github:example/watari-cli#20@2026-07-15"])
         self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
-        self.assertIn("binge/watari-cli#10", rows[0]["text"])
-        self.assertEqual(captured["q"], "involves:bingedev updated:>2026-07-01T00:00:00Z")
+        self.assertIn("example/watari-cli#10", rows[0]["text"])
+        self.assertEqual(captured["q"], "involves:exampledev updated:>2026-07-01T00:00:00Z")
         self.assertEqual(captured["order"], "asc")
 
     def test_auth_error_is_nonzero_with_no_partial_output(self):
@@ -367,7 +367,7 @@ class ConnectWizardNotionTest(_XdgIsolated):
         notion._http = self._saved_http
         super().tearDown()
 
-    def _me_ok(self, name="Watari Bot", workspace="Binge Workspace", token="ntn-secret-123"):
+    def _me_ok(self, name="Watari Bot", workspace="Example Workspace", token="ntn-secret-123"):
         def router(method, url, headers, data):
             self.assertEqual(headers.get("Authorization"), f"Bearer {token}")
             self.assertEqual(headers.get("Notion-Version"), "2022-06-28")

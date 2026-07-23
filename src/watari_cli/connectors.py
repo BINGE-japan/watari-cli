@@ -48,7 +48,7 @@ class ServiceAdapter:
     """
 
     def __init__(self, label: str, implemented: bool = True,
-                guide: list[str] | None = None, verify=None, read=None,
+                guide: list[str] | None = None, verify=None, read=None, brief=None,
                 auth_kind: str = "paste", scopes: list[str] | None = None, connected=None,
                 scope: str = "cloud"):
         self.label = label
@@ -56,6 +56,7 @@ class ServiceAdapter:
         self.guide = guide or []  # 案内行（`watari connect <name>` がそのまま表示する短い日本語）
         self.verify = verify
         self.read = read
+        self.brief = brief  # current actionable state reader; independent of memory cursors
         self.auth_kind = auth_kind
         self.scopes = scopes or []  # auth_kind="oauth" のとき、このサービスに必要な追加スコープ
         # auth_kind="oauth"/"local" のとき接続判定を自前で持つサービス用（例: freee, transcript 系）。
@@ -74,7 +75,7 @@ def _linear_adapter() -> ServiceAdapter:
             "2. 'Personal API keys' で新しいキーを作る",
             "3. 発行されたキーをここに貼り付ける",
         ],
-        verify=linear.verify, read=linear.read,
+        verify=linear.verify, read=linear.read, brief=linear.brief,
     )
 
 
@@ -126,7 +127,7 @@ def _gmail_adapter() -> ServiceAdapter:
             "（別のアカウントを選ぶと、これまでの同期データが読めなくなります）。",
             "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
         ],
-        verify=g.gmail_verify, read=g.gmail_read,
+        verify=g.gmail_verify, read=g.gmail_read, brief=g.gmail_brief,
     )
 
 
@@ -141,7 +142,7 @@ def _calendar_adapter() -> ServiceAdapter:
             "（別のアカウントを選ぶと、これまでの同期データが読めなくなります）。",
             "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
         ],
-        verify=g.calendar_verify, read=g.calendar_read,
+        verify=g.calendar_verify, read=g.calendar_read, brief=g.calendar_brief,
     )
 
 
@@ -332,6 +333,21 @@ def is_connected(name: str) -> bool:
         granted = set(cloud.granted_scopes())
         return cloud.is_authorized() and all(scope in granted for scope in service.scopes)
     return bool(auth_key(name))
+
+
+def brief(name: str, now) -> list[dict]:
+    """Read current actionable state without touching connector/memory cursors."""
+    service = get_service(name)
+    if service is None or service.brief is None:
+        return []
+    if not is_connected(name):
+        raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name}）")
+    if service.auth_kind in ("oauth", "local"):
+        return service.brief(now)
+    api_key = auth_key(name)
+    if not api_key:
+        raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name}）")
+    return service.brief(api_key, now)
 
 
 def read(name: str, since: str | None) -> list[dict]:

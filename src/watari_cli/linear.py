@@ -48,6 +48,20 @@ query Issues($since: DateTimeOrDuration!) {
 }
 """
 
+BRIEF_ISSUES_QUERY = """
+query BriefIssues {
+  issues(filter: { assignee: { isMe: { eq: true } } }, first: 250) {
+    nodes {
+      identifier
+      title
+      url
+      dueDate
+      state { name type }
+    }
+  }
+}
+"""
+
 
 def _http(method: str, url: str, headers: dict | None = None, data: bytes | None = None):
     """(status, body_bytes) を返す。HTTP エラーは (code, body)、ネットワーク断は ConnectorError。
@@ -111,6 +125,42 @@ def _format_text(issue: dict) -> str:
         if body:
             parts.append(f"最新コメント: {body[:200]}")
     return " / ".join(parts)
+
+
+def brief(api_key: str, now) -> list[dict]:
+    """Observe assigned, open issues due within seven days; never mutate Linear."""
+    from datetime import date
+
+    from watari_cli.briefing import _signal, rank_signals
+
+    data = _post(api_key, BRIEF_ISSUES_QUERY)
+    signals = []
+    today = now.date()
+    for issue in (data.get("issues") or {}).get("nodes") or []:
+        state_type = ((issue.get("state") or {}).get("type") or "").lower()
+        if state_type in ("completed", "canceled") or not issue.get("dueDate"):
+            continue
+        try:
+            due = date.fromisoformat(issue["dueDate"])
+        except ValueError:
+            continue
+        days = (due - today).days
+        if days < 0:
+            urgency, reason = 3, "期限が過ぎています"
+        elif days == 0:
+            urgency, reason = 3, "期限は今日です"
+        elif days <= 7:
+            urgency, reason = 2, "期限まで7日以内です"
+        else:
+            continue
+        identifier = issue.get("identifier") or "?"
+        signals.append(_signal(
+            signal_id=f"linear:issue:{identifier}", kind="deadline", source="linear",
+            urgency=urgency, title=f"{identifier} {issue.get('title') or ''}".strip(),
+            reason=reason, due_at=f"{due.isoformat()}T23:59:59.000Z",
+            pointer=issue.get("url"),
+        ))
+    return rank_signals(signals)
 
 
 def read(api_key: str, since: str | None) -> list[dict]:
