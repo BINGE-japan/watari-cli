@@ -20,7 +20,7 @@ import os
 import tempfile
 import unittest
 
-from watari_cli import config
+from watari_cli import config, connectors
 from watari_cli.cli import _build_parser
 from watari_cli.transcripts import claude_code, codex, common
 
@@ -332,6 +332,33 @@ class ConnectTranscriptSourceTest(_XdgIsolated):
         self.assertEqual(common.configured_path(codex.NAME), self._codex_logs.name)
         decl = config.load_connectors()
         self.assertEqual((decl[0]["name"], decl[0]["scope"]), ("codex", "local"))
+
+    def test_manual_path_success_message_matches_auto_detect_form(self):
+        """手入力経路でも自動検出と同じ「〜を見つけました」の文形で返る。"""
+        claude_code.default_root = lambda: self._empty.name
+        from watari_cli import prompts
+        prompts.text = lambda *a, **k: self._logs.name
+        rc, out, err = _run(["connect", "claude-code"])
+        self.assertEqual(rc, 0, err)
+        self.assertIn("見つけました", out)
+
+    def test_invalid_manual_path_mentions_retry(self):
+        claude_code.default_root = lambda: self._empty.name
+        from watari_cli import prompts
+        prompts.text = lambda *a, **k: "/no/such/dir-xyz"
+        rc, _out, err = _run(["connect", "claude-code"])
+        self.assertEqual(rc, 1)
+        self.assertIn("フォルダが見つかりません", err)
+        self.assertIn("watari connect", err)  # やり直しの導線
+
+
+class TranscriptGuideTest(_XdgIsolated):
+    """claude-code / codex の guide 冒頭に「使っていなければこの接続は不要」の前置きがある。"""
+
+    def test_guides_open_with_not_needed_note(self):
+        for name in ("claude-code", "codex"):
+            guide = connectors.get_service(name).guide
+            self.assertIn("使っていなければこの接続は不要です", guide[0], name)
 
 
 if __name__ == "__main__":

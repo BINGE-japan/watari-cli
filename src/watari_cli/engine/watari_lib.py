@@ -28,6 +28,10 @@ GENRES = ("life", "learning")
 KIND_TO_GENRE = {"study": "learning", "fact": "life", "interest": "life", "thread": "life"}
 DOMAIN_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
+# 未セットアップ（記憶フォルダ不在）のときの統一案内。engine の main と cli が共用する
+# （どのコマンドから入っても同じ文言・traceback なし・exit 1 で案内する）。
+MSG_SETUP_REQUIRED = "まだセットアップされていません。まず次を実行してください:\n  watari install"
+
 # state 算出の定数（SCHEMA.md と一致させる）
 HEAT_DECAY_DAYS = 30      # 30日ごとに heat が1下がる
 DORMANT_DAYS = 45         # 45日更新が無い thread は dormant（声かけ待ち。印を付けて state に残す）

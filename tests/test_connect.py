@@ -98,6 +98,9 @@ class ConnectWizardTest(_XdgIsolated):
         decl = config.load_connectors()
         self.assertEqual(len(decl), 1)
         self.assertEqual((decl[0]["name"], decl[0]["scope"]), ("linear", "cloud"))
+        # 成功の締め: 次に起きること＋cloud スコープの「読み取り担当」注意（他のパソコンで重複接続させない）
+        self.assertIn("次の記憶の整理から読み込まれます", out)
+        self.assertIn("このパソコンが読み取り担当", out)
 
     def test_verify_failure_saves_nothing(self):
         from watari_cli import prompts
@@ -130,7 +133,7 @@ class ConnectWizardTest(_XdgIsolated):
             connectors.REGISTRY.clear()
             connectors.REGISTRY.update(saved_registry)
         self.assertEqual(rc, 0)
-        self.assertIn("未対応", out)
+        self.assertIn("まだ接続できません", out)
         self.assertIn("対応予定", out)
         self.assertEqual(config.load_connectors(), [])
 
@@ -198,7 +201,8 @@ class ConnectorReadLinearTest(_XdgIsolated):
         rc, out, err = _run(["connector", "read", "linear", "--since", "2026-07-01", "--json"])
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
-        self.assertIn("認証エラー", err)
+        self.assertIn("認証に失敗しました", err)
+        self.assertIn("watari connect linear", err)  # 回復コマンドを案内する
 
     def test_since_defaults_to_host_cursor_when_omitted(self):
         host.save_cursors(self._home.name, {"linear": "2026-07-01T00:00:00.000Z"})
@@ -224,7 +228,8 @@ class ConnectorReadLinearTest(_XdgIsolated):
         rc, out, err = _run(["connector", "read", "ghost", "--json"])
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
-        self.assertIn("組み込みコネクタではありません", err)
+        self.assertIn("対応サービスにありません", err)  # 内輪語（コネクタ）を出さない
+        self.assertIn("watari connect", err)
 
 
 class ConnectWizardGithubTest(_XdgIsolated):
@@ -282,7 +287,8 @@ class ConnectWizardGithubTest(_XdgIsolated):
         prompts.text = lambda *a, **k: ""  # 空入力で中止させ、案内文だけを見る
         rc, out, _err = _run(["connect", "github"])
         self.assertEqual(rc, 1)
-        self.assertIn("https://github.com/settings/tokens", out)
+        # Fine-grained トークン作成画面への直リンクを案内する
+        self.assertIn("https://github.com/settings/personal-access-tokens/new", out)
 
 
 class ConnectorReadGithubTest(_XdgIsolated):
@@ -341,7 +347,8 @@ class ConnectorReadGithubTest(_XdgIsolated):
         rc, out, err = _run(["connector", "read", "github", "--since", "2026-07-01", "--json"])
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
-        self.assertIn("認証エラー", err)
+        self.assertIn("認証に失敗しました", err)
+        self.assertIn("watari connect github", err)
 
     def test_unconnected_service_is_rejected(self):
         config.save_config(connectors_auth={})  # 未接続に戻す
@@ -475,7 +482,8 @@ class ConnectorReadNotionTest(_XdgIsolated):
         rc, out, err = _run(["connector", "read", "notion", "--since", "2026-07-01", "--json"])
         self.assertEqual(rc, 1)
         self.assertEqual(out, "")
-        self.assertIn("認証エラー", err)
+        self.assertIn("認証に失敗しました", err)
+        self.assertIn("watari connect notion", err)
 
     def test_unconnected_service_is_rejected(self):
         config.save_config(connectors_auth={})  # 未接続に戻す
@@ -572,6 +580,33 @@ class RegistryExtensibilityTest(_XdgIsolated):
         rc, out, _err = _run(["connector", "list"])
         self.assertIn("fakesvc", out)
         self.assertIn("組み込み", out)
+
+
+class ConnectSuccessNextStepTest(_XdgIsolated):
+    """接続成功の締めは scope で変わる: cloud は読み取り担当の注意あり、local は無し。"""
+
+    def test_local_scope_success_has_next_step_without_cloud_warning(self):
+        from watari_cli import cli
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = cli._declare_builtin_connector(
+                "claude-code", "会話ログを見つけました", scope="local", auth_kind="local")
+        self.assertEqual(rc, 0)
+        text = out.getvalue()
+        self.assertIn("次の記憶の整理から読み込まれます", text)
+        self.assertNotIn("読み取り担当", text)  # local は各パソコンが自分で読むので注意は不要
+
+    def test_non_tty_message_is_user_facing(self):
+        # 非TTY 文言はユーザー向け（エージェント向けの括弧書きを出さない）
+        os.environ.pop("WATARI_CONNECT_ALLOW_NO_TTY", None)
+        args = _build_parser().parse_args(["connect"])
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = args.func(args)
+        self.assertEqual(rc, 2)
+        self.assertIn("お使いのターミナルで直接実行してください", err.getvalue())
+        self.assertNotIn("エージェント", err.getvalue())
 
 
 class ConnectorListDistinguishesKindTest(_XdgIsolated):

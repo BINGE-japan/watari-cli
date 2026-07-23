@@ -2,8 +2,8 @@
 
 `watari ingest`/`watari regen` は、記憶(WATARI_HOME)側の life/learning/log.jsonl が
 無いだけの状態でも、エンジンが投げる素の FileNotFoundError をそのまま漏らさない
-（誤帰属した文言や生トレースバックを見せない）——「記憶が見つかりません」と案内し、
-きれいな non-zero exit で終える契約を固める。
+（誤帰属した文言や生トレースバックを見せない）——未セットアップの統一文言
+（MSG_SETUP_REQUIRED）で watari install を案内し、きれいな exit 1 で終える契約を固める。
 
 注: watari_lib.MEM / ingest.MEM はモジュール定数（import 時に一度だけ解決）なので、
 config.apply の環境変数越しでは既に import 済みのこれらへ反映されない（他の engine
@@ -52,9 +52,8 @@ class UninitializedHomeErrorTest(unittest.TestCase):
             json.dump([], f)
         rc, _out, err = _run(["ingest", "--rows", rows_path])
         self.assertEqual(rc, 1)
-        self.assertIn("記憶が見つかりません", err)
-        self.assertIn(wl.MEM, err)
-        self.assertIn("init", err)          # watari init / watari install の案内を含む
+        self.assertIn("まだセットアップされていません", err)
+        self.assertIn("watari install", err)   # 回復コマンドを必ず案内する
         self.assertNotIn("rows ファイル", err)  # rows 自体は読めている＝誤帰属しない
 
     def test_ingest_dry_run_also_reports_missing_memory(self):
@@ -64,19 +63,18 @@ class UninitializedHomeErrorTest(unittest.TestCase):
             json.dump([], f)
         rc, _out, err = _run(["ingest", "--rows", rows_path, "--dry-run"])
         self.assertEqual(rc, 1)
-        self.assertIn("記憶が見つかりません", err)
+        self.assertIn("まだセットアップされていません", err)
 
     def test_regen_reports_missing_memory_cleanly(self):
         rc, _out, err = _run(["regen"])
         self.assertEqual(rc, 1)
-        self.assertIn("記憶が見つかりません", err)
-        self.assertIn(wl.MEM, err)
-        self.assertIn("init", err)
+        self.assertIn("まだセットアップされていません", err)
+        self.assertIn("watari install", err)
 
     def test_regen_check_reports_missing_memory_cleanly(self):
         rc, _out, err = _run(["regen", "--check"])
         self.assertEqual(rc, 1)
-        self.assertIn("記憶が見つかりません", err)
+        self.assertIn("まだセットアップされていません", err)
 
 
 class MissingRowsFileStillReportsRowsTest(unittest.TestCase):
@@ -101,7 +99,7 @@ class MissingRowsFileStillReportsRowsTest(unittest.TestCase):
             ["ingest", "--rows", os.path.join(self._tmp.name, "no-such-rows.json")])
         self.assertEqual(rc, 2)
         self.assertIn("rows ファイルが読めません", err)
-        self.assertNotIn("記憶が見つかりません", err)
+        self.assertNotIn("まだセットアップされていません", err)
 
 
 if __name__ == "__main__":

@@ -68,28 +68,43 @@ def _headers(token: str) -> dict:
 def _call(token: str, method: str, url: str) -> dict:
     data = b"" if method == "POST" else None
     status, body = _http(method, url, _headers(token), data)
+    hint = connector_http.reconnect_hint("slack")
     if status == 401:
-        raise ConnectorError("slack: 認証エラー（User OAuth Token を確認してください）")
+        raise ConnectorError(f"slack: 認証に失敗しました。{hint}")
     if status != 200:
-        raise ConnectorError(f"slack: API エラー({status}): {body[:200]!r}")
+        raise ConnectorError(
+            f"slack: API エラー({status}): {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください（続くようなら、{hint}）")
     try:
         return json.loads(body)
     except json.JSONDecodeError:
-        raise ConnectorError(f"slack: 応答が JSON ではありません: {body[:200]!r}")
+        raise ConnectorError(
+            f"slack: 応答を読み取れませんでした: {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください")
 
 
 def _auth_test(token: str) -> dict:
     """POST /auth.test。HTTP 200 でも ok:false があり得るので必ず ok を検査する。"""
     data = _call(token, "POST", AUTH_TEST_URL)
     if not data.get("ok"):
-        raise ConnectorError(f"slack: {data.get('error') or '認証に失敗しました'}")
+        code = data.get("error") or "不明なエラー"
+        raise ConnectorError(
+            f"slack: 認証に失敗しました（{code}）。トークンが無効か取り消されています。"
+            f"{connector_http.reconnect_hint('slack')}")
     return data
 
 
 def verify(token: str) -> tuple[bool, str]:
-    """疎通確認（auth.test）。成功時は (True, user名@team名)、失敗時は (False, 理由)。"""
+    """疎通確認。まずトークンの形（xoxp- で始まるか）を検査してから auth.test を叩く。
+    成功時は (True, user名@team名)、失敗時は (False, 理由)。
+
+    auth.test は bot トークン（xoxb-）でも成功してしまい、初回の読み取りで初めて失敗する
+    行き止まりになるため、貼り間違いはここで即座に弾いて正しい方を案内する。"""
     if not token:
         return False, "トークンが空です"
+    if not token.startswith("xoxp-"):
+        return False, ("これは User OAuth Token ではないようです。xoxp- で始まるトークンを"
+                       "貼ってください（xoxb- で始まるのは bot 用で、読み取りに使えません）")
     try:
         data = _auth_test(token)
     except ConnectorError as error:
@@ -109,7 +124,18 @@ def _search(token: str, query: str) -> list[dict]:
         {"query": query, "sort": "timestamp", "sort_dir": "asc", "count": "100"})
     data = _call(token, "GET", f"{SEARCH_URL}?{params}")
     if not data.get("ok"):
-        raise ConnectorError(f"slack: {data.get('error') or '検索に失敗しました'}")
+        code = data.get("error") or "不明なエラー"
+        if code == "not_allowed_token_type":
+            raise ConnectorError(
+                "slack: bot 用トークンでは読めません。watari connect slack で"
+                " User OAuth Token（xoxp- で始まる方）を貼り直してください")
+        if code == "missing_scope":
+            raise ConnectorError(
+                "slack: トークンに検索権限（search:read）がありません。"
+                "watari connect slack でアプリを作り直してください")
+        raise ConnectorError(
+            f"slack: 読み取りに失敗しました（{code}）。"
+            f"{connector_http.reconnect_hint('slack')}")
     return ((data.get("messages") or {}).get("matches")) or []
 
 
@@ -122,7 +148,9 @@ def read(token: str, since: str | None) -> list[dict]:
     auth = _auth_test(token)
     user_id = auth.get("user_id")
     if not user_id:
-        raise ConnectorError("slack: user_id が取得できませんでした")
+        raise ConnectorError(
+            "slack: 自分のユーザー情報を取得できませんでした。"
+            f"{connector_http.reconnect_hint('slack')}")
     after_date = (since or "1970-01-01")[:10]
 
     matches = []

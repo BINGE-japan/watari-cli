@@ -95,9 +95,12 @@ def save_connector(entry: dict) -> list:
     name = entry.get("name")
     scope = entry.get("scope")
     if not isinstance(name, str) or not _SLUG_RE.match(name):
-        raise ValueError(f"connector name は小文字スラッグ必須: {name!r}")
+        raise ValueError(
+            f"connector の名前は小文字の英数字とハイフンで指定してください（例: my-notes）: {name!r}")
     if scope not in CONNECTOR_SCOPES:
-        raise ValueError(f"connector scope は {'|'.join(CONNECTOR_SCOPES)}: {scope!r}")
+        raise ValueError(
+            "connector の scope には local か cloud を指定してください"
+            f"（cloud=接続したパソコンが代表して読み取る / local=各パソコンが自分のデータを読む）: {scope!r}")
     record = {"name": name, "scope": scope, "read": entry.get("read") or ""}
     connectors = load_connectors()
     for i, c in enumerate(connectors):

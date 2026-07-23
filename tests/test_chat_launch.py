@@ -54,6 +54,16 @@ class ChatLaunchTest(unittest.TestCase):
         # 旧 `--skill <dir>`（オンデマンド＝自動発動しない）に戻っていないこと
         self.assertNotIn("--skill ", out)
 
+    def test_work_logs_are_hidden_without_changing_model_or_effort(self):
+        rc, out, _ = _run(["chat", "--show"])
+        self.assertEqual(rc, 0)
+        self.assertIn("NODE_OPTIONS=", out)
+        self.assertIn("quiet-ui.mjs", out)
+        self.assertIn("--extension", out)
+        self.assertIn("politeness-guard.ts", out)
+        self.assertNotIn("--model", out)
+        self.assertNotIn("--thinking", out)
+
     def test_extra_args_pass_through_after_persona(self):
         rc, out, _ = _run(["chat", "--show", "--", "-p", "hi"])
         self.assertEqual(rc, 0)

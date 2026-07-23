@@ -16,9 +16,13 @@ from __future__ import annotations
 import glob
 import json
 import os
+import sys
 import threading
 
 from watari_cli import cloud
+
+# 送信キューがこの大きさを超えたら「同期が滞っている」として1行警告する
+QUEUE_WARN_BYTES = 10 * 1024 * 1024
 
 
 def _state_dir() -> str:
@@ -94,10 +98,27 @@ class Relay:
     # --- ライフサイクル ---
     def start(self) -> None:
         self._store = cloud.get_store()
+        if cloud.is_configured():
+            if self._store is None:
+                # 設定はあるのにログインできていない（トークン失効・未承認）。無言だと
+                # 会話の同期が止まったことに気づけないため、1行だけ知らせる。
+                print("! 会話の同期にログインし直しが必要です: watari auth", file=sys.stderr)
+            self._warn_if_queue_large()
         if self._store is None:
-            return  # 未認証 → 中継しない
+            return  # 完全未設定（同期を使っていない）は従来どおり無言で中継しない
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
+
+    def _warn_if_queue_large(self) -> None:
+        """送信できていないキューが肥大していたら1行警告する（会話は止めない）。"""
+        try:
+            size = os.path.getsize(_queue_path())
+        except OSError:
+            return
+        if size > QUEUE_WARN_BYTES:
+            mb = size / (1024 * 1024)
+            print(f"! 送信できていない会話データが {mb:.0f}MB たまっています。"
+                  "続く場合は watari auth でログインし直してください。", file=sys.stderr)
 
     def _loop(self) -> None:
         while not self._stop.is_set():

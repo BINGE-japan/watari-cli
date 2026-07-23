@@ -84,10 +84,14 @@ def _github_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="GitHub", implemented=True,
         guide=[
-            "1. https://github.com/settings/tokens を開く",
-            "2. 'Generate new token' → 'Fine-grained tokens' を選ぶ",
-            "3. 対象リポジトリに Issues / Pull requests の Read 権限を付けて発行する",
+            "1. https://github.com/settings/personal-access-tokens/new を開く"
+            "（GitHub にログインしておいてください）",
+            "2. トークン名と有効期限を決め、『Repository access』で読ませたいリポジトリを選ぶ",
+            "3. 『Permissions』→『Repository permissions』で Issues と Pull requests を"
+            " Read-only にして『Generate token』を押す",
             "4. 発行されたトークンをここに貼り付ける",
+            "※ トークンには有効期限があります。期限が切れたら watari connect github で"
+            "もう一度発行・登録してください",
         ],
         verify=github.verify, read=github.read,
     )
@@ -100,10 +104,12 @@ def _notion_adapter() -> ServiceAdapter:
         label="Notion", implemented=True,
         guide=[
             "1. https://www.notion.so/my-integrations を開く",
-            "2. 'New integration' で Internal Integration を作成し、トークンを発行する",
-            "3. 読ませたいページ/データベースを開き、右上の Connections から今作った"
-            " integration を接続する",
-            "4. 発行されたトークンをここに貼り付ける",
+            "2. 『New integration』で内部インテグレーションを作成し、表示される"
+            "『内部インテグレーションシークレット』（貼り付け用の文字列）をコピーする",
+            "3. 読ませたいページを開き、右上の『…』メニュー →『接続』（Connections）から、"
+            "今作った integration を追加する"
+            "（※この手順を飛ばすと、接続は成功してもページを一切読めません）",
+            "4. コピーしたシークレットをここに貼り付ける",
         ],
         verify=notion.verify, read=notion.read,
     )
@@ -116,7 +122,9 @@ def _gmail_adapter() -> ServiceAdapter:
         label="Gmail", implemented=True, auth_kind="oauth", scopes=[g.GMAIL_SCOPE],
         guide=[
             "ブラウザで Google の承認画面が開きます（Gmail の読み取り専用アクセス）。",
-            "サインイン中の Google アカウントで許可してください。",
+            "※ watari auth と同じ Google アカウントで承認してください"
+            "（別のアカウントを選ぶと、これまでの同期データが読めなくなります）。",
+            "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
         ],
         verify=g.gmail_verify, read=g.gmail_read,
     )
@@ -129,7 +137,9 @@ def _calendar_adapter() -> ServiceAdapter:
         label="Google カレンダー", implemented=True, auth_kind="oauth", scopes=[g.CALENDAR_SCOPE],
         guide=[
             "ブラウザで Google の承認画面が開きます（カレンダーの読み取り専用アクセス）。",
-            "サインイン中の Google アカウントで許可してください。",
+            "※ watari auth と同じ Google アカウントで承認してください"
+            "（別のアカウントを選ぶと、これまでの同期データが読めなくなります）。",
+            "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
         ],
         verify=g.calendar_verify, read=g.calendar_read,
     )
@@ -141,8 +151,11 @@ def _gdrive_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Google ドライブ", implemented=True, auth_kind="oauth", scopes=[g.GDRIVE_SCOPE],
         guide=[
-            "ブラウザで Google の承認画面が開きます（ドライブのメタデータ読み取り専用アクセス）。",
-            "サインイン中の Google アカウントで許可してください。",
+            "ブラウザで Google の承認画面が開きます（ドライブのファイル情報の読み取り専用アクセス。"
+            "ファイルの中身は読みません）。",
+            "※ watari auth と同じ Google アカウントで承認してください"
+            "（別のアカウントを選ぶと、これまでの同期データが読めなくなります）。",
+            "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
         ],
         verify=g.gdrive_verify, read=g.gdrive_read,
     )
@@ -151,6 +164,9 @@ def _gdrive_adapter() -> ServiceAdapter:
 def _slack_adapter() -> ServiceAdapter:
     from watari_cli import slack
 
+    # マニフェストは複数行の JSON。guide は「1要素=1行」の契約（表示側は各行に一律の
+    # プレフィックスを付けるだけ）なので、ここで行ごとに分割して崩れない形で渡す。
+    manifest_lines = ["   " + line for line in slack.SLACK_MANIFEST.splitlines()]
     return ServiceAdapter(
         label="Slack", implemented=True,
         guide=[
@@ -158,11 +174,13 @@ def _slack_adapter() -> ServiceAdapter:
             "2. 使うワークスペースを選んで Next",
             "3. JSON タブの中身（Demo App の雛形）を全選択（Ctrl+A / Cmd+A）して消し、"
             "下のマニフェストで置き換えて Next → Create:",
-            slack.SLACK_MANIFEST,
+            *manifest_lines,
             "4. 作成後の画面で 'Install to Workspace'（左メニュー OAuth & Permissions からでも可）"
             "を押し、Allow で許可する",
             "5. OAuth & Permissions の 'User OAuth Token'（xoxp- で始まる方。bot の xoxb- ではない）"
             "をコピーしてここに貼り付ける",
+            "※ 会社のワークスペースでは、アプリの作成やインストールに管理者の承認が必要な"
+            "場合があります（進めない場合は管理者に依頼してください）",
         ],
         verify=slack.verify, read=slack.read,
     )
@@ -180,8 +198,10 @@ def _freee_adapter() -> ServiceAdapter:
             "4. 表示された Client ID と Client Secret を控える（このあとの入力で使います）",
             "5. コールバックURL欄に http://127.0.0.1:8787 を設定して保存する"
             "（8787番が使用中の場合は空きポートに切り替わり、実際に使う値を改めて表示します。"
-            "ブラウザを開けない環境では代わりに urn:ietf:wg:oauth:2.0:oob を使います）",
-            "6. 続けて Client ID → Client Secret の順に貼り付けてください（ブラウザで認可画面が"
+            "ブラウザを開けない環境では、コールバックURL欄に特別な値 urn:ietf:wg:oauth:2.0:oob を"
+            "設定します——その場合は承認後に画面へ表示されるコードをターミナルに貼り付けます。"
+            "必要になったら改めて案内します）",
+            "6. 続けて Client ID → Client Secret の順に貼り付けてください（ブラウザで承認画面が"
             "開きます）",
         ],
         verify=freee.verify, read=freee.read,
@@ -214,8 +234,10 @@ def _claude_code_adapter() -> ServiceAdapter:
         label=cc.LABEL, implemented=True, auth_kind="local", scope="local",
         connected=cc.is_connected,
         guide=[
+            "Claude Code（Anthropic の AI コーディングツール）を使っている場合、"
+            "その会話もワタリの記憶の材料になります。使っていなければこの接続は不要です。",
             "認証は不要です。Claude Code の会話ログ（~/.claude/projects）を探します。",
-            "見つからない場合はログが入っているディレクトリのパスを聞きます。",
+            "見つからない場合は、会話ログが入っているフォルダのパスを聞きます。",
         ],
         verify=cc.verify, read=cc.read,
     )
@@ -228,8 +250,10 @@ def _codex_adapter() -> ServiceAdapter:
         label=codex.LABEL, implemented=True, auth_kind="local", scope="local",
         connected=codex.is_connected,
         guide=[
+            "Codex（OpenAI の AI コーディングツール）を使っている場合、"
+            "その会話もワタリの記憶の材料になります。使っていなければこの接続は不要です。",
             "認証は不要です。Codex の会話ログ（~/.codex/sessions）を探します。",
-            "見つからない場合はログが入っているディレクトリのパスを聞きます。",
+            "見つからない場合は、会話ログが入っているフォルダのパスを聞きます。",
         ],
         verify=codex.verify, read=codex.read,
     )
@@ -314,14 +338,15 @@ def read(name: str, since: str | None) -> list[dict]:
     """組み込みコネクタ name をカーソル(since)以降で読む。未知/未対応/未接続は ConnectorError。"""
     service = get_service(name)
     if service is None:
-        raise ConnectorError(f"組み込みコネクタではありません: {name}")
+        raise ConnectorError(
+            f"対応サービスにありません: {name}（一覧は watari connect で確認できます）")
     if not service.implemented:
         raise ConnectorError(f"{service.label} は未対応です（対応予定）")
     if service.auth_kind in ("oauth", "local"):
         if not is_connected(name):
-            raise ConnectorError(f"{name} は未接続です（先に `watari connect {name}`）")
+            raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name}）")
         return service.read(since)
     api_key = auth_key(name)
     if not api_key:
-        raise ConnectorError(f"{name} は未接続です（先に `watari connect {name}`）")
+        raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name}）")
     return service.read(api_key, since)

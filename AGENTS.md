@@ -12,7 +12,8 @@ shipped as package data in the wheel). The memory schema is specified in
 
 ## Safety boundary
 
-- Never modify `~/.claude`, `~/.codex`, `~/.pi`, the live Watari memory tree,
+- Never modify `~/.claude`, `~/.codex`, `~/.pi`, any live Watari memory tree
+  (a real user's `WATARI_HOME` in production use on the development machine),
   schedulers, or external services from ordinary implementation work.
 - Use synthetic data only. Never copy credentials, OAuth state, personal
   transcripts, email, calendar, Slack, Linear, or user memory into this repo.

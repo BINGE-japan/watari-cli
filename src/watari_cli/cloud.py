@@ -8,9 +8,8 @@ appDataFolder はユーザーの Drive UI に出ず、アプリ専用で、API �
 抽象化し、今は Drive appDataFolder を第一実装とする（将来の差し替え余地。他実装は今は作らない）。
 
 認証 = Google OAuth（インストール型アプリ・loopback フロー）。client_id/secret は **config.json の
-google セクション**に保存し、環境変数で上書きもできる（解決順: env > config > 同梱既定）。
+google セクション**に保存し、環境変数で上書きもできる（解決順: env > config）。
 `watari auth` の初回に env か対話入力で受け取って config に保存するので、以後は無人で読める。
-インストール型アプリの client_id/secret は機密ではない（＝config 保存/配布して問題ない）。
 リフレッシュトークンも同じ google セクションに保存する。登録手順は docs/google-oauth-setup.md。
 """
 from __future__ import annotations
@@ -22,16 +21,17 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from watari_cli import config
+from watari_cli import config, connector_http
 
 SCOPE = "https://www.googleapis.com/auth/drive.appdata"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 
-# 配布時に OAuth アプリの client_id/secret を焼き込みたければここに既定を置く（インストール型では
-# secret は機密でない）。空のままでも、`watari auth` が env/対話で受け取って config に保存する。
-_BUNDLED_CLIENT_ID = '[REDACTED_GOOGLE_OAUTH_CLIENT_ID]'
-_BUNDLED_CLIENT_SECRET = '[REDACTED_GOOGLE_OAUTH_CLIENT_SECRET]'
+# 同梱既定は置かない（開発者個人の OAuth クライアントを配布物へ焼き込まない——公開ブロッカー）。
+# client_id/secret は各ユーザーが自分の Google Cloud プロジェクトで発行し、`watari auth` が
+# env/対話で受け取って config に保存する。空のままなら「未設定」経路（案内表示）に落ちる。
+_BUNDLED_CLIENT_ID = ""
+_BUNDLED_CLIENT_SECRET = ""
 
 
 def _google_cfg() -> dict:
@@ -75,7 +75,9 @@ def _http(method: str, url: str, headers: dict | None = None, data: bytes | None
     except urllib.error.HTTPError as e:
         return e.code, e.read()
     except (urllib.error.URLError, OSError) as e:
-        raise CloudError(f"network error: {e}")
+        raise CloudError(
+            f"ネットワークに接続できませんでした。通信環境を確認して、"
+            f"もう一度実行してください（詳細: {e}）")
 
 
 def is_configured() -> bool:
@@ -94,7 +96,7 @@ def is_authorized() -> bool:
 def _access_token() -> str:
     rt = _refresh_token()
     if not rt:
-        raise CloudError("Google 未認証（watari install で承認、または docs/google-oauth-setup.md）")
+        raise CloudError("Google にログインしていません。watari auth を実行し、ブラウザで承認してください。")
     data = urllib.parse.urlencode({
         "client_id": _client_id(), "client_secret": _client_secret(),
         "refresh_token": rt, "grant_type": "refresh_token",
@@ -102,7 +104,9 @@ def _access_token() -> str:
     status, body = _http("POST", _TOKEN_URL,
                          {"Content-Type": "application/x-www-form-urlencoded"}, data)
     if status != 200:
-        raise CloudError(f"token refresh 失敗({status}): {body[:200]!r}")
+        raise CloudError(
+            f"Google へのログインが期限切れか取り消されています({status})。"
+            f"watari auth で再ログインしてください（詳細: {connector_http.body_text(body)}）")
     return json.loads(body)["access_token"]
 
 
@@ -162,7 +166,8 @@ class DriveAppDataStore(CloudStore):
                "&fields=files(id,name,size,modifiedTime)")
         status, body = _http("GET", url, self._headers())
         if status != 200:
-            raise CloudError(f"find 失敗({status}): {body[:200]!r}")
+            raise CloudError(
+                f"同期データの検索に失敗しました({status}): {connector_http.body_text(body)}")
         files = json.loads(body).get("files", [])
         return files[0] if files else None
 
@@ -171,7 +176,8 @@ class DriveAppDataStore(CloudStore):
                "&fields=files(id,name,size,modifiedTime)&pageSize=1000")
         status, body = _http("GET", url, self._headers())
         if status != 200:
-            raise CloudError(f"list 失敗({status}): {body[:200]!r}")
+            raise CloudError(
+                f"同期データの一覧取得に失敗しました({status}): {connector_http.body_text(body)}")
         return json.loads(body).get("files", [])
 
     def read(self, name: str) -> str:
@@ -180,7 +186,8 @@ class DriveAppDataStore(CloudStore):
             return ""
         status, body = _http("GET", f"{self.API}/files/{f['id']}?alt=media", self._headers())
         if status not in (200, 206):
-            raise CloudError(f"read 失敗({status}): {body[:200]!r}")
+            raise CloudError(
+                f"同期データの読み取りに失敗しました({status}): {connector_http.body_text(body)}")
         return body.decode("utf-8")
 
     def write(self, name: str, text: str) -> None:
@@ -201,7 +208,8 @@ class DriveAppDataStore(CloudStore):
             status, body = _http("POST", url,
                 self._headers({"Content-Type": f"multipart/related; boundary={boundary}"}), payload)
         if status not in (200, 201):
-            raise CloudError(f"write 失敗({status}): {body[:200]!r}")
+            raise CloudError(
+                f"同期データの書き込みに失敗しました({status}): {connector_http.body_text(body)}")
 
     def append(self, name: str, text: str) -> None:
         # appDataFolder は真の追記が無いので read-modify-write。ファイルは machine ごと単一書き手
@@ -214,7 +222,8 @@ class DriveAppDataStore(CloudStore):
             return
         status, body = _http("DELETE", f"{self.API}/files/{f['id']}", self._headers())
         if status not in (200, 204):
-            raise CloudError(f"delete 失敗({status}): {body[:200]!r}")
+            raise CloudError(
+                f"同期データの削除に失敗しました({status}): {connector_http.body_text(body)}")
 
 
 def get_store() -> CloudStore | None:
@@ -249,7 +258,8 @@ def authorize(scopes: list[str] | None = None) -> tuple[bool, str]:
     ブラウザが無い/開けない環境向けに URL は標準出力にも出す。既に承認済みなら再承認して更新。
     """
     if not is_configured():
-        return False, "Google の client_id/secret 未設定（docs/google-oauth-setup.md 参照）"
+        return False, ("Google 連携の設定が見つかりません。watari auth を実行して"
+                       "セットアップしてください。")
     import http.server
     import secrets
     import threading
@@ -284,12 +294,14 @@ def authorize(scopes: list[str] | None = None) -> tuple[bool, str]:
         "include_granted_scopes": "true", "state": state,
     })
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print("ブラウザで Google 認証を開きます。開かなければ次の URL を貼ってください:")
-    print(f"  {auth_url}")
+    print("ブラウザで Google の承認画面を開きます。自動で開かない場合は、"
+          "次の URL をブラウザのアドレス欄に貼り付けて開いてください:", flush=True)
+    print(f"  {auth_url}", flush=True)
     try:
         webbrowser.open(auth_url)
     except Exception:
         pass
+    print("ブラウザでの承認を待っています（最長 5 分）…", flush=True)
     for _ in range(600):  # 最長 5 分待つ
         if captured:
             break
@@ -298,9 +310,18 @@ def authorize(scopes: list[str] | None = None) -> tuple[bool, str]:
     server.server_close()
 
     if captured.get("error") or not captured.get("code"):
-        return False, f"認証されませんでした（{captured.get('error') or 'timeout'}）"
+        error = captured.get("error")
+        if error == "access_denied":
+            reason = "承認がキャンセルされました"
+        elif error:
+            reason = f"Google からエラーが返りました: {error}"
+        else:
+            reason = ("時間内に承認を確認できませんでした。SSH 接続先など、このパソコンで"
+                      "ブラウザを開けない環境では承認を完了できません")
+        return False, f"{reason}。もう一度実行するには: watari auth"
     if captured.get("state") != state:
-        return False, "state 不一致（認証を中断しました）"
+        return False, ("セキュリティ確認に失敗したため、認証を中断しました。"
+                       "もう一度実行するには: watari auth")
     data = urllib.parse.urlencode({
         "code": captured["code"], "client_id": _client_id(), "client_secret": _client_secret(),
         "redirect_uri": redirect_uri, "grant_type": "authorization_code",
@@ -308,11 +329,14 @@ def authorize(scopes: list[str] | None = None) -> tuple[bool, str]:
     status, body = _http("POST", _TOKEN_URL,
                          {"Content-Type": "application/x-www-form-urlencoded"}, data)
     if status != 200:
-        return False, f"token 交換失敗({status}): {body[:200]!r}"
+        return False, (f"Google 認証の最終処理に失敗しました({status})。時間をおいて、"
+                       f"もう一度実行してください: watari auth"
+                       f"（詳細: {connector_http.body_text(body)}）")
     payload = json.loads(body)
     rt = payload.get("refresh_token")
     if not rt:
-        return False, "refresh_token が返りませんでした（同意画面で offline アクセスの許可が必要）"
+        return False, ("Google から継続利用の許可を得られませんでした。もう一度 watari auth を"
+                       "実行し、承認画面に表示される項目をすべて許可してください")
     google = config.load_config().get("google") or {}
     google["refresh_token"] = rt
     granted = payload.get("scope") or ""

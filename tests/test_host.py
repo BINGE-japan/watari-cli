@@ -105,7 +105,7 @@ class HostCursorsTest(unittest.TestCase):
             host.save_cursors(home, host.load_cursors(home))
             with open(host.host_path(home), encoding="utf-8") as f:
                 self.assertEqual(json.load(f)["cursors"], self.LEGACY)   # 既存位置を保全
-            # cursors.json は消さない（リポ外の旧ルーティンがまだ読む）
+            # cursors.json は消さない（旧版の watari-cli がまだ読むため。書き込みは hosts/ 側のみ）
             with open(legacy_path, encoding="utf-8") as f:
                 self.assertEqual(json.load(f), self.LEGACY)
             # 移行後は host 記録から読む

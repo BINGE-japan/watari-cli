@@ -1,7 +1,7 @@
 """watari コマンドの入口。
 
-ワタリ本体は記憶を内蔵せず、--home / 環境変数 WATARI_HOME で指した記憶を読み書きする。
-記憶は会話ログから育つ個人データ（log.jsonl が正本、state.json は派生）。
+ワタリ本体は記憶を内蔵せず、--home / 環境変数 WATARI_HOME で指した記憶フォルダを読み書きする。
+記憶は会話ログから育つ個人データ（log.jsonl が記録の原本、state.json は自動生成のまとめ）。
 """
 from __future__ import annotations
 
@@ -11,6 +11,99 @@ import os
 import sys
 
 from watari_cli import config
+
+# トップの --help は argparse の自動整形を使わず、この見本どおりに出す
+# （一般ユーザー向けと内部コマンドを分け、最初の一歩から迷わないように）。
+_TOP_HELP = """\
+ワタリ — 会話からあなたを覚えていく相棒
+
+はじめかた:
+  watari install   初回セットアップ（記憶フォルダを用意します）
+  watari chat      ワタリと話す
+
+よく使うコマンド:
+  install   初回セットアップ（記憶フォルダの用意と設定の保存）
+  chat      ワタリと話す（Pi を起動します）
+  connect   外部サービスと接続（Gmail・カレンダー・Slack など）
+  status    記憶の様子を確認
+  auth      Google にログイン（複数のパソコンで会話を同期する場合）
+
+内部コマンド（ワタリが自動で使います。手で打つ必要はありません）:
+  scan / recall / ingest / audit / regen / init / host / connector
+
+詳しくは: watari <コマンド> --help
+"""
+
+# --home の説明は全コマンドで統一する（install だけ「保存先」の意味になるので別文言）。
+_HOME_HELP = "記憶フォルダの場所（普段は指定不要。install で保存済みの場所を使います）"
+
+
+def _translate_parser_error(message: str) -> str:
+    """argparse の英語エラーを日本語にする。打ち間違いは difflib で候補を出す。"""
+    import difflib
+    import re
+
+    m = re.search(r"argument (\S+): invalid choice: '([^']*)' \(choose from (.*)\)", message)
+    if m:
+        dest, value, raw = m.group(1), m.group(2), m.group(3)
+        choices = [c.strip().strip("'\"") for c in raw.split(",")]
+        visible = [c for c in choices if c != "dream"]  # 隠し alias は候補に出さない
+        # サブコマンド位置のエラーか（dest 名のほか、metavar "{install,...}" 表記でも判定）
+        if dest in ("command", "connector_command") or dest.startswith("{"):
+            hints = difflib.get_close_matches(value, visible, n=2)
+            lines = [f"'{value}' は不明なコマンドです。"]
+            if hints:
+                lines.append(f"もしかして: {' / '.join(hints)} ?")
+            lines.append("一覧は watari --help で確認できます。")
+            return "\n".join(lines)
+        return f"'{value}' は使えない値です（使える値: {', '.join(visible)}）"
+    m = re.search(r"the following arguments are required: (.+)", message)
+    if m:
+        needed = m.group(1).strip()
+        if needed == "connector_command":
+            return "サブコマンドを指定してください（list / add / read）"
+        if needed == "command":
+            return ("コマンドを指定してください。\n"
+                    "はじめて使う場合: watari install → watari chat（一覧: watari --help）")
+        return f"必要な引数が指定されていません: {needed}"
+    m = re.search(r"unrecognized arguments: (.+)", message)
+    if m:
+        return f"不明な引数です: {m.group(1)}"
+    m = re.search(r"argument (\S+): expected one argument", message)
+    if m:
+        return f"{m.group(1)} には値が必要です"
+    return message
+
+
+class _ArgumentParser(argparse.ArgumentParser):
+    """エラーを日本語で出す ArgumentParser（全サブコマンド共通）。"""
+
+    def error(self, message):  # noqa: D102 - argparse の上書き
+        self.print_usage(sys.stderr)
+        self.exit(2, "エラー: " + _translate_parser_error(message) + "\n")
+
+
+class _TopParser(_ArgumentParser):
+    """トップレベル専用: --help を自前整形（_TOP_HELP の見本どおり）で出す。"""
+
+    def format_help(self):  # noqa: D102
+        return _TOP_HELP
+
+
+def _next_steps(*lines: str) -> None:
+    """コマンド終端の「次の一歩」表示（全コマンド共通の形）。"""
+    print()
+    print("次の一歩:")
+    for line in lines:
+        print(f"  ・{line}")
+
+
+def _setup_required() -> int:
+    """未セットアップ（記憶フォルダ不在）の統一案内。traceback を出さず exit 1。"""
+    from watari_cli.engine import watari_lib as wl
+
+    sys.stderr.write(wl.MSG_SETUP_REQUIRED + "\n")
+    return 1
 
 
 def _load_json(path):
@@ -29,6 +122,17 @@ def _count_lines(path):
         return None
 
 
+def _cursor_label(key: str) -> str:
+    """読み取り位置キーの表示名（内部キーの生値をそのまま並べない）。"""
+    if key == "transcripts_pi":
+        return "このパソコンの会話ログ"
+    if key == "last_run":
+        return "最後に整理した時刻"
+    if key.startswith("cloud_"):
+        return f"共有された会話（{key[len('cloud_'):]}）"
+    return key  # connector 宣言名はユーザーが付けた名前なのでそのまま
+
+
 def cmd_status(args) -> int:
     config.apply(args.home)
     from watari_cli import host
@@ -36,29 +140,25 @@ def cmd_status(args) -> int:
 
     home = wl.MEM
     if not os.path.isdir(home):
-        sys.stderr.write(f"記憶が見つかりません: {home}\n")
-        return 1
+        return _setup_required()
     print(f"記憶の場所: {home}")
-    for genre in wl.GENRES:
-        n = _count_lines(wl.log_path(genre))
-        print(f"  {genre}/log.jsonl: {n if n is not None else '—'} 行")
-    # カーソルはこのマシンの host 記録から（旧 cursors.json があれば初回に移行して読む）
-    cursors = host.load_cursors(home)
-    if cursors:
-        print("  cursors:")
-        for k, v in cursors.items():
-            print(f"    {k}: {v}")
+    counts = {g: _count_lines(wl.log_path(g)) or 0 for g in wl.GENRES}
     life = _load_json(wl.state_path("life")) or {}
-    print(
-        "  life.state: "
-        f"open_threads={len(life.get('open_threads', []))} "
-        f"interests={len(life.get('interests', {}))} "
-        f"profile_keys={len(life.get('profile', {}))}"
-    )
     learning = _load_json(wl.state_path("learning")) or {}
     domains = learning.get("domains", {})
     topics = sum(len(d.get("topics", {})) for d in domains.values())
-    print(f"  learning.state: domains={len(domains)} topics={topics}")
+    print(f"  生活の記憶: {counts['life']} 件"
+          f"（進行中の話題 {len(life.get('open_threads', []))}・"
+          f"関心 {len(life.get('interests', {}))}・"
+          f"プロフィール {len(life.get('profile', {}))} 項目）")
+    print(f"  学習の記憶: {counts['learning']} 件（分野 {len(domains)}・トピック {topics}）")
+    # 読み取り位置はこのパソコンの host 記録から（旧 cursors.json があれば初回に移行して読む）
+    cursors = {k: v for k, v in host.load_cursors(home).items() if v}
+    if cursors:
+        print("  どこまで読んだかの記録:")
+        for key, value in cursors.items():
+            print(f"    {_cursor_label(key)}: {value}")
+    _next_steps("話す: watari chat", "サービスを繋ぐ: watari connect")
     return 0
 
 
@@ -69,8 +169,7 @@ def cmd_host(args) -> int:
 
     home = wl.MEM
     if not os.path.isdir(home):
-        sys.stderr.write(f"記憶が見つかりません: {home}\n")
-        return 1
+        return _setup_required()
     for pair in args.set:
         if "=" not in pair:
             sys.stderr.write(f"--set は KEY=VALUE 形式で指定してください: {pair}\n")
@@ -78,53 +177,52 @@ def cmd_host(args) -> int:
         key, value = pair.split("=", 1)
         host.set_fact(home, key, value)
     record = host.refresh(home)
-    print(f"このマシン: {record['machine_id']}")
-    print(f"  hostname: {record['hostname']}")
-    print(f"  platform: {record['platform']} / python {record['python']}")
-    print(f"  shell: {record['shell'] or '—'}")
-    print(f"  ai_clis: {', '.join(record['ai_clis']) or '—'}")
+    print(f"このパソコンの識別子: {record['machine_id']}")
+    print(f"  ホスト名: {record['hostname']}")
+    print(f"  環境: {record['platform']} / Python {record['python']}")
+    print(f"  シェル: {record['shell'] or '—'}")
+    print(f"  検出した AI ツール: {', '.join(record['ai_clis']) or '—'}")
     for key, value in record["facts"].items():
-        print(f"  fact {key}: {value}")
+        print(f"  記録 {key}: {value}")
     others = [r for r in host.all_hosts(home) if r.get("machine_id") != record["machine_id"]]
     if others:
-        print("他のマシン:")
+        print("他のパソコン:")
         for r in others:
             facts = " ".join(f"{k}={v}" for k, v in (r.get("facts") or {}).items())
             clis = ",".join(r.get("ai_clis") or []) or "—"
-            line = f"  {r.get('machine_id')}: {r.get('platform')} clis={clis}"
+            line = f"  {r.get('machine_id')}: {r.get('platform')} AIツール={clis}"
             print(line + (f" [{facts}]" if facts else ""))
     return 0
 
 
-def cmd_dream(args) -> int:
+def cmd_scan(args) -> int:
     config.apply(args.home)
     from watari_cli import git_sync
     from watari_cli.engine import extract, watari_lib as wl
 
+    if not os.path.isdir(wl.MEM):
+        return _setup_required()
     git_sync.sync_before_read(wl.MEM)
     _ensure_state()
     result = extract.run()
     if args.json:
-        # 判定するワタリ(エージェント)が消費する生の候補。messages[] を渡す。
+        # 選別するワタリ(エージェント)が消費する生の候補。messages[] を渡す。
         print(json.dumps(result, ensure_ascii=False, indent=1))
         return 0
-    print("dream（会話ログを読むだけ・記憶への書き込みなし）")
-    print(f"  generated: {result['generated']}")
-    for store, s in result["stores"].items():
-        print(
-            f"  {store}: readable={s['readable']} 新規発話={s['count']} "
-            f"max_ts={s['max_ts']} truncated={s['truncated']}"
-        )
+    print("会話ログから記憶の候補を集めました（まだ何も書き込んでいません。"
+          "通常はワタリが自動で実行します）")
+    for store, info in result["stores"].items():
+        print("  " + extract.render_store_summary(store, info))
     print(f"  合計候補: {len(result['messages'])} 件")
-    print("  → 判定はワタリ(エージェント)が SCHEMA に沿って行い、watari ingest で書き込む")
+    print("  → この後の選別と書き込みはワタリが自動で行います")
     return 0
 
 
 def _ensure_state() -> None:
-    """state.json が無い/古い場合に log から再生成する（state は派生物＝いつでも作り直せる）。
+    """state.json（自動生成のまとめ）が無い/古い場合に log から作り直す。
 
-    起きる状況: カセットを clone した直後（state は gitignore で運ばれない）、pull で log だけが
-    進んだ直後。読む側(recall/chat/dream)が呼ぶことで「state 無し=null」や陳腐化を防ぐ。"""
+    起きる状況: 記憶フォルダを clone した直後（state は gitignore で運ばれない）、pull で log
+    だけが進んだ直後。読む側(recall/chat/scan)が呼ぶことで「state 無し=null」や陳腐化を防ぐ。"""
     from watari_cli.engine import watari_lib as wl
 
     for genre in wl.GENRES:
@@ -149,6 +247,8 @@ def cmd_recall(args) -> int:
     from watari_cli import git_sync
     from watari_cli.engine import watari_lib as wl
 
+    if not os.path.isdir(wl.MEM):
+        return _setup_required()  # null だけの JSON を出さない（JSON 契約は正常系のみ）
     git_sync.sync_before_read(wl.MEM)
     _ensure_state()
     out = {}
@@ -166,18 +266,13 @@ def cmd_audit(args) -> int:
     config.apply(args.home)
     from watari_cli.engine import audit
 
-    problems, infos, cov = audit.audit_report(args.coverage)
-    print("=== 要修正 ===" if problems else "=== 要修正: なし ===")
-    for x in problems:
-        print(" -", x)
-    if infos:
-        print("=== 情報（異常ではない） ===")
-        for x in infos:
-            print(" -", x)
-    if cov is not None:
-        print("=== log に一度も現れないセッション（実発話5件以上） ===")
-        for x in cov:
-            print(" -", x)
+    try:
+        problems, infos, cov = audit.audit_report(args.coverage)
+    except FileNotFoundError:
+        return _setup_required()
+    # 表示文言の正本は engine 側（render_report）。cli は書き出すだけで二重整形しない。
+    for line in audit.render_report(problems, infos, cov):
+        print(line)
     return 1 if problems else 0
 
 
@@ -192,9 +287,9 @@ def _scaffold_empty_memory() -> str:
         path = wl.log_path(genre)
         if not os.path.exists(path):
             open(path, "w", encoding="utf-8").close()
-    # カーソルはマシンごとの host 記録に持つ（hosts/<machine_id>.json の "cursors"）。
+    # 読み取り位置はパソコンごとの host 記録に持つ（hosts/<machine_id>.json の "cursors"）。
     # 初回の advance / status で遅延生成されるので、ここでは作らない。
-    # 記憶の git 設定（多マシン追記の union-merge / 派生 state は追跡しない）
+    # 記憶の git 設定（複数パソコンからの追記の union-merge / 自動生成の state は追跡しない）
     with open(os.path.join(home, ".gitattributes"), "w", encoding="utf-8") as f:
         f.write("*.jsonl merge=union\n")
     with open(os.path.join(home, ".gitignore"), "w", encoding="utf-8") as f:
@@ -217,12 +312,18 @@ def cmd_init(args) -> int:
 
     home = wl.MEM
     if os.path.isdir(home) and os.listdir(home) and not args.force:
-        sys.stderr.write(f"既にファイルがあります: {home}（空でない）。--force で続行。\n")
+        sys.stderr.write(
+            f"この場所には既にファイルがあります: {home}\n"
+            "  既存の記憶を使うなら `watari install`（「このパソコンにある記憶フォルダを使う」を選択）、\n"
+            "  上書き覚悟で新規作成するなら `watari init --force` を実行してください。\n")
         return 1
     _scaffold_empty_memory()
     print(f"空の記憶を用意しました: {home}")
-    print("  次: この場所を WATARI_HOME に。会話ログから育てるなら dream→(判定)→ingest。")
-    print("  持ち運び: このフォルダを private git リポにして別マシンで clone すれば記憶ごと再現。")
+    _next_steps(
+        f"watari install --home {home} で設定に登録すると、watari chat から使えます",
+        "持ち運び: このフォルダを非公開の git リポジトリに置けば、"
+        "別のパソコンで watari install --from <URL> で記憶ごと復元できます",
+    )
     return 0
 
 
@@ -238,24 +339,39 @@ def _prepare_memory(mode: str, home: str, url: str | None) -> tuple[str, str]:
     home = os.path.abspath(os.path.expanduser(home))
     if mode == "clone":
         if os.path.exists(home) and os.listdir(home):
-            raise RuntimeError(f"復元先が空ではありません: {home}")
+            raise RuntimeError(
+                f"復元先のフォルダが空ではありません: {home}\n"
+                "  別の場所を --home で指定するか、フォルダを空にしてからやり直してください。")
         os.makedirs(os.path.dirname(home) or ".", exist_ok=True)
         clone = subprocess.run(["git", "clone", url, home], capture_output=True, text=True)
         if clone.returncode != 0:
-            raise RuntimeError(f"git clone 失敗:\n{clone.stderr}")
+            raise RuntimeError(
+                "バックアップの取得に失敗しました。URL の綴りと、そのリポジトリへの"
+                "アクセス権（SSH 鍵の設定）を確認して、もう一度 watari install を実行してください。\n"
+                f"--- git の出力 ---\n{clone.stderr}")
         config.apply(home)
         _rebuild_state()
-        return home, "バックアップから復元（記憶を継承）"
+        return home, "バックアップから復元（記憶を引き継ぎ）"
     config.apply(home)
     if mode == "adopt":
         if not (os.path.isdir(home) and os.listdir(home)):
-            raise RuntimeError(f"記憶が見つかりません: {home}")
+            raise RuntimeError(
+                f"指定のフォルダに記憶が見つかりません: {home}\n"
+                "  場所を確認するか、`watari install` で「新しく始める」を選んでください。")
         _rebuild_state()
-        return home, "既存の記憶を使う"
+        return home, "今ある記憶をそのまま使う"
     if os.path.isdir(home) and os.listdir(home):
-        raise RuntimeError(f"空ではありません: {home}")
+        raise RuntimeError(
+            f"この場所には既にワタリの記憶があります: {home}\n"
+            "  そのまま使う場合は、`watari install` で"
+            "「このパソコンにある記憶フォルダを使う」を選んでください。")
     _scaffold_empty_memory()
     return home, "新しい記憶を作成"
+
+
+def _has_existing_memory(path: str) -> bool:
+    """そのフォルダにワタリの記憶（life/ か learning/）があるか。"""
+    return any(os.path.isdir(os.path.join(path, sub)) for sub in ("life", "learning"))
 
 
 def _install_wizard(args) -> dict:
@@ -279,25 +395,36 @@ def _install_wizard(args) -> dict:
     else:
         print("\nワタリのセットアップ")
         print("会話からあなたを少しずつ覚えていく相棒「ワタリ」を用意します。\n")
-        kind = prompts.select("ワタリの記憶を、どこから始めますか？", [
+        options = []
+        if _has_existing_memory(default_dir):
+            # 再実行の行き止まり解消: 既定保存先に記憶があるなら「そのまま使う」を先頭・既定に
+            options.append((f"今ある記憶をそのまま使う（{default_dir}）", "adopt-default"))
+        options += [
             ("新しく始める", "new"),
-            ("このパソコンにある記憶を引き継ぐ", "adopt"),
-            ("別の場所のバックアップから復元する", "clone"),
-        ], default=0)
-        if kind == "clone":
-            url = prompts.text("バックアップの場所（git URL）")
+            ("このパソコンにある記憶フォルダを使う", "adopt"),
+            ("バックアップ（git リポジトリ）から復元する", "clone"),
+        ]
+        kind = prompts.select("ワタリの記憶を、どこから始めますか？", options, default=0)
+        if kind == "adopt-default":
+            kind, home, url = "adopt", default_dir, None
+        elif kind == "clone":
+            url = prompts.text(
+                "バックアップの場所（git の URL。"
+                "例: git@github.com:あなたの名前/watari-memory.git）")
             home = default_dir  # 保存先は既定で十分。こだわる人は --home で上書き
         elif kind == "adopt":
-            # 既定に ~/.claude の原本を出さない：adopt は state を書き戻すので、原本を指すと
-            # ~/.claude を書き換えてオリジナルワタリを壊しうる。カセットの複製/クローンを指させる。
-            home = prompts.text("記憶のあるフォルダ（カセットの場所）", default=default_dir)
+            # 既定で「他ツールが管理している記憶フォルダの原本」を指させない：adopt は state を
+            # 書き戻すため、原本を直接指すとそちらを書き換えてしまう。複製したフォルダを指定させる。
+            home = prompts.text(
+                "記憶のあるフォルダ（以前ワタリが使っていた記憶フォルダの場所）",
+                default=default_dir)
             url = None
         else:  # new: 保存先は聞かず既定を使う
             home = default_dir
             url = None
         mode = kind
 
-    # 2) マルチマシン同期（git remote）。clone は既に origin あり。それ以外は選ばせる／--remote で指定。
+    # 2) 複数パソコンの同期（git リポジトリ）。clone は既に origin あり。それ以外は選ばせる。
     interactive = not (args.from_url or args.home or args.yes)
     if mode == "clone":
         git_remote = None  # clone 先には既に origin が設定される
@@ -307,11 +434,19 @@ def _install_wizard(args) -> dict:
         git_remote = None  # 非対話の既定はローカルのみ（--remote で上書き）
     else:
         choice = prompts.select(
-            "記憶を別のマシンとも同期しますか？（git remote＝バックアップにもなる）", [
-                ("同期する（git remote を設定）", "remote"),
-                ("このマシンだけで使う（同期もバックアップも無し）", "local"),
+            "記憶を他のパソコンと共有・バックアップしますか？（git リポジトリの URL が必要です）", [
+                ("このパソコンだけで使う（あとから設定できます）", "local"),
+                ("git リポジトリと同期する", "remote"),
             ], default=0)
-        git_remote = (prompts.text("記憶リポの git URL") if choice == "remote" else None) or None
+        git_remote = None
+        if choice == "remote":
+            print("GitHub などに空のプライベートリポジトリを先に作り、その URL を貼ってください。")
+            git_remote = prompts.text(
+                "git リポジトリの URL（例: git@github.com:あなたの名前/watari-memory.git）") or None
+            if not git_remote:
+                # 空 Enter を黙って「同期なし」に落とさない（結果が反転したことを必ず伝える）
+                print("URL が入力されなかったため、同期なしで続けます。"
+                      "あとから watari install --remote <URL> で設定できます。")
 
     return {"mode": mode, "home": home, "url": url, "runtime": args.runtime,
             "git_remote": git_remote}
@@ -319,12 +454,23 @@ def _install_wizard(args) -> dict:
 
 def _install_done_lines(home: str, desc: str, git_remote: str | None = None,
                         mode: str | None = None) -> list[str]:
-    lines = [f"✓ セットアップ完了（{desc}）", f"  記憶の場所: {home}"]
+    lines = [f"✓ セットアップ完了（{desc}）",
+             f"  記憶の保存場所: {home}",
+             "    （記憶はこのフォルダの中だけに保存されます。中身はいつでも見られます）"]
     if git_remote:
         lines.append(f"  同期: {git_remote}")
-    elif mode != "clone":
-        lines.append("  同期: このマシンのみ（別マシンと共有せず・バックアップも無し）")
-    lines.append("  起動:  watari chat")
+    elif mode == "clone":
+        lines.append("  同期: 復元元の git リポジトリと同期します")
+    else:
+        lines.append("  同期: このパソコンのみ（バックアップなし）。あとで同期するには"
+                     " `watari install --remote <git URL>` を実行し、"
+                     "「今ある記憶をそのまま使う」を選んでください")
+    lines += [
+        "",
+        "次の一歩:",
+        "  ・話す: watari chat",
+        "  ・サービスを繋ぐ: watari connect（Gmail・カレンダー・Slack など。あとからでも構いません）",
+    ]
     return lines
 
 
@@ -343,15 +489,16 @@ def cmd_install(args) -> int:
 
     if args.dry_run:
         target = os.path.abspath(os.path.expanduser(plan["home"]))
-        act = {"new": "新しい記憶を作成", "adopt": "既存の記憶を使う",
+        act = {"new": "新しい記憶を作成", "adopt": "今ある記憶をそのまま使う",
                "clone": f"バックアップから復元（{plan['url']}）"}[plan["mode"]]
-        sync = (f"git remote と同期（{plan['git_remote']}）" if plan["git_remote"]
-                else "clone 元と同期（origin 既設）" if plan["mode"] == "clone"
-                else "このマシンのみ（同期なし）")
-        print("\n── プレビュー（--dry-run：実際には何も変更していません）──")
+        sync = (f"git リポジトリと同期（{plan['git_remote']}）" if plan["git_remote"]
+                else "復元元と同期（設定済み）" if plan["mode"] == "clone"
+                else "このパソコンのみ（同期なし）")
+        print("\n── プレビュー（--dry-run: 実際には何も変更していません）──")
         print(f"  記憶: {act} → {target}")
         print(f"  同期: {sync}")
-        print("  実行時: 記憶を用意 → state 再生成 →(remote 指定時)git 設定+push → 設定保存(config.json)")
+        print("  実行時にすること: 記憶フォルダを用意 → 設定を保存"
+              + ("（→ 同期の設定）" if plan["git_remote"] else ""))
         print("  完了時の表示 ↓")
         for line in _install_done_lines(target, act, plan["git_remote"], plan["mode"]):
             print("    " + line)
@@ -368,18 +515,33 @@ def cmd_install(args) -> int:
         from watari_cli import git_sync
         ok, message = git_sync.setup_remote(saved, plan["git_remote"])
         print(("✓ " if ok else "! ") + message)
-    # Google 認証（発話中継所）。client_id/secret が設定済みかつ未認証・対話時のみ承認を促す。
+    # Google 認証（会話の同期）。client_id/secret が設定済みかつ未認証・対話時のみ承認を促す。
     # 実体は watari auth と同じ _google_auth_flow（creds は既にあるので追加入力は求めない）。
     from watari_cli import cloud
     if cloud.is_configured() and not cloud.is_authorized() and not args.yes:
-        from watari_cli import prompts
-        if prompts.confirm("Google Drive と会話を同期しますか？（別マシンのワタリが夢に見れる）", default=True):
+        if prompts.confirm(
+                "会話を Google Drive 経由で同期しますか？"
+                "（複数のパソコンで同じワタリを使うための機能です。1台だけなら不要です）",
+                default=True):
             ok, message = _google_auth_flow(prompt_for_creds=False)
             print(("✓ " if ok else "! ") + message)
     print()
     for line in _install_done_lines(saved, desc, plan["git_remote"], plan["mode"]):
         print(line)
     return 0
+
+
+# creds 未設定時に表示するインライン手順。docs のリポジトリ相対パスへは誘導しない
+# （pip で入れたユーザーの手元に docs/ は無い。要点はこの場で完結させる）。
+_GOOGLE_SETUP_GUIDE = """\
+Google 連携には、あなた自身の Google Cloud プロジェクトの OAuth クライアント（無料）が必要です。
+  1. https://console.cloud.google.com/ を開き、プロジェクトを作成する（既存のものでも可）
+  2. 「API とサービス」→「ライブラリ」で「Google Drive API」を有効にする
+  3. 「OAuth 同意画面」を設定し、公開ステータスを「本番環境」（In production）にする
+  4. 「認証情報」→「認証情報を作成」→「OAuth クライアント ID」を選ぶ
+  5. アプリケーションの種類は「デスクトップアプリ」を選んで作成する
+  6. 発行された client_id と client_secret を、この下に貼り付けてください
+詳しい手順は README の「複数のパソコンで使う」の節にあります。"""
 
 
 def _google_auth_flow(prompt_for_creds: bool) -> tuple[bool, str]:
@@ -393,25 +555,33 @@ def _google_auth_flow(prompt_for_creds: bool) -> tuple[bool, str]:
     cid, csec = cloud.credentials()
     if not (cid and csec):
         if not prompt_for_creds:
-            return False, "Google の client_id/secret 未設定（`watari auth` で設定できます）"
-        print("Google OAuth の client_id / client_secret を入力してください")
-        print("（未登録なら docs/google-oauth-setup.md の手順で発行）。")
+            return False, ("Google 連携は未設定です（任意機能。使う場合は `watari auth` で"
+                           "設定できます）")
+        print(_GOOGLE_SETUP_GUIDE, flush=True)
         cid = cid or prompts.text("client_id")
         csec = csec or prompts.text("client_secret")
         if not (cid and csec):
-            return False, "client_id/secret が空のため中止しました"
+            return False, ("client_id / client_secret が空のため中止しました。"
+                           "もう一度 `watari auth` を実行して入力してください")
     cloud.save_credentials(cid, csec)  # env 由来でも config に保存し、以後の token 更新を無人化
+    if sys.stdin.isatty():
+        # ブラウザを突然開かない（何が起きるかを言ってから開く）。既定は Yes。
+        if not prompts.confirm("ブラウザで Google の承認画面を開きます。よろしいですか？",
+                               default=True):
+            return False, "中止しました。もう一度実行するには: watari auth"
     return cloud.authorize()
 
 
 def cmd_auth(args) -> int:
-    """Google 認証（発話中継所＝Drive appDataFolder）を単独で行う。
+    """Google 認証（会話の同期に使う Google Drive のアプリ専用領域へのログイン）を単独で行う。
 
     初回は env か対話入力で client_id/secret を受け取り config.json に保存 → ブラウザ承認。
     以後は保存値で再承認/更新できる（token 失効時の再ログインもこれ一発）。
     """
     ok, message = _google_auth_flow(prompt_for_creds=True)
-    print(("✓ " if ok else "! ") + message)
+    print(("✓ " if ok else "! ") + message, flush=True)
+    if ok:
+        _next_steps("これで会話が同期されます。Gmail などのサービスを繋ぐ場合: watari connect")
     return 0 if ok else 1
 
 
@@ -443,8 +613,37 @@ def _find_skill_dir() -> str | None:
     return None
 
 
+def _find_pi_runtime_file(name: str) -> str | None:
+    """wheel / checkout のどちらでも同梱 Pi runtime file を解決する。"""
+    try:
+        from importlib import resources
+
+        candidate = resources.files("watari_cli") / "pi" / name
+        if candidate.is_file():
+            return str(candidate)
+    except (ModuleNotFoundError, FileNotFoundError, NotADirectoryError, TypeError):
+        pass
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, "..", "pi", name),
+        os.path.join(os.getcwd(), "src", "watari_cli", "pi", name),
+    ]
+    for path in candidates:
+        resolved = os.path.abspath(path)
+        if os.path.isfile(resolved):
+            return resolved
+    return None
+
+
+def _bundled_prompt_templates(skill: str) -> list[str]:
+    """同梱スラッシュコマンド（skill/prompts/*.md）の絶対パス一覧（名前順で安定）。"""
+    import glob
+
+    return sorted(glob.glob(os.path.join(skill, "prompts", "*.md")))
+
+
 def _runtime_base(runtime: str) -> list[str]:
-    """ランタイムの起動コマンド基底を返す。今は Pi。pi が無ければ npx 経由で取りに行く。"""
+    """AI ランタイムの起動コマンド基底を返す。今は Pi。pi が無ければ npx 経由で取りに行く。"""
     import shutil
 
     if runtime in ("pi", None, ""):
@@ -476,7 +675,7 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _dream_recently(lock_path: str, window: float = 300.0) -> bool:
-    """直近 window 秒に夢が走った、または今も走っているなら True（二重起動ガード）。"""
+    """直近 window 秒に自動の記憶整理が走った、または今も走っているなら True（二重起動ガード）。"""
     import time
     try:
         with open(lock_path, encoding="utf-8") as f:
@@ -489,8 +688,9 @@ def _dream_recently(lock_path: str, window: float = 300.0) -> bool:
 
 
 def _spawn_background_dream(home: str, runtime: str, skill: str) -> None:
-    """chat 起動時に裏で夢（「夢を見て」）を回す。起動をブロックしない。二重起動は lock でガードし、
-    自分が dream worker（WATARI_SKIP_AUTO_DREAM）なら回さない＝再帰しない。夜間 cron の代替。"""
+    """chat 起動時に裏で記憶の整理（プロンプト「記憶を整理して」）を回す。起動をブロックしない。
+    二重起動は lock でガードし、自分が整理 worker（WATARI_SKIP_AUTO_DREAM）なら回さない
+    ＝再帰しない。夜間 cron の代替。"""
     import subprocess
     import time
 
@@ -501,7 +701,7 @@ def _spawn_background_dream(home: str, runtime: str, skill: str) -> None:
         return
     cmd = _runtime_base(runtime) + [
         "--no-skills", "--append-system-prompt", os.path.join(skill, "SKILL.md"),
-        "--no-session", "-p", "夢を見て"]
+        "--no-session", "-p", "記憶を整理して"]
     env = dict(os.environ)
     env["WATARI_HOME"] = home
     env["WATARI_SKIP_AUTO_DREAM"] = "1"
@@ -531,15 +731,17 @@ def cmd_chat(args) -> int:
 
     home = wl.MEM
     if not os.path.isdir(home):
-        sys.stderr.write(f"記憶が見つかりません: {home}\n  先に `watari install` を実行してください。\n")
-        return 1
+        return _setup_required()
     if not args.show:
         from watari_cli import git_sync
         git_sync.sync_before_read(home)  # 起動前に最新の記憶を取り込む
-        _ensure_state()  # clone/pull 直後でも state を最新に（派生物の遅延再生成）
+        _ensure_state()  # clone/pull 直後でも state を最新に（まとめの遅延再生成）
     skill = _find_skill_dir()
     if not skill:
-        sys.stderr.write("同梱スキル(watari_cli/skill)が見つかりません（インストールが壊れている可能性があります）。\n")
+        sys.stderr.write(
+            "ワタリの本体データ（同梱スキル）が見つかりません"
+            "（インストールが壊れている可能性があります）。\n"
+            "  watari-cli を入れ直してください（例: pip install --force-reinstall watari-cli）。\n")
         return 1
 
     settings = config.load_config()
@@ -549,13 +751,35 @@ def cmd_chat(args) -> int:
     # 素の助手のまま応答する（実測）。SKILL.md をシステムプロンプトに常時注入して人格を起動する。
     # --no-skills で他スキルの自動探索（~/.agents/skills 等の同名 "watari" 衝突含む）も切る。
     skill_md = os.path.join(skill, "SKILL.md")
-    cmd = _runtime_base(runtime) + ["--no-skills", "--append-system-prompt", skill_md] + args.extra
+    quiet_ui = _find_pi_runtime_file("quiet-ui.mjs")
+    politeness_guard = _find_pi_runtime_file("politeness-guard.ts")
+    if not quiet_ui or not politeness_guard:
+        sys.stderr.write(
+            "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
+            "（インストールが壊れている可能性があります）。\n"
+            "  watari-cli を入れ直してください（例: pip install --force-reinstall watari-cli）。\n")
+        return 1
+    cmd = _runtime_base(runtime) + ["--no-skills"]
+    for template in _bundled_prompt_templates(skill):
+        cmd += ["--prompt-template", template]  # /remember /organize 等の同梱スラッシュコマンド
+    cmd += [
+        "--append-system-prompt", skill_md,
+        "--extension", politeness_guard,
+    ] + args.extra
 
     env = dict(os.environ)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
+    # Pi が TUI を組み立てる前に process-local の表示設定を当てる。reasoning/effort と会話ログは
+    # 変えず、途中の思考文と tool 実行行だけを隠す。Pi のグローバル settings.json は触らない。
+    from pathlib import Path
+    preload = f"--import={Path(quiet_ui).resolve().as_uri()}"
+    env["NODE_OPTIONS"] = " ".join(x for x in (env.get("NODE_OPTIONS", "").strip(), preload) if x)
 
     if args.show:
+        print(f"chat が実行するコマンド（実行環境: {runtime}。"
+              "未導入でも初回に npx が自動で取得します）:")
         print(f"WATARI_HOME={home}")
+        print(f"NODE_OPTIONS={shlex.quote(env['NODE_OPTIONS'])}")
         print(" ".join(shlex.quote(c) for c in cmd))
         return 0
 
@@ -563,8 +787,10 @@ def cmd_chat(args) -> int:
     from watari_cli import host, relay
 
     relayer = relay.Relay(wl.PI_STORE, host.machine_id(), home=home)
-    relayer.start()  # 会話を別マシンへ中継（クラウド未認証なら内部で no-op）
-    _spawn_background_dream(home, runtime, skill)  # 裏で夢を回す（非ブロッキング・二重起動ガード）
+    relayer.start()  # 会話を別のパソコンへ中継（クラウド未認証なら内部で no-op）
+    _spawn_background_dream(home, runtime, skill)  # 裏で記憶の整理（非ブロッキング・二重起動ガード）
+
+    print("/watari-help で使い方、/organize で記憶の整理ができます。", flush=True)
 
     def _on_term(signum, frame):  # SIGTERM でも最終 flush してから抜ける
         relayer.stop_and_flush()
@@ -575,8 +801,9 @@ def cmd_chat(args) -> int:
         return subprocess.run(cmd, env=env).returncode
     except FileNotFoundError:
         sys.stderr.write(
-            f"ランタイム '{runtime}' が起動できません（{cmd[0]} が見つからない）。\n"
-            "  Pi を使うなら `npx -y @earendil-works/pi-coding-agent` が通るか確認してください。\n"
+            "ワタリの実行環境（Pi）を起動できませんでした。\n"
+            "  Node.js が入っているか確認してください（https://nodejs.org からインストールできます）。\n"
+            "  確認方法: ターミナルで `npx -y @earendil-works/pi-coding-agent` が動けば準備完了です。\n"
         )
         return 127
     except KeyboardInterrupt:
@@ -594,30 +821,41 @@ def cmd_regen(args) -> int:
     try:
         gen = regen_state.regen(now)
     except FileNotFoundError:
-        sys.stderr.write(f"記憶が見つかりません: {wl.MEM}（先に watari init / watari install）\n")
-        return 1
+        return _setup_required()
     if args.check:
-        current = {g: json.load(open(wl.state_path(g), encoding="utf-8")) for g in wl.GENRES}
+        current = {}
+        try:
+            for g in wl.GENRES:
+                with open(wl.state_path(g), encoding="utf-8") as f:
+                    current[g] = json.load(f)
+        except FileNotFoundError:
+            sys.stderr.write(regen_state.MSG_STATE_MISSING + "\n")
+            return 1
         diffs = regen_state.semantic_diff(current, gen)
         if diffs:
-            print(f"state と log 再生成結果に差分 {len(diffs)} 件:")
+            print(f"まとめと記録の食い違い {len(diffs)} 件 → watari regen で作り直せます:")
             for x in diffs:
                 print(" ", x)
             return 1
-        print("OK: state は log から再生成した結果と一致（決定論が保たれている）")
+        print(regen_state.MSG_CHECK_OK)
         return 0
     for genre in wl.GENRES:
         wl.atomic_write_json(wl.state_path(genre), gen[genre])
-    print(f"state 再生成完了 (now={regen_state.fmt_ts(now)})")
+    print(f"まとめを作り直しました（基準時刻: {regen_state.fmt_ts(now)}）")
     return 0
 
 
 def _write_validation_errors(error: ValueError) -> int:
-    """ValueError(errors) 契約（args[0]=エラー文字列のリスト）を標準形式で stderr に書く。"""
+    """ValueError(errors) 契約（args[0]=エラー文字列のリスト）を標準形式で stderr に書く。
+
+    整形は engine(ingest.format_error_lines) に一元化されている——ここは書き出すだけ
+    （engine main と cli で文言をズラさない）。
+    """
+    from watari_cli.engine import ingest
+
     errors = error.args[0] if error.args else [str(error)]
-    sys.stderr.write(f"検証エラー {len(errors)} 件（何も書き込んでいません）:\n")
-    for e in errors:
-        sys.stderr.write(f"  - {e}\n")
+    for line in ingest.format_error_lines(errors):
+        sys.stderr.write(line + "\n")
     return 2
 
 
@@ -641,30 +879,30 @@ def cmd_ingest(args) -> int:
             dry_run=args.dry_run,
         )
     except FileNotFoundError:
-        # rows は読めている。記憶(WATARI_HOME)側の log.jsonl が無い＝未初期化のホーム。
-        sys.stderr.write(f"記憶が見つかりません: {wl.MEM}（先に watari init / watari install）\n")
-        return 1
+        # rows は読めている。記憶(WATARI_HOME)側の log.jsonl が無い＝未セットアップ。
+        return _setup_required()
     except ValueError as error:
         return _write_validation_errors(error)
     print(summary)
     if not args.dry_run:
         from watari_cli import git_sync, relay
         git_sync.sync_after_write(wl.MEM)  # 書いた記憶を commit→pull→push（offline は繰り越し）
-        relay.prune_cloud(wl.MEM)          # 全マシンが夢に見た分＋90日超の共有発話を削除
+        relay.prune_cloud(wl.MEM)          # 全パソコンが取り込み済み＋90日超の共有発話を削除
     return 0
 
 
 def cmd_connector_list(args) -> int:
-    """宣言済み connector（夢に流し込むソース）を一覧する。組み込み/カスタムを区別して表示。"""
+    """宣言済みの読み取りソース(connector)を一覧する。対応サービス/カスタムを区別して表示。"""
     from watari_cli import connectors as connectors_mod
 
     decls = config.load_connectors()
     if not decls:
-        print("宣言済み connector: なし")
-        print("  追加: watari connect <service>（組み込み） / "
-              'watari connector add --name <slug> --scope cloud|local --read "..."（カスタム）')
+        print("宣言済みの読み取りソース: なし")
+        print("  追加: `watari connect` を実行すると一覧から選べます")
+        print('  上級者向け: watari connector add --name <名前> --scope cloud|local'
+              ' --read "読み方の指示"')
         return 0
-    print("宣言済み connector:")
+    print("宣言済みの読み取りソース:")
     for c in decls:
         name = c.get("name")
         if connectors_mod.is_builtin_name(name):
@@ -685,18 +923,18 @@ def cmd_connector_add(args) -> int:
     except ValueError as error:
         sys.stderr.write(f"{error}\n")
         return 2
-    print(f"connector を保存しました: {args.name} [{args.scope}]")
-    print(f"  read: {args.read or '—'}")
+    print(f"読み取りソースを保存しました: {args.name} [{args.scope}]")
+    print(f"  読み方: {args.read or '—'}")
     print(f"  宣言済み: {', '.join(c['name'] for c in connectors)}")
     return 0
 
 
 def cmd_connector_read(args) -> int:
-    """組み込みコネクタをカーソル(--since、省略時はこのマシンの host カーソル)以降で読む。
+    """対応サービスを読み取り位置(--since、省略時はこのパソコンの記録)以降で読む。
 
-    決定論リーダー: 実 API を叩いて統一形式 {ts,uuid,text,meta} の配列を返すだけで、
-    カーソルの前進はしない（前進は従来どおり `watari ingest --advance-ext` のみが行う）。
-    認証エラー・ネットワーク断は明確な非ゼロ終了で返す（呼び出し側はカーソル据え置きで扱える）。
+    実 API を叩いて統一形式 {ts,uuid,text,meta} の配列を返すだけで、読み取り位置は進めない
+    （前進は従来どおり `watari ingest --advance-ext` のみが行う）。
+    認証エラー・ネットワーク断は明確な非ゼロ終了で返す（呼び出し側は位置据え置きで扱える）。
     """
     config.apply(args.home)
     from watari_cli import connectors as connectors_mod, host
@@ -711,17 +949,17 @@ def cmd_connector_read(args) -> int:
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=1))
         return 0
-    print(f"connector: {args.name}")
-    print(f"  since: {since or '—'}")
+    print(f"読み取りソース: {args.name}")
+    print(f"  読み始めの位置: {since or 'はじめから'}")
     print(f"  件数: {len(rows)}")
     if rows:
-        print(f"  max_ts: {rows[-1]['ts']}")
+        print(f"  最後の時刻: {rows[-1]['ts']}")
     return 0
 
 
 def _declare_builtin_connector(name: str, message: str, scope: str = "cloud",
                                 auth_kind: str = "paste") -> int:
-    """成功時の共通の締め（connector 宣言 → 完了表示）。paste/oauth/local 全経路から呼ぶ。
+    """成功時の共通の締め（connector 宣言 → 完了表示 → 次に起きること）。全経路から呼ぶ。
 
     scope はサービスの ServiceAdapter.scope（transcript 系は "local"、他は既定 "cloud"）。
     local は「認証した」わけではなくログ置き場を見つけただけなので文言を変える（サービス名の
@@ -735,7 +973,19 @@ def _declare_builtin_connector(name: str, message: str, scope: str = "cloud",
         print(f"✓ {message}")
     else:
         print(f"✓ 接続しました（{message} として認証）")
+    print("  次の記憶の整理から読み込まれます"
+          "（watari chat で話しかけたときに自動で反映されます）。")
+    if scope == "cloud":
+        print("  ※ このサービスはこのパソコンが読み取り担当になります。"
+              "他のパソコンでは同じサービスを接続しないでください。")
     return 0
+
+
+def _print_guide(lines) -> None:
+    """接続案内の表示。複数行の要素（マニフェスト等）も1行ずつ崩れずにインデントする。"""
+    for line in lines:
+        for part in (str(line).splitlines() or [""]):
+            print(f"  {part}")
 
 
 def _connect_wizard(name: str) -> int:
@@ -750,36 +1000,42 @@ def _connect_wizard(name: str) -> int:
 
     service = connectors_mod.get_service(name)
     if service is None:
-        sys.stderr.write(f"不明なサービスです: {name}\n")
+        names = ", ".join(key for key, _ in connectors_mod.list_services())
+        sys.stderr.write(
+            f"不明なサービスです: {name}\n"
+            f"  対応サービス: {names}\n"
+            "  引数なしの `watari connect` を実行すると一覧から選べます。\n")
         return 2
     if not service.implemented:
-        print(f"{service.label}: 未対応です。対応予定。")
+        print(f"{service.label} はまだ接続できません（今後対応予定です）。")
         return 0
     if connectors_status(name):
         print(f"{service.label} は接続済みです（続けると再接続します）。")
     print(f"{service.label} と接続します。")
-    for line in service.guide:
-        print(f"  {line}")
+    _print_guide(service.guide)
 
     if service.auth_kind in ("oauth", "local"):
         ok, message = service.verify()
         if not ok:
-            sys.stderr.write(f"! 接続に失敗しました: {message}\n")
+            sys.stderr.write(f"! 接続に失敗しました: {message}\n"
+                             f"  もう一度やり直すには: watari connect {name}\n")
             return 1
         return _declare_builtin_connector(name, message, scope=service.scope,
                                           auth_kind=service.auth_kind)
 
     try:
-        api_key = prompts.text("貼り付けてください")
+        api_key = prompts.text("トークンを貼り付けてください")
     except prompts.Cancelled:
         sys.stderr.write("\n中止しました。\n")
         return 130
     if not api_key:
-        sys.stderr.write("キーが空のため中止しました。\n")
+        sys.stderr.write("トークンが空のため中止しました。"
+                         f"もう一度やり直すには: watari connect {name}\n")
         return 1
     ok, message = service.verify(api_key)
     if not ok:
-        sys.stderr.write(f"! 接続に失敗しました: {message}\n")
+        sys.stderr.write(f"! 接続に失敗しました: {message}\n"
+                         f"  もう一度やり直すには: watari connect {name}\n")
         return 1
     connectors_mod.save_auth(name, api_key)
     return _declare_builtin_connector(name, message)
@@ -810,14 +1066,13 @@ def connectors_status(name: str) -> bool:
 def cmd_connect(args) -> int:
     """`watari connect [service]`。引数なしは選択メニュー（レジストリを列挙するだけ）。
 
-    対話ウィザードなので、非対話シェル（エージェントのツール実行・パイプ）から呼ばれたら
-    黙って既定値で進まず、ユーザー本人のターミナルで打つよう即座に案内して終了する。"""
+    対話ウィザードなので、非対話シェル（パイプ・スクリプト経由）から呼ばれたら
+    黙って既定値で進まず、ターミナルで直接打つよう即座に案内して終了する。"""
     from watari_cli import connectors as connectors_mod, prompts
 
     if not sys.stdin.isatty() and not os.environ.get("WATARI_CONNECT_ALLOW_NO_TTY"):
         sys.stderr.write(
-            "watari connect は対話コマンドです。ユーザー本人のターミナルで実行してください\n"
-            "（エージェントは代行せず、打つコマンドを案内すること）。\n")
+            "watari connect は対話コマンドです。お使いのターミナルで直接実行してください。\n")
         return 2
 
     if args.service:
@@ -840,106 +1095,176 @@ def cmd_connect(args) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="watari", description="ワタリ — 会話からあなたを覚えていく相棒")
+    p = _TopParser(prog="watari", usage="watari <コマンド> [オプション]",
+                   description="ワタリ — 会話からあなたを覚えていく相棒")
     try:
         from importlib.metadata import version
 
         p.add_argument("--version", action="version", version=f"watari {version('watari-cli')}")
     except Exception:
         pass
-    sub = p.add_subparsers(dest="command", required=True)
+    # サブコマンドは _ArgumentParser（トップ専用の自前 help を継がせない）。
+    # prog を明示しないとトップの usage 文字列（watari <コマンド> [オプション]）が
+    # サブコマンドの usage 行にそのまま連結されてしまう。
+    sub = p.add_subparsers(dest="command", required=True, parser_class=_ArgumentParser,
+                           prog="watari", metavar="{install,chat,connect,status,auth}")
 
-    ps = sub.add_parser("status", help="ワタリの記憶の現在地を読む")
-    ps.add_argument("--home", help="記憶の場所（既定: WATARI_HOME か保存済み設定）")
+    ps = sub.add_parser(
+        "status", help="記憶の様子を確認",
+        description="ワタリの記憶の様子を確認します"
+                    "（件数・進行中の話題・どこまで読んだか。読み取り専用です）。")
+    ps.add_argument("--home", help=_HOME_HELP)
     ps.set_defaults(func=cmd_status)
 
-    ph = sub.add_parser("host", help="このマシンの環境を記録し、他マシンの記録も一覧")
-    ph.add_argument("--home", help="記憶の場所（既定: WATARI_HOME か保存済み設定）")
+    ph = sub.add_parser(
+        "host", help="（内部用）このパソコンの環境を記録し、他のパソコンの記録も一覧",
+        description="（内部用）このパソコンの環境（ホスト名・AI ツールなど）を記憶フォルダに記録し、"
+                    "他のパソコンの記録も一覧します。通常はワタリが自動で使います。")
+    ph.add_argument("--home", help=_HOME_HELP)
     ph.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                    help="自由記述の事実を記録（例 terminal=Ghostty）。繰り返し可")
+                    help="自由記述の事実を記録します（例 terminal=Ghostty）。繰り返し指定できます")
     ph.set_defaults(func=cmd_host)
 
-    pd = sub.add_parser("dream", help="会話ログから記憶の候補を抽出（読むだけ）")
-    pd.add_argument("--home", help="記憶の場所")
-    pd.add_argument("--json", action="store_true", help="判定用に生の候補(messages[])をJSON出力")
-    pd.set_defaults(func=cmd_dream)
+    # 旧名 dream は隠し alias として受け付ける（表示は scan のみ。help/候補には出さない）
+    pd = sub.add_parser(
+        "scan", aliases=["dream"],
+        help="（内部用）会話ログから記憶の候補を集める（読むだけ）",
+        description="（内部用）会話ログから記憶の候補を集めます（読むだけで、何も書き込みません）。"
+                    "通常はワタリが自動で実行します。")
+    pd.add_argument("--home", help=_HOME_HELP)
+    pd.add_argument("--json", action="store_true", help="（内部用）候補を JSON 形式で出力する")
+    pd.set_defaults(func=cmd_scan)
 
-    pr = sub.add_parser("recall", help="記憶の現在地(life/learning state)をJSONで読む")
-    pr.add_argument("--home", help="記憶の場所")
+    pr = sub.add_parser(
+        "recall", help="（内部用）記憶の中身全体を JSON で出力する",
+        description="（内部用）記憶の中身全体（生活・学習のまとめ）を JSON で出力します。"
+                    "人が読む場合は watari status を使ってください。")
+    pr.add_argument("--home", help=_HOME_HELP)
     pr.set_defaults(func=cmd_recall)
 
-    pa = sub.add_parser("audit", help="記憶の健全性を監査（決定論・形式・乖離）")
-    pa.add_argument("--home", help="記憶の場所")
-    pa.add_argument("--coverage", action="store_true", help="log に現れないセッションも列挙")
+    pa = sub.add_parser(
+        "audit", help="（内部用）記憶データに壊れや矛盾がないか点検する",
+        description="（内部用）記憶データに壊れや矛盾がないか点検します。"
+                    "直したほうがよい点があれば、直し方も表示します。")
+    pa.add_argument("--home", help=_HOME_HELP)
+    pa.add_argument("--coverage", action="store_true",
+                    help="まだ記憶に取り込まれていない会話も一覧する")
     pa.set_defaults(func=cmd_audit)
 
-    pn = sub.add_parser("init", help="空の記憶を新規作成")
-    pn.add_argument("--home", help="作成先のパス（既定: WATARI_HOME）")
-    pn.add_argument("--force", action="store_true", help="空でない場所でも続行")
+    pn = sub.add_parser(
+        "init", help="（内部用）空の記憶フォルダを新規作成",
+        description="（内部用）空の記憶フォルダを作ります。"
+                    "通常は watari install（設定の保存まで行う）を使ってください。")
+    pn.add_argument("--home", help=_HOME_HELP)
+    pn.add_argument("--force", action="store_true", help="空でない場所でも続行する")
     pn.set_defaults(func=cmd_init)
 
-    pg = sub.add_parser("regen", help="log から state を再生成（clone 直後の復元・派生の作り直し）")
-    pg.add_argument("--home", help="記憶の場所")
-    pg.add_argument("--now", help="再生成時刻(UTC ISO)。省略時は現在時刻")
-    pg.add_argument("--check", action="store_true", help="書き込まず現 state と比較")
+    pg = sub.add_parser(
+        "regen", help="（内部用）記憶のまとめを記録から作り直す",
+        description="（内部用）記憶のまとめを記録から作り直します。"
+                    "復元直後や、点検で食い違いが出たときに使います。通常は自動で実行されます。")
+    pg.add_argument("--home", help=_HOME_HELP)
+    pg.add_argument("--now", help="作り直しの基準時刻（UTC の ISO 形式。"
+                                  "例 2026-01-01T00:00:00.000Z）。省略時は現在時刻")
+    pg.add_argument("--check", action="store_true", help="書き込まず、今のまとめと比較だけする")
     pg.set_defaults(func=cmd_regen)
 
-    pinst = sub.add_parser("install", help="初回セットアップ（対話。記憶を用意して設定を保存）")
-    pinst.add_argument("--home", help="記憶の場所（既定: XDG_DATA_HOME/watari/memory）")
+    pinst = sub.add_parser(
+        "install", help="初回セットアップ（記憶フォルダの用意と設定の保存）",
+        description="初回セットアップを対話形式で行います（記憶フォルダの用意と設定の保存）。"
+                    "再実行しても記憶は消えません（「今ある記憶をそのまま使う」を選べます）。")
+    pinst.add_argument("--home", help="記憶の保存先（既定: ~/.local/share/watari/memory）")
     pinst.add_argument("--from", dest="from_url", metavar="GIT_URL",
-                       help="バックアップ(git)から記憶を復元する")
-    pinst.add_argument("--runtime", help="起動ランタイム（既定 pi）。watari chat が使う")
+                       help="バックアップ（git リポジトリ）から記憶を復元する")
+    pinst.add_argument("--runtime", help="ワタリを動かす AI 実行環境（既定: pi）。通常は変更不要")
     pinst.add_argument("--remote", metavar="GIT_URL",
-                       help="記憶を同期する git remote（新規/引き継ぎ時）。省略かつ対話なら menu で選べる")
-    pinst.add_argument("--yes", "-y", action="store_true", help="質問せず既定のまま（コマンド一発）")
-    pinst.add_argument("--dry-run", action="store_true", help="UX だけ試す（何も変更しない・何度でも）")
+                       help="記憶を同期する git リポジトリの URL。省略時は対話中に選択できます")
+    pinst.add_argument("--yes", "-y", action="store_true", help="質問せず既定のまま進める")
+    pinst.add_argument("--dry-run", action="store_true",
+                       help="質問の流れだけ試す（何も変更しません。何度でも実行できます）")
     pinst.set_defaults(func=cmd_install)
 
-    pauth = sub.add_parser("auth", help="Google 認証（会話をマシン間で同期する中継所にログイン）")
+    pauth = sub.add_parser(
+        "auth", help="Google にログイン（複数のパソコンで会話を同期する場合）",
+        description="Google にログインし、会話を複数のパソコンの間で同期できるようにします（任意）。"
+                    "1台だけで使う場合は不要です。")
     pauth.set_defaults(func=cmd_auth)
 
-    pconn = sub.add_parser("connect", help="組み込みコネクタと接続（案内→貼り付け→疎通確認→保存）")
-    pconn.add_argument("service", nargs="?", help="接続するサービス（例 linear）。省略時は選択メニュー")
+    pconn = sub.add_parser(
+        "connect", help="外部サービスと接続（Gmail・カレンダー・Slack など）",
+        description="外部サービス（Gmail・カレンダー・Slack など）をワタリに繋ぎます。"
+                    "画面の案内に従うだけで完了します。引数なしで実行すると一覧から選べます。")
+    pconn.add_argument("service", nargs="?",
+                       help="接続するサービス名（例 gmail）。省略時は選択メニュー")
     pconn.set_defaults(func=cmd_connect)
 
-    pc = sub.add_parser("chat", help="ワタリを起動（スキル/記憶/モデルを自動で渡す）")
-    pc.add_argument("--home", help="記憶の場所")
-    pc.add_argument("--runtime", help="起動ランタイム（既定: 保存値か pi）")
-    pc.add_argument("--show", action="store_true", help="起動せず、実行するコマンドだけ表示")
-    pc.add_argument("extra", nargs="*", help="ランタイムへ素通しする追加引数")
+    pc = sub.add_parser(
+        "chat", help="ワタリと話す",
+        description="ワタリと話します（記憶を読み込んで会話を始めます）。"
+                    "会話の内容は、あとで役に立つものだけが記憶に取り込まれます。")
+    pc.add_argument("--home", help=_HOME_HELP)
+    pc.add_argument("--runtime",
+                    help="ワタリを動かす AI 実行環境（既定: 保存値か pi）。通常は変更不要")
+    pc.add_argument("--show", action="store_true", help="起動せず、実行するコマンドだけ表示する")
+    pc.add_argument("extra", nargs="*", help="実行環境（Pi）へそのまま渡す追加引数（上級者向け）")
     pc.set_defaults(func=cmd_chat)
 
-    pi = sub.add_parser("ingest", help="判定済みの記憶行(JSON)を記憶へ書き込む")
-    pi.add_argument("--rows", required=True, help="log 行の JSON 配列ファイル(SCHEMA 準拠)")
-    pi.add_argument("--home", help="記憶の場所")
-    pi.add_argument("--advance-pi")
-    pi.add_argument("--advance-cloud", action="append", default=[], metavar="MACHINE=TS")
-    pi.add_argument("--advance-ext", action="append", default=[], metavar="NAME=TS")
-    pi.add_argument("--allow-new-domain", action="store_true")
-    pi.add_argument("--dry-run", action="store_true", help="検証と件数だけ（書き込みなし）")
+    pi = sub.add_parser(
+        "ingest", help="（内部用）選別済みの記憶データを書き込む",
+        description="（内部用）選別済みの記憶データ（JSON）を記憶に書き込みます。"
+                    "通常はワタリが自動で実行します。")
+    pi.add_argument("--rows", required=True, help="（内部用）書き込む記憶行の JSON 配列ファイル")
+    pi.add_argument("--home", help=_HOME_HELP)
+    pi.add_argument("--advance-pi", metavar="TS",
+                    help="（内部用）このパソコンの会話ログの読み取り位置をこの時刻まで進める"
+                         "（UTC の ISO 形式。例 2026-01-01T00:00:00.000Z）")
+    pi.add_argument("--advance-cloud", action="append", default=[], metavar="MACHINE=TS",
+                    help="（内部用）共有された会話の読み取り位置を進める"
+                         "（形式: パソコン名=UTC時刻。例 my-pc=2026-01-01T00:00:00.000Z）")
+    pi.add_argument("--advance-ext", action="append", default=[], metavar="NAME=TS",
+                    help="（内部用）外部サービスの読み取り位置を進める"
+                         "（形式: 名前=UTC時刻。例 mail=2026-01-01T00:00:00.000Z）")
+    pi.add_argument("--allow-new-domain", action="store_true",
+                    help="（内部用）新しい分野の作成を許可する")
+    pi.add_argument("--dry-run", action="store_true", help="検証と件数の表示だけ（書き込みません）")
     pi.set_defaults(func=cmd_ingest)
 
-    # connector は WATARI_HOME ではなく config.json に宣言する（記憶の場所に依らず全マシン共通の宣言）。
-    pcon = sub.add_parser("connector", help="夢に流し込むソース(connector)を宣言/一覧")
+    # connector は WATARI_HOME ではなく config.json に宣言する（記憶の場所に依らず全パソコン共通の宣言）。
+    pcon = sub.add_parser(
+        "connector", help="（上級者向け）ワタリが読む外部ソースの一覧・追加設定",
+        description="（上級者向け）ワタリが記憶の整理のときに読む外部ソースの一覧・追加設定です。"
+                    "通常は watari connect で十分です。")
     consub = pcon.add_subparsers(dest="connector_command", required=True)
-    pcl = consub.add_parser("list", help="宣言済み connector を一覧")
+    pcl = consub.add_parser("list", help="宣言済みの読み取りソースを一覧する",
+                            description="宣言済みの読み取りソースを一覧します。")
     pcl.set_defaults(func=cmd_connector_list)
-    pca = consub.add_parser("add", help="connector を宣言（追加/更新）")
-    pca.add_argument("--name", required=True, help="小文字スラッグ（例 mail, tasks）")
+    pca = consub.add_parser("add", help="読み取りソースを宣言する（追加/更新）",
+                            description="読み取りソースを宣言します（同じ名前は更新されます）。")
+    pca.add_argument("--name", required=True,
+                     help="名前（小文字の英数字とハイフン。例: mail, my-tasks）")
     pca.add_argument("--scope", required=True, choices=["cloud", "local"],
-                     help="cloud=担当1台だけが夢を見る / local=各マシンが自分で読む")
+                     help="cloud=接続したパソコンが代表して読み取る / "
+                          "local=それぞれのパソコンが自分のデータを読む")
     pca.add_argument("--read", required=True,
-                     help="このソースを cursor 以降どう読むかのエージェント向け自由指示")
+                     help="このソースを前回の続きからどう読むか、ワタリへ渡す指示文")
     pca.set_defaults(func=cmd_connector_add)
-    pcr = consub.add_parser("read", help="組み込みコネクタをカーソル以降で決定論的に読む")
-    pcr.add_argument("name", help="組み込みコネクタ名（例 linear）")
-    pcr.add_argument("--home", help="記憶の場所（host カーソルの既定値解決に使う）")
-    pcr.add_argument("--since", help="この ts 以降を読む（省略時: このマシンの host カーソル）")
-    pcr.add_argument("--json", action="store_true", help="統一形式 {ts,uuid,text,meta} をJSON配列で出力")
+    pcr = consub.add_parser("read", help="（内部用）対応サービスの新着を前回の続きから読み出す",
+                            description="（内部用）対応サービスの新着を前回の続きから読み出します。"
+                                        "読み取り位置は進めません。")
+    pcr.add_argument("name", help="対応サービス名（例 gmail）")
+    pcr.add_argument("--home", help=_HOME_HELP)
+    pcr.add_argument("--since", help="この時刻以降を読む（省略時: 前回読んだ続きから）")
+    pcr.add_argument("--json", action="store_true",
+                     help="（内部用）読み取り結果を JSON 配列で出力する")
     pcr.set_defaults(func=cmd_connector_read)
     return p
 
 
 def main() -> int:
-    args = _build_parser().parse_args()
+    parser = _build_parser()
+    if len(sys.argv) <= 1:
+        # 裸の watari はエラーにせず、最初の一歩（install → chat）が分かる help を出す
+        parser.print_help()
+        return 0
+    args = parser.parse_args()
     return args.func(args)

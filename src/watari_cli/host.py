@@ -102,10 +102,11 @@ def load_cursors(home: str) -> dict:
 
     host 記録に "cursors" があればそれを返す。無く旧 <home>/cursors.json があれば、その
     位置を**メモリ上で**引き継いで返すだけで、ここでは host 記録へ書き込まない。永続化は
-    実際に前進が起きたとき（save_cursors）に行う——status / dream / ingest --dry-run のような
+    実際に前進が起きたとき（save_cursors）に行う——status / scan / ingest --dry-run のような
     読み取り専用パスが副作用を持たない契約を守るため。既存のカーソル位置（checkpoint）は、
-    次の save_cursors がこの戻り値を丸ごと書き戻すので失われない。cursors.json はリポ外の旧
-    ルーティンがまだ読むので消さずに残す。どちらも無ければ全キー None の既定を返す。
+    次の save_cursors がこの戻り値を丸ごと書き戻すので失われない。旧配置の cursors.json は
+    旧版の watari-cli が読むため消さずに残す（書き込みは hosts/ 側のみ。将来削除予定）。
+    どちらも無ければ全キー None の既定を返す。
     """
     record = _read(host_path(home))
     if record and isinstance(record.get("cursors"), dict):

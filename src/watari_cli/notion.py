@@ -44,18 +44,43 @@ def _headers(token: str) -> dict:
 def _request(token: str, method: str, url: str, payload: dict | None = None) -> dict:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     status, body = _http(method, url, _headers(token), data)
+    hint = connector_http.reconnect_hint("notion")
     if status == 401:
-        raise ConnectorError("notion: 認証エラー（Integration Token を確認してください）")
+        raise ConnectorError(f"notion: 認証に失敗しました。シークレットが無効です。{hint}")
     if status != 200:
-        raise ConnectorError(f"notion: API エラー({status}): {body[:200]!r}")
+        raise ConnectorError(
+            f"notion: API エラー({status}): {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください（続くようなら、{hint}）")
     try:
         return json.loads(body)
     except json.JSONDecodeError:
-        raise ConnectorError(f"notion: 応答が JSON ではありません: {body[:200]!r}")
+        raise ConnectorError(
+            f"notion: 応答を読み取れませんでした: {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください")
+
+
+# integration にページが1つも接続されていないと、認証は成功しても read が永遠に 0 件のまま
+# 静かに空回りする。verify がその場で気づかせるための注意文（成功メッセージに添える）。
+NO_PAGES_HINT = ("まだ読めるページがありません。Notion で読ませたいページを開き、"
+                 "右上の『…』メニュー →『接続』から、作成した integration を追加してください")
+
+
+def _readable_page_count(token: str) -> int | None:
+    """search を1回だけ叩いて「integration から見えるページ数（先頭1件まで）」を返す。
+
+    判定できないとき（search 自体の失敗）は None——verify の成否には影響させない。
+    """
+    try:
+        data = _request(token, "POST", f"{API_BASE}/search", {"page_size": 1})
+    except ConnectorError:
+        return None
+    return len(data.get("results") or [])
 
 
 def verify(token: str) -> tuple[bool, str]:
-    """疎通確認（GET /users/me）。成功時は (True, bot名/所属ワークスペース)、失敗時は (False, 理由)。"""
+    """疎通確認（GET /users/me → POST /search 1回）。成功時は (True, bot名/所属ワークスペース)、
+    失敗時は (False, 理由)。読めるページが 0 件でも成功扱いのまま、メッセージに注意を含める
+    （手順3の integration 接続を忘れると「成功したのに何も読めない」静かな失敗になるため）。"""
     if not token:
         return False, "トークンが空です"
     try:
@@ -65,6 +90,8 @@ def verify(token: str) -> tuple[bool, str]:
     name = data.get("name") or "?"
     workspace = (data.get("bot") or {}).get("workspace_name")
     label = f"{name}（{workspace}）" if workspace else name
+    if _readable_page_count(token) == 0:
+        return True, f"{label}。※ {NO_PAGES_HINT}"
     return True, label
 
 

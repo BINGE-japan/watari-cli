@@ -1,16 +1,20 @@
-# watari-cli 仕様（最初に読む）
+# watari-cli 仕様（開発者向け・開発時に最初に読む）
 
-このファイルは watari-cli が **何を目指し・何を満たし・今どこまで来ているか** の正本。
+**利用者向けの導入は `README.md` を参照。** このファイルは開発者・実装エージェント向けで、
+watari-cli が **何を目指し・何を満たし・今どこまで来ているか** の正本。
 毎回ゴールを口頭で説明しなくて済むよう、ここを読めば全体像と現在地が分かる状態を保つ。
 （記憶エンジンのデータ仕様は `src/watari_cli/skill/SCHEMA.md`、人格と夢の手順は同 `SKILL.md`、
-開発規律・安全境界は `AGENTS.md`。このファイルは「なぜ・何を・今どこ」を担う。）
+開発規律・安全境界は `AGENTS.md`。このファイルは「なぜ・何を・今どこ」を担う。
+なお本ファイルは内部設計文書のため「夢」「カセット」等の内部用語をそのまま使う。
+ユーザーが目にする文言での言い換えは末尾「ユーザー向け語彙（用語マップ）」に従うこと。）
 
 ## ゴール（north star）
 「ワタリ」＝ユーザーの分身。**記録・伴走・リマインド**を、決まった動き方で続ける秘書。
 それを **器（engine＝配布物）と カセット（user＝記憶・設定）に分離**した、配布可能な CLI にする。
 - **Pi 上で動く**：どのモデルと話しても、その会話をワタリが夢に見る（判定はモデル、機械処理は CLI）。
 - **記憶は持ち運べる**：個人データ（log/state）は git で運べるカセット（WATARI_HOME）。
-- **器を他人に渡せば、その人が自分のワタリを育てられる**：＝ binge 固有物を engine に一切漏らさない。
+- **器を他人に渡せば、その人が自分のワタリを育てられる**：＝ 開発者個人の固有物
+  （認証情報・パス・サービス名・私的運用の前提）を engine に一切漏らさない。
 
 ## 満たすこと（要件）
 - **記録**：会話から「後で効く事実」だけを自動で記憶へ移す（夢ループ）。
@@ -30,18 +34,34 @@
 
 ## スコープ（境界＝engine に入るか、カセットか）
 - **engine（配布・`src/watari_cli/`）**：CLI・記憶エンジン・人格スキル・git 同期層・クラウド中継アダプタ。
-  汎用・binge 非依存。組み込み transcript は **Pi 一本**（runtime が Pi のため）。
+  汎用・開発者個人に非依存。組み込み transcript は **Pi 一本**（runtime が Pi のため）。
 - **カセット（user・WATARI_HOME / config.json）**：記憶(log/state)・connector 宣言・host record・秘密。
-  binge の Gmail / Obsidian 等の連携は**全部こちら**（`watari connector add` で自由記述宣言）。
+  ユーザー個人の Gmail / Obsidian 等の連携は**全部こちら**（各ユーザーが `watari connect` /
+  `watari connector add` で宣言）。
   Linear など組み込みコネクタは `watari connect` が認証（config.json の connectors_auth）と
   宣言を一本化し、`watari connector read <name>` が決定論で読む（読み方をエージェントに書かせない）。
 - **作らない**：`daily_report`（日報）/ `knowledge`（参照資料）は engine に移植しない。
-  スケジューラも同梱しない（cron 等の外部に任せる。`docs/headless-dream.md`）。
+  スケジューラも同梱しない（cron 等の外部に任せる。`docs/scheduled-organize.md`）。
 
 ## 現在地（status — 変わったら更新する）
-- **実装済み・検証済み**：CLI 一式（status/host/dream/recall/ingest/audit/regen/init/install/auth/
-  chat/connect/connector）、記憶エンジン、人格スキル同梱（wheel）。クリーンルーム(Docker)で「素の環境に導入→カセット
+- **実装済み・検証済み**：CLI 一式（status/host/scan(旧 dream。dream は隠し alias)/recall/ingest/
+  audit/regen/init/install/auth/chat/connect/connector）、記憶エンジン、人格スキル同梱（wheel）。
+  クリーンルーム(Docker)で「素の環境に導入→カセット
   clone→recall に実記憶→Pi 上で人格＋記憶付きに起動」を実証。人格は原本に寄せて調整済み。
+- **公開品質化（public-ux）済み**：
+  - ユーザー可視の語彙を全面刷新（末尾の用語マップが正）。`watari dream` は `watari scan` に改名
+    （dream は隠し alias として受理。表示は scan のみ）。自動整理のトリガ語は「記憶を整理して」
+    （「夢を見て」も同義として受理するが、どの表示にも出さない）。
+  - 同梱スラッシュコマンド（`src/watari_cli/skill/prompts/*.md`：/remember /organize /profile
+    /forget /goal /watari-help）。`watari chat` が `--prompt-template` で Pi に登録する。
+  - `watari chat` は同梱 preload `pi/quiet-ui.mjs` を Pi プロセスの起動時だけ読み込み、reasoning と
+    effort、会話ログを変えずに途中の思考文と tool 実行行を TUI から隠す。最終回答は完了まで
+    バッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
+    決定論で書き換え、未知の違反は安全な敬語文へ fail closed する。モデル・effort・Pi の
+    グローバル設定はユーザー側のまま。
+  - 焼き込みの Google OAuth クライアント（`_BUNDLED_CLIENT_ID` / `_BUNDLED_CLIENT_SECRET`）は
+    削除。同期を使う利用者は自分の OAuth アプリを登録する（`docs/google-oauth-setup.md`）。
+  - README は日本語正本（冒頭に英語要約）・ユーザー導線に全面改稿。設計記録は `docs/design/` へ隔離。
 - **組み込みコネクタ（Linear / GitHub / Notion / Slack / Chatwork / freee / Gmail / Google カレンダー /
   Google ドライブ）**：`watari connect <name>` が
   案内→貼り付け→疎通確認→config 保存→ connector 宣言(scope既定cloud)まで一本道。`watari connector
@@ -86,8 +106,9 @@
   `watari connect codex` は既定の置き場（`~/.claude/projects` / `~/.codex/sessions`）を自動検出し、
   見つかれば「◯◯ の会話ログを見つけました（<パス> / セッション<n>件）」と表示して保存、
   見つからなければパスの直接入力を促して検証・保存する。scope は他の組み込みコネクタの既定
-  "cloud" と違い **"local"**（各マシンが自分のログを自分で夢に見る。cloud の「担当1台」ルールは
-  当てはまらない）。読み取り行には Pi transcript と同じ `role`（"user"/"assistant"）を必ず持たせ、
+  "cloud" と違い **"local"**（各マシンが自分のログを自分で夢に見る。cloud の「担当1台」ルール
+  （＝cloud スコープの connector は同期グループ内のどれか1台だけが夢で読む取り決め。詳細は
+  SKILL.md）は当てはまらない）。読み取り行には Pi transcript と同じ `role`（"user"/"assistant"）を必ず持たせ、
   記憶の根拠にしてよいのは role=user のみ（assistant は文脈用）。Claude Code の本物のユーザー発話は
   `type=="user"` かつ `message.content` が文字列（配列除外）かつ `toolUseResult` 無し・
   isMeta/isCompactSummary/isSidechain 無し・timestamp 有り・合成行（`<system-reminder>` 等）でない
@@ -101,11 +122,14 @@
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
   （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。196 テスト＋packaging green。
-- **未了（本物で動かす）**：Google OAuth アプリの登録（binge 手動・`docs/google-oauth-setup.md`）→ 各マシンで
-  `watari auth` → A↔B の会話同期を実地確認。client_id 未設定の間は同期はスキップされ、ローカルのみで普通に動く。
+- **未了（実地検証）**：Google OAuth アプリ登録（`docs/google-oauth-setup.md` の手順）→ 各マシンで
+  `watari auth` → 2台間の会話同期を実機で確認する。コード・テストは整備済みで、実環境での通し確認が
+  残タスク。client_id 未設定の間は同期はスキップされ、ローカルのみで普通に動く。
 
 ## 主要決定（蒸し返さない）
 - ランタイムは **Pi 専用**。`watari chat` は Pi ランチャー。モデルは Pi 側で選ぶ（install は非依存）。
+- **敬語はユーザープリファレンスではなく製品不変条件**。ユーザーの入力口調を模倣せず、スキル指示に加えて
+  Pi の表示・message_end ガードで明白な違反を保存・表示前に止める（モデルの遵守だけに依存しない）。
 - **transcript は Pi 一本**、それ以外（他 AI CLI・メール・タスク・チャット等）は connector 宣言。
 - **Obsidian は connector**（専用フラグを廃止し宣言制へ一本化）。
 - **組み込みコネクタは案内型 wizard**：`watari connect <service>` が「案内→貼り付け→その場で実 API
@@ -120,9 +144,36 @@
   （消せる・機械可読）と使い分ける。中継所は **Google Drive appDataFolder**（ユーザーの Drive に出ない・
   API で削除可）。中身は **user＋assistant の発話だけ**（tool 出力・thinking は入れない）。書き込みは
   **chat のラッパー（会話中に逐次）**で、LLM にはやらせない。夢は **chat 起動時に裏で自動実行**（夜間 cron は
-  前提にしない）。消化済み＋90日超の中継発話は削除。確定設計は `docs/plan-transcript-sync.md`。
-- 経緯：`new-watari` の作り込みは撤去し、watari-cli に一本化した。
+  前提にしない）。消化済み＋90日超の中継発話は削除。確定設計は `docs/design/plan-transcript-sync.md`。
+- 経緯：先行プロトタイプは撤去し、本リポジトリ（watari-cli）に一本化した。
+
+## ユーザー向け語彙（用語マップ）
+
+ユーザーが目にする文言（CLI 出力・ヘルプ・エラー・ウィザード・README・ワタリの発話）では、
+内部用語を使わず次の語彙に統一する。エージェント（LLM）だけが読む内部指示（SCHEMA.md の仕様部・
+docstring・コメント・本ファイル）は正確さ優先で従来語を使ってよい。
+
+| 内部用語（ユーザーに出さない） | ユーザー向け正式語彙 |
+|---|---|
+| 夢 / dream / 夢を見て / 夢に流し込む | **記憶の整理**（動詞: 記憶を整理する）。ソースは「整理のときに読み込む」 |
+| 後で効く・あとで効く | あとで役に立つ |
+| カセット / cartridge | **記憶フォルダ**（あなた専用の記憶データ。git リポジトリとして持ち運べる） |
+| 発話中継所 / 中継所 | **会話の同期**（Google Drive のアプリ専用領域を使った同期） |
+| 担当1台だけが夢を見る | **接続したパソコンが読み取り担当**（他のパソコンでは同じサービスを接続しない） |
+| 正本 / 派生 / 決定論 | 記録の原本 / 自動生成のまとめ /（言及しない） |
+| カーソル | どこまで読んだかの記録（読み取り位置） |
+| state / log（ユーザー向け行で） | 記憶のまとめ / 記憶の記録 |
+| スラッグ | 小文字の英数字とハイフン（例: my-notes） |
+| ランタイム | AI ランタイム（Pi）※初出時に「ワタリを動かす AI ツール」と一言注釈 |
+| 組み込みコネクタ / 疎通確認 | 対応サービス / 接続テスト |
+| ingest / regen / recall / audit / scan（説明文中） | 内部コマンド。ヘルプでは「ワタリが自動で使います」と明示 |
+| マシン / パソコン の揺れ | ユーザー向けは「パソコン」に統一（host 記録の説明もパソコン） |
+
+コマンド名：`watari dream` → **`watari scan`**（隠し alias で dream も受ける。表示は scan のみ）。
+自動整理のプロンプトと SKILL のトリガ：「記憶を整理して」（「夢を見て」は同義として受理するが、
+どの表示にも出さない）。
 
 ## 読む順
 1. **このファイル**（何を・今どこ）→ 2. `AGENTS.md`（開発規律・安全境界）→
 3. `SCHEMA.md`（記憶のデータ仕様）/ `SKILL.md`（人格・夢の手順）。
+（利用者向けの導入・使い方は `README.md`。）

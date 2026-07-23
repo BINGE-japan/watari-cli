@@ -1,9 +1,9 @@
 """クラウド置き場（Drive appDataFolder）アダプタの契約テスト。HTTP をモックしてオフライン検証。
 
-実 Google エンドポイントは叩かない（docs/google-oauth-setup.md 参照・binge のアプリ登録が要る）。
-ここでは REST の組み立て・パース・read-modify-write の append・認可フラグ・incremental scope
-（authorize の loopback フロー自体は webbrowser.open だけ差し替えてローカルで完結させ、実際に
-サーバへ到達させて固める）を検証する。
+実 Google エンドポイントは叩かない。ここでは REST の組み立て・パース・read-modify-write の
+append・認可フラグ・incremental scope（authorize の loopback フロー自体は webbrowser.open だけ
+差し替えてローカルで完結させ、実際にサーバへ到達させて固める）と、「同梱既定の OAuth
+クライアントを置かない」こと（未設定時に案内経路へ落ちる）を検証する。
 """
 from __future__ import annotations
 
@@ -147,6 +147,66 @@ class IncrementalScopeTest(_Base):
         self.assertEqual(cloud.granted_scopes(), [cloud.SCOPE, extra_scope])
 
 
+class AuthorizeFailureMessagesTest(_Base):
+    """authorize の失敗メッセージがユーザー語＋再実行コマンド（watari auth）であること。
+    OAuth 実装用語（state / refresh_token / token 交換）や bytes repr を出さない。"""
+
+    def _authorize_with_callback(self, params: dict, token_response=(404, b"{}")):
+        """loopback へ params のコールバックを送り、token エンドポイントは token_response を返す。"""
+        import threading
+        import urllib.request
+        import webbrowser
+
+        def fake_open(url):
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            redirect_uri = qs["redirect_uri"][0]
+            sent = dict(params)
+            if sent.pop("_use_real_state", False):
+                sent["state"] = qs["state"][0]
+            callback = redirect_uri + "?" + urllib.parse.urlencode(sent)
+            threading.Thread(
+                target=lambda: urllib.request.urlopen(callback, timeout=5), daemon=True).start()
+            return True
+
+        self.fake(lambda m, u, d: token_response if u == cloud._TOKEN_URL else (404, b"{}"))
+        saved_open = webbrowser.open
+        webbrowser.open = fake_open
+        try:
+            return cloud.authorize()
+        finally:
+            webbrowser.open = saved_open
+
+    def test_access_denied_is_translated_with_recovery_command(self):
+        ok, message = self._authorize_with_callback({"error": "access_denied"})
+        self.assertFalse(ok)
+        self.assertIn("キャンセル", message)
+        self.assertIn("watari auth", message)
+
+    def test_state_mismatch_is_plain_language(self):
+        ok, message = self._authorize_with_callback({"code": "AUTHCODE", "state": "WRONG"})
+        self.assertFalse(ok)
+        self.assertNotIn("state", message)
+        self.assertIn("watari auth", message)
+
+    def test_token_exchange_failure_has_no_bytes_repr(self):
+        ok, message = self._authorize_with_callback(
+            {"code": "AUTHCODE", "_use_real_state": True},
+            token_response=(500, "サーバエラー".encode("utf-8")))
+        self.assertFalse(ok)
+        self.assertNotIn("b'", message)
+        self.assertNotIn("token 交換", message)
+        self.assertIn("watari auth", message)
+        self.assertIn("サーバエラー", message)  # body は UTF-8 デコードして添える
+
+    def test_missing_refresh_token_is_plain_language(self):
+        ok, message = self._authorize_with_callback(
+            {"code": "AUTHCODE", "_use_real_state": True},
+            token_response=(200, b'{"access_token": "AT"}'))
+        self.assertFalse(ok)
+        self.assertNotIn("refresh_token", message)
+        self.assertIn("watari auth", message)
+
+
 class CredentialsTest(_Base):
     def test_resolve_from_config(self):
         self.assertEqual(cloud.credentials(), ("cid", "csec"))
@@ -165,6 +225,47 @@ class CredentialsTest(_Base):
     def test_bundled_default_used_when_config_empty(self):
         config.save_config(google={})
         self.assertEqual(cloud.credentials(), ("", ""))  # 既定は空（未配布）
+
+
+class NoBundledCredentialsTest(unittest.TestCase):
+    """同梱既定（_BUNDLED_*）は空であること（開発者個人の OAuth クライアントを配布物に
+    焼き込まない——公開ブロッカー対応）と、未設定時に「未設定」経路へ落ちることを固める。
+
+    _Base と違い _BUNDLED_* を差し替えない（ソースの実値そのものを検証する）。
+    """
+
+    _ENV_KEYS = ("WATARI_GOOGLE_CLIENT_ID", "WATARI_GOOGLE_CLIENT_SECRET", "XDG_CONFIG_HOME")
+
+    def setUp(self):
+        self._cfg = tempfile.TemporaryDirectory(prefix="watari-cloud-nobundle-")
+        self._saved_env = {k: os.environ.get(k) for k in self._ENV_KEYS}
+        os.environ.pop("WATARI_GOOGLE_CLIENT_ID", None)
+        os.environ.pop("WATARI_GOOGLE_CLIENT_SECRET", None)
+        os.environ["XDG_CONFIG_HOME"] = self._cfg.name
+
+    def tearDown(self):
+        for k, v in self._saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        self._cfg.cleanup()
+
+    def test_bundled_constants_are_empty(self):
+        self.assertEqual(cloud._BUNDLED_CLIENT_ID, "")
+        self.assertEqual(cloud._BUNDLED_CLIENT_SECRET, "")
+
+    def test_unconfigured_without_env_or_config(self):
+        self.assertEqual(cloud.credentials(), ("", ""))
+        self.assertFalse(cloud.is_configured())
+        self.assertFalse(cloud.is_authorized())
+        self.assertIsNone(cloud.get_store())
+
+    def test_authorize_falls_into_setup_guidance_when_unconfigured(self):
+        ok, message = cloud.authorize()
+        self.assertFalse(ok)
+        self.assertIn("watari auth", message)  # 回復コマンドを必ず案内する
+        self.assertNotIn("client_id", message)  # 英語フィールド名を出さない
 
 
 class DriveOpsTest(_Base):

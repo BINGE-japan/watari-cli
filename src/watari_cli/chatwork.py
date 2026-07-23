@@ -41,16 +41,22 @@ def _headers(token: str) -> dict:
 
 def _get(token: str, url: str):
     status, body = _http("GET", url, _headers(token))
+    hint = connector_http.reconnect_hint("chatwork")
     if status == 401:
-        raise ConnectorError("chatwork: 認証エラー（API トークンを確認してください）")
+        raise ConnectorError(
+            f"chatwork: 認証に失敗しました。トークンが無効か再発行されています。{hint}")
     if status == 204:
         return []  # Chatwork は「新着メッセージなし」を 204 No Content で返す（正常系）
     if status != 200:
-        raise ConnectorError(f"chatwork: API エラー({status}): {body[:200]!r}")
+        raise ConnectorError(
+            f"chatwork: API エラー({status}): {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください（続くようなら、{hint}）")
     try:
         return json.loads(body)
     except json.JSONDecodeError:
-        raise ConnectorError(f"chatwork: 応答が JSON ではありません: {body[:200]!r}")
+        raise ConnectorError(
+            f"chatwork: 応答を読み取れませんでした: {connector_http.body_text(body)}。"
+            f"時間をおいて再実行してください")
 
 
 def verify(token: str) -> tuple[bool, str]:
@@ -63,7 +69,8 @@ def verify(token: str) -> tuple[bool, str]:
         return False, str(error)
     name = data.get("name")
     if not name:
-        return False, "name が取得できませんでした"
+        return False, ("アカウント名を取得できませんでした。トークンを確認してください"
+                       f"（{connector_http.reconnect_hint('chatwork')}）")
     org = data.get("organization_name")
     return True, f"{name}（{org}）" if org else name
 

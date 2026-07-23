@@ -1,128 +1,172 @@
 # Watari CLI
 
-Watari CLI runs **Watari** — your personal agent — on the Pi runtime. `watari
-chat` launches a full Watari session (the bundled persona skill plus your own
-memory); you talk to Watari for the whole session, not as an overlay that
-surfaces on a keyword inside another assistant. Your memory and profile are a
-portable, user-owned cartridge (a git repo) kept separate from the shipped
-engine — so the engine can be handed to someone else, who then grows their own
-Watari.
+> **English summary** — Watari is a personal AI companion that gradually learns about you
+> from your everyday conversations. It runs on Pi (an open-source AI agent runtime, fetched
+> automatically) and keeps your memory in a small git repository that you own.
+> Documentation below is in Japanese; to get started run `watari install`, then `watari chat`.
 
-## Getting started
+## ワタリとは
 
-    uv tool install .
-    watari install
-    watari chat
+ワタリは、会話から「あとで役に立つこと」（決めごと・予定・好み・学んだことなど）を
+少しずつ覚えていく相棒です。`watari chat` で話しかけるだけで、大事なことは自動で記憶に残り、
+次の会話では最初のひとことからそれを踏まえて話します。記憶はあなた専用の「記憶フォルダ」
+（git リポジトリ）に保存され、プログラム本体とは分かれているので、パソコンを替えても持ち運べます。
 
-`watari install` sets up (or adopts an existing cartridge, or restores one
-from a git backup) a memory cartridge and remembers where it lives. `watari
-chat` then launches Watari on Pi — the persona is injected as Pi's system prompt
-and the memory is read through the `watari` CLI (pass `--show` to print the
-command instead of running it, or extra arguments to pass straight through to
-Pi). The Pi runtime needs **Node ≥22.19** on PATH; without it Pi fails to
-start.
+## 必要なもの
 
-Run `watari --help`, or `watari <subcommand> --help`, for the full set of
-subcommands: status/host/dream/recall/ingest/audit/regen/init/install/auth/
-chat/connector.
+- **uv**（Python ツールを入れる道具）。未導入なら:
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`
+  （Windows は <https://docs.astral.sh/uv/> を参照。Python 3.11 以上が必要ですが、
+  無ければ uv が自動で用意します）
+- **Node.js 22.19 以上**。ワタリを動かす AI ランタイム（Pi）の動作に必要です。
+  `node --version` で確認し、古い・未導入なら <https://nodejs.org/> の LTS 版を
+  インストールしてください。
+- **Pi 自体のインストールは不要です。** `watari chat` が PATH 上の `pi` を使い、
+  無ければ `npx -y @earendil-works/pi-coding-agent` で自動取得します。
 
-Memory grows automatically: `watari chat` kicks off a background "dream" at
-startup that distils recent conversations into the log (you can also say
-"夢を見て" in a conversation, or run `watari dream` by hand). A scheduled/headless
-variant is in [`docs/headless-dream.md`](docs/headless-dream.md).
+## はじめかた
 
-## Using Watari on several machines
+1. このリポジトリを取得して中に入る:
 
-Point every machine at the same memory cartridge (a git remote) and Watari is
-one agent everywhere: memory syncs over git (pulled before each session, pushed
-after each write), and your conversations are relayed — user + assistant text
-only, never tool output — through a private cloud folder (Google Drive
-appDataFolder) so a dream on machine B can pick up what you said on machine A.
-Raw transcripts never enter the git history (git can't forget); the cloud relay
-is prunable and self-expires. Choose "sync" vs "local only" during `watari
-install`. The relay needs a one-time Google OAuth app registration — see
-[`docs/google-oauth-setup.md`](docs/google-oauth-setup.md) — after which each
-machine logs in with `watari auth` (it takes the client_id/secret once, from a
-prompt or `WATARI_GOOGLE_CLIENT_*`, and saves them to `config.json`; `watari
-install` runs the same step). Until it is set up, sync is skipped and Watari
-runs local-only.
+        git clone <このリポジトリの URL>
+        cd watari-cli
 
-## Connectors: other sources dream should read
+2. インストール:
 
-For services watari-cli ships a built-in adapter for, `watari connect
-<service>` walks you through it end to end and registers the connector
-declaration for you. Most services take a pasted token: it explains what to
-open and what to paste, then verifies the credential with a real API call
-before saving it. Built-in services so far: Linear (personal API key), GitHub
-(fine-grained personal access token), Notion (internal integration token),
-Slack (pasted user OAuth token, `xoxp-`, created from an app manifest),
-Chatwork (pasted API token), freee (Client ID/Secret — see below), Gmail,
-Google Calendar, and Google Drive (no paste — see below), and Claude
-Code/Codex (no auth at all — they're local transcript files, see below). Run
-`watari connect` with no argument for a menu of available services. Dream then reads
-it deterministically with `watari connector read <name> [--since TS]
-[--json]` (defaults to this machine's saved cursor); the cursor itself only
-advances via `watari ingest --advance-ext`, same as every other source.
+        uv tool install .
 
-freee is its own OAuth app (not the shared Google one): you paste the
-Client ID/Secret from your freee app registration, then `watari connect
-freee` opens a browser approval. It prefers a loopback callback at
-`http://127.0.0.1:8787` (falling back to another port, then to freee's
-`urn:ietf:wg:oauth:2.0:oob` code-paste flow if a loopback listener can't be
-opened) and picks up the deal-issuing company automatically (or asks, if the
-account has more than one). freee's refresh tokens are single-use — every
-token refresh immediately overwrites the stored one — so a stale refresh
-token or an `invalid_grant` response surfaces as "reconnect required"
-(`watari connect freee`) rather than a silent failure.
+3. 初回セットアップ（対話式。記憶フォルダの場所を決めて保存します）:
 
-Gmail/Calendar/Drive don't take a pasted token at all: they reuse the same
-Google OAuth app already registered for the multi-machine relay (see above)
-and extend it with **incremental scopes** — connecting one of them just opens
-a browser approval for that one extra scope (`gmail.readonly`,
-`calendar.readonly`, or `drive.metadata.readonly`), on top of whatever's
-already granted. See
-[`docs/google-oauth-setup.md`](docs/google-oauth-setup.md) for the scopes to
-add to the consent screen, and a note on Gmail/Drive being restricted scopes
-(blocked for unverified External apps — switch the consent screen to
-Internal if you're on Google Workspace).
+        watari install
 
-Claude Code and Codex don't take a token or an OAuth approval either — their
-CLI conversation logs sit on disk with no auth needed, so `watari connect
-claude-code` / `watari connect codex` just look for the usual location
-(`~/.claude/projects`, `~/.codex/sessions`), report what they found ("Claude
-Code の会話ログを見つけました（<path> / セッション N 件）"), and save the
-path; if nothing's there they ask you to paste the directory instead. Unlike
-every other built-in connector, these declare `scope="local"`, not `cloud`:
-each machine dreams its own copy of these logs (there's no single shared
-position to dedupe against, the way there is for a mailbox). `watari
-connector read claude-code`/`codex` rows carry a `role` field
-(`"user"`/`"assistant"`) exactly like the built-in Pi transcript — only
-`role:"user"` rows are grounds for a memory; `assistant` rows are
-context-only. Codex specifically rewrites its entire prior conversation with
-a new session id and new timestamps every time a session is resumed or
-forked; the reader detects and drops that replayed prefix per session (kept
-in file/timestamp order) so the same exchange doesn't get re-ingested under
-a new id, while still keeping anything genuinely new that follows it.
+4. ワタリと話す:
 
-For anything without a built-in adapter — the original hand-rolled Watari's
-`knowledge/` folder of reference notes, an Obsidian vault, or any other
-tool — declare a custom connector instead: `watari connector add --name <slug>
---scope cloud|local --read "..."` records free-text instructions the agent
-follows with its own tools (MCP, etc.) during dream. `watari connector list`
-shows both kinds, labelled built-in vs. custom.
+        watari chat
 
-Status: the `watari` CLI is implemented — memory engine (`src/watari_cli/`) and
-bundled persona skill (`src/watari_cli/skill/`, shipped as package data in the
-wheel), with subcommands status/host/dream/recall/ingest/audit/regen/init/
-install/auth/chat/connect/connector. The project's goal, scope, current status, and
-settled decisions are in [`SPEC.md`](SPEC.md).
+以後は `watari chat` を打つだけです。記憶フォルダの場所は保存済みなので、
+毎回指定する必要はありません。
 
-The memory schema (log/state model, cursors, and the deterministic folding
-rules) is specified in
-[`src/watari_cli/skill/SCHEMA.md`](src/watari_cli/skill/SCHEMA.md); the
-engine that implements it lives in `src/watari_cli/engine/`. A post-MVP roadmap
-of memory ideas is in [`docs/memory-roadmap.md`](docs/memory-roadmap.md).
+## 何が起きるか（記憶のしくみとプライバシー）
 
-This repository contains product code and tests only. User state, runtime
-sessions, credentials, and recovery material are separate artifacts and must not
-be committed here.
+- 記憶は `watari install` で決めた場所の記憶フォルダに保存されます。中身はただの
+  テキストファイルで、いつでも自分で確認・修正・削除できます。
+- 覚えるのは会話の全文ではなく「あとで役に立つこと」だけです。ワタリは `watari chat` の
+  起動時に、前回の続きから会話を自動で読み返して（記憶の整理）、役立つことだけを記憶に
+  追記します。会話の中で「記憶を整理して」と頼む、または `/organize` と打てば
+  その場でも実行できます。
+- パスワードやトークンなどの秘密そのものは覚えません。
+- 記憶が記憶フォルダの外へ自動で送られることはありません（複数のパソコンで使う設定を
+  自分で行った場合のみ、あなたの git リポジトリと Google Drive のアプリ専用領域を使います。
+  詳しくは後述）。
+- 記憶フォルダは git リポジトリなので、プライベートな git リポジトリを同期先に設定すれば
+  そのままバックアップになります（`watari install` 中に設定できます。あとからでも可能です）。
+
+## コマンド一覧
+
+よく使うコマンド:
+
+| コマンド | はたらき |
+|---|---|
+| `watari install` | 初回セットアップ（記憶フォルダの用意と設定の保存） |
+| `watari chat` | ワタリと話す（Pi を起動します） |
+| `watari connect` | 外部サービスと接続（Gmail・カレンダー・Slack など） |
+| `watari status` | 記憶の様子を確認 |
+| `watari auth` | Google にログイン（複数のパソコンで会話を同期する場合だけ） |
+
+内部コマンド（ワタリが自動で使います。手で打つ必要はありません）:
+`scan` / `recall` / `ingest` / `audit` / `regen` / `init` / `host` / `connector`
+
+詳しくは `watari --help`、各コマンドは `watari <コマンド> --help` を参照してください。
+
+## サービス接続（watari connect）
+
+`watari connect <サービス名>` で、外部サービスの動きをワタリに読ませられます。
+接続すると、次の記憶の整理から自動で読み込まれます。ほかに操作は要りません。
+
+対応サービス: Linear・GitHub・Notion・Slack・Chatwork・freee・Gmail・Google カレンダー・
+Google ドライブ・Claude Code・Codex。引数なしの `watari connect` で選択メニューが出ます。
+
+- 多くのサービスは、画面の案内に従ってトークンを 1 つ貼るだけです。貼った内容は
+  その場で接続テストをしてから保存されます。
+- **Gmail・Google カレンダー・Google ドライブ**は貼り付け不要で、ブラウザでの承認だけです。
+  先に Google OAuth アプリの用意（[docs/google-oauth-setup.md](docs/google-oauth-setup.md)）と
+  `watari auth` が必要です。承認は `watari auth` と同じ Google アカウントで行ってください。
+- **freee** は Client ID / Secret を貼ってからブラウザで承認します（画面の案内どおりで完結します）。
+- **Claude Code・Codex** はトークン不要です。パソコン上の会話ログを自動で見つけて
+  （見つからなければフォルダの場所を聞いて）読みます。これらの CLI を使っていない場合、
+  この接続は不要です。
+- 一覧にないツール（参照ノートのフォルダ・Obsidian の保管庫など）は、上級者向けに
+  `watari connector add` で読み方を自由記述で登録できます。`watari connector list` で
+  登録済みの一覧を確認できます。
+
+## 複数のパソコンで使う
+
+1 台で使う分にはこの節は不要です。複数のパソコンで同じワタリを使いたい場合だけ設定します。
+
+手順:
+
+1. Google OAuth アプリを一度だけ用意する —
+   [docs/google-oauth-setup.md](docs/google-oauth-setup.md)（会話の同期に
+   Google Drive のアプリ専用領域を使うためです）。
+2. 記憶フォルダの同期用に、空のプライベート git リポジトリを 1 つ用意する
+   （例: GitHub のプライベートリポジトリ）。
+3. 各パソコンで `watari auth` で Google にログインし、`watari install` で
+   同じ git リポジトリを指定する。
+
+これだけで、記憶は git を通じて、会話は Google Drive のアプリ専用領域を通じて同期されます。
+パソコン A で話したことを、パソコン B のワタリが覚えます。
+
+しくみの補足（読み飛ばして大丈夫です）:
+
+- 同期されるのは、あなたとワタリの発話テキストだけです（ツールの出力は含めません）。
+- 会話の生データは git には入れません（git の履歴は後から消せないためです）。
+  Google Drive 側は読み終えた分から自動で削除され、最長 90 日で消えます。
+- Gmail などの接続サービスは、**接続したパソコンが読み取り担当**になります。
+  他のパソコンでは同じサービスを接続しないでください。
+
+## 自動で記憶を整理する（cron など）
+
+`watari chat` を起動するたびに整理は自動で走るので、通常は設定不要です。
+パソコンを使わない夜間などにも整理させたい場合は
+[docs/scheduled-organize.md](docs/scheduled-organize.md) を参照してください。
+
+## スラッシュコマンド（会話の中で使う）
+
+`watari chat` の会話中に、次のコマンドが使えます。
+
+| コマンド | はたらき |
+|---|---|
+| `/remember <覚えてほしいこと>` | いま言ったことを確実に記憶に残す |
+| `/organize` | 記憶の整理を今すぐ実行する |
+| `/profile` | いまワタリが覚えているあなたのことを、平易な言葉で要約する |
+| `/forget <話題>` | 指定した話題を記憶から外す |
+| `/goal <目標>` | この会話の目標を決めて、達成まで見失わずに進める |
+| `/watari-help` | ワタリの使い方をやさしく説明する |
+
+## モデルの切り替え・ログイン（Pi 側）
+
+どの AI モデルで話すかは、ワタリではなく Pi（ワタリを動かす AI ランタイム）の設定です。
+会話中に `/model` でモデルを切り替え、`/login` で各プロバイダにログインできます。
+詳しくは Pi のドキュメントを参照してください。
+
+相性の良い Pi パッケージ: **pi-codex-goal** — 目標を常時追跡する `/goal` の拡張です。
+
+## トラブルシュート
+
+- 「まだセットアップされていません」と出る → `watari install` を実行してください。
+- `watari chat` で Pi が起動しない → `node --version` が 22.19 以上か確認してください。
+  未導入・古い場合は <https://nodejs.org/> の LTS 版を。
+  `npx -y @earendil-works/pi-coding-agent` が通るかでも確認できます。
+- 「会話の同期にログインし直しが必要です」と出る → `watari auth` を再実行してください。
+- 接続したサービスの認証が切れた → `watari connect <サービス名>` をもう一度実行してください。
+- 「記憶の同期に失敗しました（オフライン？）」と出る → 変更は保存済みです。
+  ネットワーク復帰後の実行時に自動で再試行されます。
+
+## 開発者向け
+
+プロジェクトの目的・スコープ・現在地は [SPEC.md](SPEC.md)、記憶のデータ仕様は
+[src/watari_cli/skill/SCHEMA.md](src/watari_cli/skill/SCHEMA.md)、開発規律・安全境界は
+[AGENTS.md](AGENTS.md) にあります。過去の設計記録は [docs/design/](docs/design/) 配下です。
+
+このリポジトリには製品コードとテストだけが含まれます。ユーザーデータ・認証情報・
+実行時の状態は、決してここにコミットされません。
