@@ -42,6 +42,14 @@ class SourceDiscoveryTest(unittest.TestCase):
             "url": "https://example.test/watari.whl"
         }))
 
+    def test_uv_tool_python_symlink_is_recognized_by_its_installed_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tool_dir = Path(tmp) / "tools"
+            executable = tool_dir / "watari-cli" / "bin" / "python"
+            executable.parent.mkdir(parents=True)
+            executable.symlink_to(Path(tmp) / "managed-python")
+            self.assertTrue(updater.executable_is_in_tool_dir(executable, tool_dir))
+
 
 class CheckoutUpdateTest(unittest.TestCase):
     def _base_responses(self, root: Path):
