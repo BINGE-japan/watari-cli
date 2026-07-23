@@ -40,6 +40,9 @@ if (piRoot) {
   const { ToolExecutionComponent } = await import(toolUiUrl);
   const { AssistantMessageComponent } = await import(assistantUiUrl);
   const { guardAssistantMessage } = await import(new URL("./politeness.mjs", import.meta.url));
+  const { guardVerifiedAssistantMessage } = await import(
+    new URL("./verification.mjs", import.meta.url)
+  );
 
   // Keep reasoning and effort intact while replacing streamed reasoning text
   // with Pi's static "Thinking..." label.
@@ -57,7 +60,7 @@ if (piRoot) {
     const hasToolCalls = message.content.some((block) => block.type === "toolCall");
     const isFinalAnswer = Boolean(message.stopReason) && !hasToolCalls;
     const displayMessage = isFinalAnswer
-      ? guardAssistantMessage(message)
+      ? guardVerifiedAssistantMessage(guardAssistantMessage(message))
       : {
           ...message,
           content: message.content.map((block) =>

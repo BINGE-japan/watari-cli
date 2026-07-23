@@ -31,13 +31,13 @@ def _write_jsonl(path, records):
 
 
 class ExtractSelectionTest(unittest.TestCase):
-    """本物の binge 発話の選別・カーソル絞り込み・Pi 合成 uuid・ヘッダ読取の契約。"""
+    """本物のユーザー発話の選別・カーソル絞り込み・Pi 合成 uuid・ヘッダ読取の契約。"""
 
     def test_scan_pi_selects_only_genuine_user_messages(self):
         with tempfile.TemporaryDirectory(prefix="watari-ex-") as root:
             _write_jsonl(os.path.join(root, "proj", "sess.jsonl"), [
                 # 先頭ヘッダ行：session id と cwd を持つ
-                {"type": "session", "id": "S1", "cwd": "/home/binge/proj",
+                {"type": "session", "id": "S1", "cwd": "/home/example/proj",
                  "timestamp": "2026-07-10T00:00:00.000Z"},
                 {"type": "message", "id": "m1", "timestamp": "2026-07-10T00:00:01.000Z",
                  "message": {"role": "user", "content": "本物の発話"}},
@@ -55,7 +55,7 @@ class ExtractSelectionTest(unittest.TestCase):
             self.assertEqual([m["uuid"] for m in msgs], ["pi:S1:m1"])
             self.assertEqual(msgs[0]["text"], "本物の発話")
             self.assertEqual(msgs[0]["session"], "S1")
-            self.assertEqual(msgs[0]["cwd"], "/home/binge/proj")
+            self.assertEqual(msgs[0]["cwd"], "/home/example/proj")
 
     def test_scan_pi_excludes_at_or_before_cursor(self):
         with tempfile.TemporaryDirectory(prefix="watari-ex-") as root:

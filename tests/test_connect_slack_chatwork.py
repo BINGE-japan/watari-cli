@@ -73,7 +73,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
         slack._http = self._saved_http
         super().tearDown()
 
-    def _auth_ok(self, user="binge", team="Yogo", token="xoxp-secret-123"):
+    def _auth_ok(self, user="example-user", team="Example Team", token="xoxp-secret-123"):
         def router(method, url, headers, data):
             self.assertEqual(headers.get("Authorization"), f"Bearer {token}")
             if url == slack.AUTH_TEST_URL:
@@ -89,7 +89,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
         prompts.text = lambda *a, **k: "xoxp-secret-123"
         rc, out, err = _run(["connect", "slack"])
         self.assertEqual(rc, 0)
-        self.assertIn("binge@Yogo", out)
+        self.assertIn("example-user@Example Team", out)
         self.assertNotIn("xoxp-secret-123", out)  # 認証情報は print しない
         self.assertNotIn("xoxp-secret-123", err)
         self.assertEqual(connectors.auth_key("slack"), "xoxp-secret-123")
@@ -178,7 +178,7 @@ class ConnectorReadSlackTest(_XdgIsolated):
         self._home.cleanup()
         super().tearDown()
 
-    def _match(self, channel_id, ts, channel_name="general", username="binge", text="hi"):
+    def _match(self, channel_id, ts, channel_name="general", username="example-user", text="hi"):
         return {
             "channel": {"id": channel_id, "name": channel_name},
             "ts": ts, "username": username, "user": "U123", "text": text,
@@ -193,7 +193,7 @@ class ConnectorReadSlackTest(_XdgIsolated):
             self.assertEqual(headers.get("Authorization"), "Bearer xoxp-secret")
             if url == slack.AUTH_TEST_URL:
                 return 200, json.dumps(
-                    {"ok": True, "user": "binge", "team": "Yogo", "user_id": "U123"}).encode()
+                    {"ok": True, "user": "example-user", "team": "Example Team", "user_id": "U123"}).encode()
             parsed = urllib.parse.urlparse(url)
             qs = urllib.parse.parse_qs(parsed.query)
             query = qs["query"][0]
@@ -235,7 +235,7 @@ class ConnectorReadSlackTest(_XdgIsolated):
         def router(method, url, headers, data):
             if url == slack.AUTH_TEST_URL:
                 return 200, json.dumps(
-                    {"ok": True, "user": "binge", "team": "Yogo", "user_id": "U123"}).encode()
+                    {"ok": True, "user": "example-user", "team": "Example Team", "user_id": "U123"}).encode()
             return 200, json.dumps({"ok": False, "error": "ratelimited"}).encode()
         slack._http = _fake_http(router)
         rc, out, err = _run(["connector", "read", "slack", "--since", "2023-11-14", "--json"])
@@ -250,7 +250,7 @@ class ConnectorReadSlackTest(_XdgIsolated):
         def router(method, url, headers, data):
             if url == slack.AUTH_TEST_URL:
                 return 200, json.dumps(
-                    {"ok": True, "user": "binge", "team": "Yogo", "user_id": "U123"}).encode()
+                    {"ok": True, "user": "example-user", "team": "Example Team", "user_id": "U123"}).encode()
             return 200, json.dumps({"ok": False, "error": "not_allowed_token_type"}).encode()
         slack._http = _fake_http(router)
         rc, out, err = _run(["connector", "read", "slack", "--since", "2023-11-14", "--json"])
@@ -263,7 +263,7 @@ class ConnectorReadSlackTest(_XdgIsolated):
         def router(method, url, headers, data):
             if url == slack.AUTH_TEST_URL:
                 return 200, json.dumps(
-                    {"ok": True, "user": "binge", "team": "Yogo", "user_id": "U123"}).encode()
+                    {"ok": True, "user": "example-user", "team": "Example Team", "user_id": "U123"}).encode()
             return 200, json.dumps({"ok": False, "error": "missing_scope"}).encode()
         slack._http = _fake_http(router)
         rc, out, err = _run(["connector", "read", "slack", "--since", "2023-11-14", "--json"])
@@ -293,7 +293,7 @@ class ConnectWizardChatworkTest(_XdgIsolated):
         chatwork._http = self._saved_http
         super().tearDown()
 
-    def _me_ok(self, name="Binge", org="Yogo", token="cw-secret-123"):
+    def _me_ok(self, name="Example User", org="Example Team", token="cw-secret-123"):
         def router(method, url, headers, data):
             self.assertEqual(headers.get("X-ChatWorkToken"), token)
             if url == f"{chatwork.API_BASE}/me":
@@ -307,8 +307,8 @@ class ConnectWizardChatworkTest(_XdgIsolated):
         prompts.text = lambda *a, **k: "cw-secret-123"
         rc, out, err = _run(["connect", "chatwork"])
         self.assertEqual(rc, 0)
-        self.assertIn("Binge", out)
-        self.assertIn("Yogo", out)
+        self.assertIn("Example User", out)
+        self.assertIn("Example Team", out)
         self.assertNotIn("cw-secret-123", out)  # 認証情報は print しない
         self.assertNotIn("cw-secret-123", err)
         self.assertEqual(connectors.auth_key("chatwork"), "cw-secret-123")
@@ -366,7 +366,7 @@ class ConnectorReadChatworkTest(_XdgIsolated):
     def _room(self, room_id, last_update_time, name="部屋A"):
         return {"room_id": room_id, "name": name, "last_update_time": last_update_time}
 
-    def _message(self, message_id, send_time, body="hello", account_name="Binge"):
+    def _message(self, message_id, send_time, body="hello", account_name="Example User"):
         return {
             "message_id": message_id, "send_time": send_time, "body": body,
             "account": {"account_id": 1, "name": account_name},
@@ -397,7 +397,7 @@ class ConnectorReadChatworkTest(_XdgIsolated):
         self.assertEqual([r["uuid"] for r in rows], ["chatwork:100:1", "chatwork:200:2"])
         self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
         self.assertIn("Room1", rows[0]["text"])
-        self.assertIn("Binge", rows[0]["text"])
+        self.assertIn("Example User", rows[0]["text"])
         self.assertIn("first", rows[0]["text"])
 
     def test_rooms_not_updated_since_cursor_are_skipped(self):

@@ -45,7 +45,7 @@ class GithubSearchTimestampTest(unittest.TestCase):
         def fake_get(token, url):
             captured.setdefault("urls", []).append(url)
             if url.endswith("/user"):
-                return {"login": "binge"}
+                return {"login": "example-user"}
             return {"items": []}
 
         saved = github._get

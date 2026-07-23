@@ -22,6 +22,12 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **リマインド**：進行中(open_threads)・締切(deadline)・休眠(dormant)の声かけ。
 - **決定論**：log＝正本（追記専用）→ state＝派生（log から再生成）。同じ log＋now なら必ず同じ state。
 - **モデル非依存**：判定はランタイム上のモデル、機械処理は CLI。**CLI はモデルも MCP も呼ばない**。
+- **一般公開可能な汎用性**：特定の個人・会社・別製品・私的運用を条件分岐へ持ち込まない。
+  接続サービスは共通adapter契約で扱い、ユーザー固有の事情は記憶フォルダ/configだけに置く。
+- **観測してから回答**：質問への断定は実ツールの成功結果を evidence として登録した場合だけ許す。
+  未観測・推測表現は保存・表示前に fail closed する。
+- **能動brief**：期限・予定・未返信・未読をread-onlyの実状態から共通signalへ変換し、重要度順に
+  最大3件を提示する。通知履歴はXDG stateにfingerprintだけを持ち、各サービスを正本のまま保つ。
 - **持ち運び**：記憶は WATARI_HOME（git リポ）。`watari install` で挿せば「その人のワタリ」。
 - **ユーザーに生コマンドを手組みさせない**：`watari install` で watari の担当（記憶カセットの用意）が
   menu で完結し home も保存される。以後ユーザーは `watari chat` を打つだけ（`--home` も不要）。
@@ -54,6 +60,11 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     （「夢を見て」も同義として受理するが、どの表示にも出さない）。
   - 同梱スラッシュコマンド（`src/watari_cli/skill/prompts/*.md`：/remember /organize /profile
     /forget /goal /watari-help）。`watari chat` が `--prompt-template` で Pi に登録する。
+  - `watari brief` と同梱 `pi/briefing.ts`：記憶・Gmail・Google Calendar・Linearの現状態から
+    deadline / upcoming event / unread / latest-inbound-without-later-send を抽出。起動時＋15分ごと、
+    最大3件、同一fingerprintは24時間抑制。サービス更新と記憶取り込みcursorは一切動かさない。
+  - 同梱 `pi/verification-guard.ts`：質問ターンで成功したtool callを追跡し、`watari_evidence` で
+    evidence登録されない最終回答と推測表現を保存・表示前にfail closedする。
   - `watari chat` は同梱 preload `pi/quiet-ui.mjs` を Pi プロセスの起動時だけ読み込み、reasoning と
     effort、会話ログを変えずに途中の思考文と tool 実行行を TUI から隠す。最終回答は完了まで
     バッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
@@ -121,7 +132,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   一次情報が取れた時点で本実装のアダプタとして追加する。
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
-  （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。196 テスト＋packaging green。
+  （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。全テスト＋packaging green。
 - **未了（実地検証）**：Google OAuth アプリ登録（`docs/google-oauth-setup.md` の手順）→ 各マシンで
   `watari auth` → 2台間の会話同期を実機で確認する。コード・テストは整備済みで、実環境での通し確認が
   残タスク。client_id 未設定の間は同期はスキップされ、ローカルのみで普通に動く。

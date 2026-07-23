@@ -70,6 +70,7 @@
 | `watari install` | 初回セットアップ（記憶フォルダの用意と設定の保存） |
 | `watari chat` | ワタリと話す（Pi を起動します） |
 | `watari connect` | 外部サービスと接続（Gmail・カレンダー・Slack など） |
+| `watari brief` | 期限・予定・未返信・未読を実状態から最大3件に絞って確認 |
 | `watari status` | 記憶の様子を確認 |
 | `watari auth` | Google にログイン（複数のパソコンで会話を同期する場合だけ） |
 
@@ -81,7 +82,9 @@
 ## サービス接続（watari connect）
 
 `watari connect <サービス名>` で、外部サービスの動きをワタリに読ませられます。
-接続すると、次の記憶の整理から自動で読み込まれます。ほかに操作は要りません。
+接続すると、次の記憶の整理から自動で読み込まれます。Gmail・Google カレンダー・Linearは、
+`watari chat` の起動中に期限・近い予定・未返信・未読も読み取り専用で確認し、重要なものを最大3件だけ
+知らせます。同じ状態は24時間繰り返しません。
 
 対応サービス: Linear・GitHub・Notion・Slack・Chatwork・freee・Gmail・Google カレンダー・
 Google ドライブ・Claude Code・Codex。引数なしの `watari connect` で選択メニューが出ます。

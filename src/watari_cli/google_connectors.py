@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import json
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from email.utils import parseaddr
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from watari_cli import cloud, connector_http
 from watari_cli.connectors import ConnectorError
@@ -131,6 +133,83 @@ def _iso_from_epoch_millis(ms: str | int | None) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
+def _headers(message: dict) -> dict[str, str]:
+    return {str(h.get("name") or "").lower(): str(h.get("value") or "")
+            for h in (message.get("payload") or {}).get("headers") or []}
+
+
+def _is_own_sender(sender: str, own_email: str) -> bool:
+    return parseaddr(sender)[1].lower() == own_email.lower()
+
+
+def _is_automated_sender(sender: str) -> bool:
+    address = parseaddr(sender)[1].lower()
+    return any(marker in address for marker in
+               ("no-reply", "noreply", "mailer-daemon", "notifications@", "notification@"))
+
+
+def gmail_brief(now: datetime) -> list[dict]:
+    """Observe unread mail and threads whose latest message is inbound.
+
+    "返信が必要"とは推測せず、最新が相手からで、その後に自分の送信が無いという API 上の
+    事実だけを signal にする。本文は取得せず metadata のみ。
+    """
+    from watari_cli.briefing import _signal, rank_signals
+
+    token = cloud.access_token()
+    own_email = _get_json("gmail", f"{GMAIL_API}/users/me/profile", token).get("emailAddress") or ""
+    query = "newer_than:30d -from:me -category:promotions -category:social"
+    q = urllib.parse.urlencode({"q": query, "maxResults": "25"})
+    listing = _get_json("gmail", f"{GMAIL_API}/users/me/messages?{q}", token)
+    thread_ids = []
+    for item in listing.get("messages") or []:
+        thread_id = item.get("threadId")
+        if thread_id and thread_id not in thread_ids:
+            thread_ids.append(thread_id)
+
+    params = urllib.parse.urlencode(
+        [("format", "metadata"), ("metadataHeaders", "From"),
+         ("metadataHeaders", "Subject"), ("metadataHeaders", "Auto-Submitted"),
+         ("metadataHeaders", "Precedence"), ("metadataHeaders", "List-Unsubscribe")])
+    signals = []
+    for thread_id in thread_ids[:25]:
+        thread = _get_json(
+            "gmail", f"{GMAIL_API}/users/me/threads/{thread_id}?{params}", token)
+        messages = sorted(thread.get("messages") or [],
+                          key=lambda msg: int(msg.get("internalDate") or 0))
+        if not messages:
+            continue
+        latest = messages[-1]
+        headers = _headers(latest)
+        sender = headers.get("from") or "?"
+        subject = headers.get("subject") or "(件名なし)"
+        ts = datetime.fromtimestamp(int(latest.get("internalDate") or 0) / 1000,
+                                    tz=timezone.utc)
+        age = now - ts
+        unread = "UNREAD" in (latest.get("labelIds") or [])
+        own_latest = bool(own_email) and _is_own_sender(sender, own_email)
+        auto_submitted = headers.get("auto-submitted", "").strip().lower()
+        automated = (_is_automated_sender(sender) or
+                     (bool(auto_submitted) and auto_submitted != "no") or
+                     bool(headers.get("list-unsubscribe")) or
+                     headers.get("precedence", "").lower() in ("bulk", "list", "junk"))
+        pointer = f"https://mail.google.com/mail/u/0/#inbox/{thread_id}"
+        if not own_latest and not automated and age >= timedelta(hours=48):
+            signals.append(_signal(
+                signal_id=f"gmail:thread:{thread_id}", kind="awaiting-reply", source="gmail",
+                urgency=3 if age >= timedelta(days=7) else 2, title=subject,
+                reason="最新メールが相手からで、その後の送信がありません",
+                due_at=None, pointer=pointer,
+            ))
+        elif unread:
+            signals.append(_signal(
+                signal_id=f"gmail:thread:{thread_id}", kind="unread", source="gmail",
+                urgency=1, title=subject, reason=f"未読です（From: {sender}）",
+                due_at=None, pointer=pointer,
+            ))
+    return rank_signals(signals)
+
+
 def gmail_read(since: str | None) -> list[dict]:
     """since 以降のメール一覧を統一形式 [{ts,uuid,text,meta}, ...] で internalDate 昇順に返す。
 
@@ -179,6 +258,64 @@ def _calendar_primary_summary() -> str:
 def calendar_verify() -> tuple[bool, str]:
     """必要スコープ calendar.readonly の確認（無ければブラウザ承認）→ primary カレンダーの表示名。"""
     return _ensure_scope_and_describe(CALENDAR_SCOPE, _calendar_primary_summary)
+
+
+def calendar_brief(now: datetime) -> list[dict]:
+    """Observe events starting in the next seven days, independent of update cursors."""
+    from watari_cli.briefing import _parse_ts, _signal, rank_signals
+
+    token = cloud.access_token()
+    params = {
+        "maxResults": "50", "singleEvents": "true", "orderBy": "startTime",
+        "timeMin": now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "timeMax": (now + timedelta(days=7)).astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    data = _get_json(
+        "calendar", f"{CALENDAR_API}/calendars/primary/events?{urllib.parse.urlencode(params)}", token)
+    try:
+        calendar_tz = ZoneInfo(data.get("timeZone") or "UTC")
+    except ZoneInfoNotFoundError:
+        calendar_tz = timezone.utc
+    signals = []
+    for event in data.get("items") or []:
+        if event.get("status") == "cancelled":
+            continue
+        start_data = event.get("start") or {}
+        start_value = start_data.get("dateTime")
+        if start_value:
+            start_dt = _parse_ts(start_value)
+            if start_dt is None:
+                continue
+            seconds = (start_dt - now).total_seconds()
+            if seconds < 0:
+                continue
+            if seconds <= 2 * 3600:
+                urgency, reason = 3, "開始まで2時間以内です"
+            elif seconds <= 24 * 3600:
+                urgency, reason = 2, "開始まで24時間以内です"
+            else:
+                urgency, reason = 1, "7日以内の予定です"
+        else:
+            try:
+                start_date = date.fromisoformat(start_data.get("date") or "")
+            except (TypeError, ValueError):
+                continue
+            days = (start_date - now.astimezone(calendar_tz).date()).days
+            if days < 0:
+                continue
+            start_dt = datetime.combine(start_date, time.min, tzinfo=calendar_tz)
+            if days == 0:
+                urgency, reason = 2, "今日の終日予定です"
+            else:
+                urgency, reason = 1, "7日以内の終日予定です"
+        event_id = event.get("id")
+        signals.append(_signal(
+            signal_id=f"calendar:event:{event_id}", kind="event", source="calendar",
+            urgency=urgency, title=event.get("summary") or "(無題)", reason=reason,
+            due_at=start_dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            pointer=event.get("htmlLink"),
+        ))
+    return rank_signals(signals)
 
 
 def calendar_read(since: str | None) -> list[dict]:
