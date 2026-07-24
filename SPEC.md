@@ -25,7 +25,8 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **一般公開可能な汎用性**：特定の個人・会社・別製品・私的運用を条件分岐へ持ち込まない。
   接続サービスは共通adapter契約で扱い、ユーザー固有の事情は記憶フォルダ/configだけに置く。
 - **観測してから回答**：質問への断定は実ツールの成功結果を evidence として登録した場合だけ許す。
-  未観測・推測表現は保存・表示前に fail closed する。
+  未観測の回答は保存・表示前に fail closed する。推測表現を含む回答は表示を許可し、
+  小さな警告行を末尾に添える（2026-07-24 にユーザー指示で緩和。回答が隠れると会話が進まないため）。
 - **能動brief**：期限・予定・未返信・未読をread-onlyの実状態から共通signalへ変換し、重要度順に
   最大3件を提示する。通知履歴はXDG stateにfingerprintだけを持ち、各サービスを正本のまま保つ。
 - **本体の自動更新**：`git clone`→`uv tool install .` の導入元が clean な main のときだけ、
@@ -71,7 +72,8 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     `uv tool install --force --refresh`→process再起動。失敗時はcheckoutを旧HEADへ戻し、次回再試行できる。
     更新後は旧/新SHAとcommit件名を最大10件表示。`--no-update`で1回だけ無効化できる。
   - 同梱 `pi/verification-guard.ts`：質問ターンで成功したtool callを追跡し、`watari_evidence` で
-    evidence登録されない最終回答と推測表現を保存・表示前にfail closedする。
+    evidence登録されない最終回答は保存・表示前にfail closedする。推測表現を含む回答は
+    表示し、末尾に警告行を添える（fail closed しない）。
   - `watari chat` は同梱 preload `pi/quiet-ui.mjs` を Pi プロセスの起動時だけ読み込み、reasoning と
     effort、会話ログを変えずに途中の思考文を隠す。tool 実行は通常1操作1行、Ctrl+OでPi本来の詳細へ
     展開する。最終回答は完了までバッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
