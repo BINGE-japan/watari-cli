@@ -730,7 +730,7 @@ def _auto_update_before_chat() -> bool:
         return False
 
     result = updater.update_installed_tool()
-    if result.status == "updated":
+    if result.status in {"updated", "repaired"}:
         try:
             if updater.restart_with_notice(result):
                 return True

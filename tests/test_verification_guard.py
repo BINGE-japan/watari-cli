@@ -9,6 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "src" / "watari_cli" / "pi" / "verification.mjs"
+GUARD_EXTENSION = ROOT / "src" / "watari_cli" / "pi" / "verification-guard.ts"
+SKILL = ROOT / "src" / "watari_cli" / "skill" / "SKILL.md"
 
 
 def _call(function: str, *args):
@@ -39,11 +41,12 @@ class VerificationGuardTest(unittest.TestCase):
         self.assertFalse(_call("requiresObservation", "こんにちは"))
         self.assertFalse(_call("requiresObservation", "この文章を敬語に書き換えて"))
 
-    def test_unverified_answer_fails_closed(self):
-        guarded = _call("guardAnswer", "直っています。", True, False)
-        self.assertTrue(guarded["blocked"])
-        self.assertIn("確認", guarded["text"])
-        self.assertNotIn("直っています", guarded["text"])
+    def test_unverified_answer_is_shown_with_warning(self):
+        text = "直っています。"
+        guarded = _call("guardAnswer", text, True, False)
+        self.assertFalse(guarded["blocked"])
+        self.assertIn(text, guarded["text"])
+        self.assertIn("未確認", guarded["text"])
 
     def test_verified_answer_passes(self):
         text = "実ファイルを確認したところ、設定は有効です。"
@@ -58,6 +61,23 @@ class VerificationGuardTest(unittest.TestCase):
         self.assertFalse(guarded["blocked"])
         self.assertIn(text, guarded["text"])
         self.assertIn("推測", guarded["text"])
+
+    def test_unverified_speculation_is_shown_with_one_combined_warning(self):
+        text = "おそらく設定は有効です。"
+        guarded = _call("guardAnswer", text, True, False)
+        self.assertFalse(guarded["blocked"])
+        self.assertIn(text, guarded["text"])
+        self.assertIn("未確認", guarded["text"])
+        self.assertIn("推測", guarded["text"])
+        self.assertEqual(guarded["text"].count("⚠"), 1)
+
+    def test_prompts_do_not_force_conversation_stopping_fallback(self):
+        extension = GUARD_EXTENSION.read_text(encoding="utf-8")
+        skill = SKILL.read_text(encoding="utf-8")
+        self.assertNotIn("確認手段がない場合は断定せず、その事実だけを伝えてください", extension)
+        self.assertNotIn("確認できないため断定しません", skill)
+        self.assertIn("推測であることを明示", extension)
+        self.assertIn("推測であることを明示", skill)
 
     def test_clarifying_question_is_allowed_without_observation(self):
         text = "どのファイルを指していますか？"
