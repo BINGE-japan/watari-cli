@@ -100,6 +100,15 @@ class ChatLaunchTest(unittest.TestCase):
             self.assertTrue(_auto_update_before_chat())
         restart.assert_called_once_with(result)
 
+    def test_repaired_install_restarts_before_chat_launch(self):
+        result = updater.UpdateResult(
+            status="repaired", before="aaa111", after="aaa111")
+        with mock.patch.object(updater, "consume_notice", return_value=None), \
+             mock.patch.object(updater, "update_installed_tool", return_value=result), \
+             mock.patch.object(updater, "restart_with_notice", return_value=True) as restart:
+            self.assertTrue(_auto_update_before_chat())
+        restart.assert_called_once_with(result)
+
 
 if __name__ == "__main__":
     unittest.main()

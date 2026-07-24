@@ -51,6 +51,23 @@ class SourceDiscoveryTest(unittest.TestCase):
             self.assertTrue(updater.executable_is_in_tool_dir(executable, tool_dir))
 
 
+class InstalledPayloadTest(unittest.TestCase):
+    def test_detects_source_and_installed_package_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_package = root / "source" / "src" / "watari_cli"
+            installed_package = root / "installed" / "watari_cli"
+            source_package.mkdir(parents=True)
+            installed_package.mkdir(parents=True)
+            (source_package / "guard.mjs").write_text("new", encoding="utf-8")
+            (installed_package / "guard.mjs").write_text("old", encoding="utf-8")
+            self.assertFalse(updater.installed_payload_matches_source(
+                root / "source", installed_package=installed_package))
+            (installed_package / "guard.mjs").write_text("new", encoding="utf-8")
+            self.assertTrue(updater.installed_payload_matches_source(
+                root / "source", installed_package=installed_package))
+
+
 class CheckoutUpdateTest(unittest.TestCase):
     def _base_responses(self, root: Path):
         return {
@@ -66,6 +83,37 @@ class CheckoutUpdateTest(unittest.TestCase):
             ("git", "-C", str(root), "merge", "--ff-only", "bbb222"): [_done()],
             ("uv", "tool", "install", "--force", "--refresh", str(root)): [_done()],
         }
+
+    def test_current_checkout_reinstalls_when_installed_payload_is_stale(self):
+        root = Path("/tmp/example-watari")
+        base = ("git", "-C", str(root))
+        runner = FakeRunner({
+            (*base, "branch", "--show-current"): [_done("main\n")],
+            (*base, "status", "--porcelain"): [_done("")],
+            (*base, "rev-parse", "HEAD"): [_done("aaa111\n")],
+            (*base, "fetch", "--quiet", "origin", "main"): [_done()],
+            (*base, "rev-parse", "refs/remotes/origin/main"): [_done("aaa111\n")],
+            ("uv", "tool", "install", "--force", "--refresh", str(root)): [_done()],
+        })
+        result = updater.update_checkout(
+            root, run=runner, installed_matches=lambda _source: False)
+        self.assertEqual(result.status, "repaired")
+        self.assertIn(("uv", "tool", "install", "--force", "--refresh", str(root)), runner.calls)
+
+    def test_current_checkout_skips_reinstall_when_installed_payload_matches(self):
+        root = Path("/tmp/example-watari")
+        base = ("git", "-C", str(root))
+        runner = FakeRunner({
+            (*base, "branch", "--show-current"): [_done("main\n")],
+            (*base, "status", "--porcelain"): [_done("")],
+            (*base, "rev-parse", "HEAD"): [_done("aaa111\n")],
+            (*base, "fetch", "--quiet", "origin", "main"): [_done()],
+            (*base, "rev-parse", "refs/remotes/origin/main"): [_done("aaa111\n")],
+        })
+        result = updater.update_checkout(
+            root, run=runner, installed_matches=lambda _source: True)
+        self.assertEqual(result.status, "current")
+        self.assertFalse(any(call[:2] == ("uv", "tool") for call in runner.calls))
 
     def test_remote_main_fast_forward_updates_and_reports_changes(self):
         root = Path("/tmp/example-watari")
@@ -112,6 +160,14 @@ class CheckoutUpdateTest(unittest.TestCase):
 
 
 class UpdateNoticeTest(unittest.TestCase):
+    def test_repair_notice_is_distinct_from_remote_update(self):
+        result = updater.UpdateResult(
+            status="repaired", before="aaa111", after="aaa111")
+        self.assertEqual(
+            updater.notice_lines(result),
+            ["ワタリの反映漏れを修復しました（aaa111）。"],
+        )
+
     def test_notice_lists_completed_changes(self):
         result = updater.UpdateResult(
             status="updated", before="aaa111", after="bbb222",

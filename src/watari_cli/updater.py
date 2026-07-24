@@ -73,7 +73,49 @@ def _text(result: subprocess.CompletedProcess) -> str:
     return (result.stdout or "").strip()
 
 
-def update_checkout(source: Path, *, run=_run, git: str = "git", uv: str = "uv") -> UpdateResult:
+def installed_package_dir() -> Path | None:
+    try:
+        package = metadata.distribution("watari-cli").locate_file("watari_cli")
+    except (metadata.PackageNotFoundError, OSError):
+        return None
+    path = Path(package).resolve()
+    return path if path.is_dir() else None
+
+
+def _payload_files(package: Path) -> list[Path]:
+    return sorted(
+        path for path in package.rglob("*")
+        if path.is_file()
+        and "__pycache__" not in path.parts
+        and path.suffix != ".pyc"
+        and not path.name.startswith(".")
+    )
+
+
+def installed_payload_matches_source(
+        source: Path, *, installed_package: Path | None = None) -> bool:
+    """Compare shipped source files with the currently installed uv-tool payload."""
+    source_package = Path(source) / "src" / "watari_cli"
+    installed = Path(installed_package) if installed_package else installed_package_dir()
+    if not source_package.is_dir() or installed is None or not installed.is_dir():
+        return False
+    source_files = _payload_files(source_package)
+    if not source_files:
+        return False
+    for source_file in source_files:
+        relative = source_file.relative_to(source_package)
+        installed_file = installed / relative
+        try:
+            if not installed_file.is_file() or source_file.read_bytes() != installed_file.read_bytes():
+                return False
+        except OSError:
+            return False
+    return True
+
+
+def update_checkout(
+        source: Path, *, run=_run, git: str = "git", uv: str = "uv",
+        installed_matches=installed_payload_matches_source) -> UpdateResult:
     """Fast-forward a clean main checkout and reinstall its uv tool atomically enough to retry."""
     source = Path(source)
     base = [git, "-C", str(source)]
@@ -103,7 +145,15 @@ def update_checkout(source: Path, *, run=_run, git: str = "git", uv: str = "uv")
         return UpdateResult("unavailable", before=before, reason="remote", error=remote.stderr)
     after = _text(remote)
     if before == after:
-        return UpdateResult("current", before=before, after=after)
+        if installed_matches(source):
+            return UpdateResult("current", before=before, after=after)
+        installed = run(
+            [uv, "tool", "install", "--force", "--refresh", str(source)], timeout=180)
+        if not _successful(installed):
+            return UpdateResult(
+                "failed", before=before, after=after,
+                reason="install", error=installed.stderr)
+        return UpdateResult("repaired", before=before, after=after)
 
     ancestor = run([*base, "merge-base", "--is-ancestor", before, after])
     if not _successful(ancestor):
@@ -164,6 +214,8 @@ def update_installed_tool(*, run=_run) -> UpdateResult:
 def notice_lines(result: UpdateResult) -> list[str]:
     before = (result.before or "?")[:7]
     after = (result.after or "?")[:7]
+    if result.status == "repaired":
+        return [f"ワタリの反映漏れを修復しました（{after}）。"]
     lines = [f"ワタリを更新しました（{before} → {after}）。"]
     shown = result.changes[:10]
     lines.extend(f"  ・{change}" for change in shown)

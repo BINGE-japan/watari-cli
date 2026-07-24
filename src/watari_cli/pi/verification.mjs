@@ -1,6 +1,8 @@
 const STATE_KEY = Symbol.for("watari.verification-state");
-const UNVERIFIED = "確認できる情報がないため、断定しません。";
+const UNVERIFIED_WARNING = "⚠ この回答には、実際の情報源で未確認の内容が含まれています。";
 const SPECULATION_WARNING = "⚠ この回答には推測表現が含まれています。";
+const UNVERIFIED_SPECULATION_WARNING =
+  "⚠ この回答には、実際の情報源で未確認の内容と推測表現が含まれています。";
 
 export function verificationState() {
   if (!globalThis[STATE_KEY]) {
@@ -51,13 +53,17 @@ export function isClarifyingQuestion(text) {
 
 export function guardAnswer(text, needsObservation, evidenceAccepted) {
   const value = String(text || "");
-  if (containsSpeculation(value)) {
-    return { text: `${value}\n\n${SPECULATION_WARNING}`, changed: true, blocked: false };
+  const speculative = containsSpeculation(value);
+  const unverified = needsObservation && !evidenceAccepted && !isClarifyingQuestion(value);
+  if (!speculative && !unverified) {
+    return { text: value, changed: false, blocked: false };
   }
-  if (needsObservation && !evidenceAccepted && !isClarifyingQuestion(value)) {
-    return { text: UNVERIFIED, changed: true, blocked: true };
-  }
-  return { text: value, changed: false, blocked: false };
+  const warning = speculative && unverified
+    ? UNVERIFIED_SPECULATION_WARNING
+    : speculative
+      ? SPECULATION_WARNING
+      : UNVERIFIED_WARNING;
+  return { text: `${value}\n\n${warning}`, changed: true, blocked: false };
 }
 
 export function guardVerifiedAssistantMessage(message) {
