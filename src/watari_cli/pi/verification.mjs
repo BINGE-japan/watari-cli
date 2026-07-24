@@ -1,6 +1,6 @@
 const STATE_KEY = Symbol.for("watari.verification-state");
 const UNVERIFIED = "確認できる情報がないため、断定しません。";
-const SPECULATIVE = "推測表現を検出したため、回答を表示しませんでした。観測できる情報だけで回答します。";
+const SPECULATION_WARNING = "⚠ この回答には推測表現が含まれています。";
 
 export function verificationState() {
   if (!globalThis[STATE_KEY]) {
@@ -52,7 +52,7 @@ export function isClarifyingQuestion(text) {
 export function guardAnswer(text, needsObservation, evidenceAccepted) {
   const value = String(text || "");
   if (containsSpeculation(value)) {
-    return { text: SPECULATIVE, changed: true, blocked: true };
+    return { text: `${value}\n\n${SPECULATION_WARNING}`, changed: true, blocked: false };
   }
   if (needsObservation && !evidenceAccepted && !isClarifyingQuestion(value)) {
     return { text: UNVERIFIED, changed: true, blocked: true };

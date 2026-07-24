@@ -1,4 +1,4 @@
-"""質問への回答は観測済みでなければ表示しない。"""
+"""質問への回答は観測済みでなければ表示しない。推測表現は警告を添えて表示する。"""
 from __future__ import annotations
 
 import json
@@ -52,10 +52,12 @@ class VerificationGuardTest(unittest.TestCase):
             {"text": text, "changed": False, "blocked": False},
         )
 
-    def test_speculation_fails_even_after_observation(self):
-        guarded = _call("guardAnswer", "おそらく設定は有効です。", True, True)
-        self.assertTrue(guarded["blocked"])
-        self.assertNotIn("おそらく", guarded["text"])
+    def test_speculation_is_shown_with_warning(self):
+        text = "おそらく設定は有効です。"
+        guarded = _call("guardAnswer", text, True, True)
+        self.assertFalse(guarded["blocked"])
+        self.assertIn(text, guarded["text"])
+        self.assertIn("推測", guarded["text"])
 
     def test_clarifying_question_is_allowed_without_observation(self):
         text = "どのファイルを指していますか？"
