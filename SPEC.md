@@ -18,7 +18,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 
 ## 満たすこと（要件）
 - **記録**：会話から「後で効く事実」だけを自動で記憶へ移す（夢ループ）。
-- **伴走**：state（現在地）を初期姿勢に、最初の一文から反映して話す。
+- **伴走**：state（現在地）を初期姿勢に、最初の一文から反映して話す。全 state を会話へ積まず、
+  各入力の直後・モデル呼び出し前に profile＋優先事項＋関連 topic＋topic catalog をローカル検索して
+  一時注入する（上限16KB、モデル呼び出し追加なし、transcriptへ保存しない）。
 - **リマインド**：進行中(open_threads)・締切(deadline)・休眠(dormant)の声かけ。
 - **決定論**：log＝正本（追記専用）→ state＝派生（log から再生成）。同じ log＋now なら必ず同じ state。
 - **モデル非依存**：判定はランタイム上のモデル、機械処理は CLI。**CLI はモデルも MCP も呼ばない**。
@@ -72,6 +74,10 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     `uv tool install --force --refresh`→process再起動。checkoutが既に最新でも、取得フォルダとインストール済み
     ファイルの不一致を検出したら再インストールして反映漏れを修復する。失敗時はcheckoutを旧HEADへ戻し、
     次回再試行できる。更新後は旧/新SHAとcommit件名を最大10件表示。`--no-update`で1回だけ無効化できる。
+  - 同梱 `pi/memory-context.ts` / `memory-context.mjs`：各入力の `before_agent_start` で
+    life/learning state をローカル読取し、profile・優先thread最大3件・文字n-gramで関連する詳細最大6件・
+    全topic名catalogを16KB以内でsystem promptへ一時注入する。モデル・network・subprocessを呼ばず、
+    transcriptへ積まないため、全state一括読込より小さく、毎回の検索自体はモデル往復を増やさない。
   - 同梱 `pi/verification-guard.ts`：質問ターンで成功したtool callを追跡し、`watari_evidence` で
     evidence登録されない最終回答も隠さず、未確認の警告行を添える。推測表現を含む場合も表示し、
     未確認と推測が重なれば1行の警告へまとめる。
