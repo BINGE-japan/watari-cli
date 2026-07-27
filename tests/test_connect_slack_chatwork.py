@@ -280,6 +280,142 @@ class ConnectorReadSlackTest(_XdgIsolated):
         self.assertIn("未接続", err)
 
 
+class ConnectorWatchCliTest(_XdgIsolated):
+    """`watari connector watch slack` で監視チャンネル一覧を設定/表示/解除できる。"""
+
+    def test_set_show_and_clear_watch_channels(self):
+        # 設定（# 付き・重複は正規化される）
+        rc, out, _ = _run(["connector", "watch", "slack", "#general", "dev-chat", "general"])
+        self.assertEqual(rc, 0)
+        self.assertIn("#general", out)
+        self.assertEqual(config.load_slack_watch_channels(), ["general", "dev-chat"])
+
+        # 表示
+        rc, out, _ = _run(["connector", "watch", "slack"])
+        self.assertEqual(rc, 0)
+        self.assertIn("#general", out)
+        self.assertIn("#dev-chat", out)
+
+        # 解除
+        rc, out, _ = _run(["connector", "watch", "slack", "--clear"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(config.load_slack_watch_channels(), [])
+
+        rc, out, _ = _run(["connector", "watch", "slack"])
+        self.assertEqual(rc, 0)
+        self.assertIn("なし", out)
+
+    def test_watch_rejects_non_slack_service(self):
+        rc, out, err = _run(["connector", "watch", "gmail", "general"])
+        self.assertEqual(rc, 1)
+        self.assertIn("slack", err)
+
+
+class ConnectorReadSlackWatchTest(_XdgIsolated):
+    """監視チャンネル設定時、from:/mention に加えて in:#channel クエリが発行され、
+    メンションなしの他人発言（スレッド内の相談など）も拾える。"""
+
+    def setUp(self):
+        super().setUp()
+        self._saved_http = slack._http
+        self._saved_mem = wl.MEM
+        self._home = tempfile.TemporaryDirectory(prefix="watari-connwatch-home-")
+        wl.MEM = self._home.name
+        connectors.save_auth("slack", "xoxp-secret")
+
+    def tearDown(self):
+        slack._http = self._saved_http
+        wl.MEM = self._saved_mem
+        self._home.cleanup()
+        super().tearDown()
+
+    def _match(self, channel_id, ts, channel_name="general", username="example-user", text="hi"):
+        return {
+            "channel": {"id": channel_id, "name": channel_name},
+            "ts": ts, "username": username, "user": "U999", "text": text,
+        }
+
+    def test_watch_channels_add_channel_queries_and_merge_other_users(self):
+        config.save_slack_watch_channels(["#general", "dev-chat"])
+        captured = {"queries": []}
+
+        def router(method, url, headers, data):
+            if url == slack.AUTH_TEST_URL:
+                return 200, json.dumps(
+                    {"ok": True, "user": "me", "team": "T", "user_id": "U123"}).encode()
+            parsed = urllib.parse.urlparse(url)
+            qs = urllib.parse.parse_qs(parsed.query)
+            query = qs["query"][0]
+            captured["queries"].append(query)
+            if query.startswith("in:#general"):
+                # メンションなしの他人発言（from:/mention クエリでは拾えないもの）
+                matches = [self._match("C9", "1700000500.000000",
+                                       username="coworker", text="来週の方針どうしよう?")]
+            else:
+                matches = []
+            return 200, json.dumps({"ok": True, "messages": {
+                "matches": matches,
+                "pagination": {"page": 1, "page_count": 1}}}).encode()
+        slack._http = _fake_http(router)
+
+        rc, out, err = _run(
+            ["connector", "read", "slack", "--since", "2023-11-14T00:00:00.000Z", "--json"])
+        self.assertEqual(rc, 0, err)
+        rows = json.loads(out)
+        self.assertEqual([r["uuid"] for r in rows], ["slack:C9:1700000500.000000"])
+        self.assertIn("coworker", rows[0]["text"])
+        self.assertIn("来週の方針どうしよう", rows[0]["text"])
+        # from:/mention 2クエリ + 監視2チャンネル = 4クエリ、すべて after: 付き
+        self.assertEqual(len(captured["queries"]), 4)
+        self.assertTrue(any(q.startswith("in:#general") for q in captured["queries"]))
+        self.assertTrue(any(q.startswith("in:#dev-chat") for q in captured["queries"]))
+        self.assertTrue(all("after:2023-11-14" in q for q in captured["queries"]))
+
+    def test_no_watch_channels_keeps_two_queries(self):
+        captured = {"queries": []}
+
+        def router(method, url, headers, data):
+            if url == slack.AUTH_TEST_URL:
+                return 200, json.dumps(
+                    {"ok": True, "user": "me", "team": "T", "user_id": "U123"}).encode()
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            captured["queries"].append(qs["query"][0])
+            return 200, json.dumps({"ok": True, "messages": {"matches": []}}).encode()
+        slack._http = _fake_http(router)
+
+        rc, out, err = _run(["connector", "read", "slack", "--json"])
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(len(captured["queries"]), 2)
+
+    def test_search_paginates_until_last_page(self):
+        config.save_slack_watch_channels(["busy"])
+        pages = []
+
+        def router(method, url, headers, data):
+            if url == slack.AUTH_TEST_URL:
+                return 200, json.dumps(
+                    {"ok": True, "user": "me", "team": "T", "user_id": "U123"}).encode()
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            query = qs["query"][0]
+            if not query.startswith("in:#busy"):
+                return 200, json.dumps({"ok": True, "messages": {"matches": []}}).encode()
+            page = int(qs.get("page", ["1"])[0])
+            pages.append(page)
+            return 200, json.dumps({"ok": True, "messages": {
+                "matches": [self._match("CB", f"170000010{page}.000000",
+                                        channel_name="busy", text=f"p{page}")],
+                "pagination": {"page": page, "page_count": 2}}}).encode()
+        slack._http = _fake_http(router)
+
+        rc, out, err = _run(
+            ["connector", "read", "slack", "--since", "2023-11-14T00:00:00.000Z", "--json"])
+        self.assertEqual(rc, 0, err)
+        rows = json.loads(out)
+        self.assertEqual(pages, [1, 2])
+        self.assertEqual([r["uuid"] for r in rows],
+                         ["slack:CB:1700000101.000000", "slack:CB:1700000102.000000"])
+
+
 # ---------------------------------------------------------------------------
 # Chatwork
 # ---------------------------------------------------------------------------

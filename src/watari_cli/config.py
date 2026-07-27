@@ -91,6 +91,30 @@ def save_performance_mode(mode: str) -> str:
     return mode
 
 
+def load_slack_watch_channels() -> list:
+    """Slack コネクタが全件読む監視チャンネル名の一覧（config の "slack_watch_channels"）。
+
+    発言(from:me)とメンション(@me)の検索だけではメンションなしの重要な投稿
+    （例: スレッド内の相談）を取りこぼすため、指定チャンネルは in:#channel 検索で全件読む。
+    """
+    channels = load_config().get("slack_watch_channels")
+    if not isinstance(channels, list):
+        return []
+    return [c for c in channels if isinstance(c, str) and c]
+
+
+def save_slack_watch_channels(channels: list) -> list:
+    """監視チャンネル一覧を正規化（# 除去・前後空白除去・重複除去・順序保持）して保存し、
+    保存後の一覧を返す。"""
+    normalized: list[str] = []
+    for ch in channels:
+        name = str(ch).strip().lstrip("#").strip()
+        if name and name not in normalized:
+            normalized.append(name)
+    save_config(slack_watch_channels=normalized)
+    return normalized
+
+
 def load_connectors() -> list:
     """宣言済み connector の一覧（config の "connectors"）。無ければ空リスト。
 

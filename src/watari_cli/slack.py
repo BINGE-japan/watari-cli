@@ -15,7 +15,12 @@ notion/chatwork と同じ形にしている）。
   `<user名>@<team名>`。
 - 読み取り（`read`）は `search.messages` を2クエリ（`from:<@自分>` と `<@自分>`＝自分への
   メンション）叩き、`after:<since の日付>` を付けて絞る。自分の user_id は `auth.test` から
-  取得する。2クエリの結果は ts で統合し、`uuid`（channel:ts）で重複排除してから昇順に返す。
+  取得する。さらに監視チャンネル（config の `slack_watch_channels`、設定は
+  `watari connector watch slack`）があれば `in:#<channel>` クエリをチャンネルごとに追加する
+  ——発言とメンションだけでは、メンションなしの重要な投稿（スレッド内の相談など）を
+  取りこぼすため。Slack 検索はスレッド返信も索引に含むので in:#channel で拾える。
+  全クエリの結果は ts で統合し、`uuid`（channel:ts）で重複排除してから昇順に返す。
+- 検索は1ページ100件・最大10ページまでめくる（100件超のサイレントな取りこぼし防止）。
 - `after:` は日付粒度（YYYY-MM-DD）でしか絞れないため、since 当日に再取得すると同日分が
   再度返ってくる場合がある——それは呼び出し側の uuid dedup（host 側）に任せる。
 - uuid は `slack:<channel_id>:<message_ts>`。ts は message_ts（epoch秒, 例 "1626339000.000200"）
@@ -28,7 +33,7 @@ import json
 import urllib.parse
 from datetime import datetime, timezone
 
-from watari_cli import connector_http
+from watari_cli import config, connector_http
 from watari_cli.connectors import ConnectorError
 
 AUTH_TEST_URL = "https://slack.com/api/auth.test"
@@ -119,24 +124,37 @@ def _ts_to_iso(ts: str) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
 
 
+# 1クエリあたりの最大ページ数（1ページ100件）。件数の多い監視チャンネルで
+# 100件を超えた分を黙って落とさないための上限付きページめくり。
+_MAX_SEARCH_PAGES = 10
+
+
 def _search(token: str, query: str) -> list[dict]:
-    params = urllib.parse.urlencode(
-        {"query": query, "sort": "timestamp", "sort_dir": "asc", "count": "100"})
-    data = _call(token, "GET", f"{SEARCH_URL}?{params}")
-    if not data.get("ok"):
-        code = data.get("error") or "不明なエラー"
-        if code == "not_allowed_token_type":
+    matches: list[dict] = []
+    for page in range(1, _MAX_SEARCH_PAGES + 1):
+        params = urllib.parse.urlencode(
+            {"query": query, "sort": "timestamp", "sort_dir": "asc",
+             "count": "100", "page": str(page)})
+        data = _call(token, "GET", f"{SEARCH_URL}?{params}")
+        if not data.get("ok"):
+            code = data.get("error") or "不明なエラー"
+            if code == "not_allowed_token_type":
+                raise ConnectorError(
+                    "slack: bot 用トークンでは読めません。watari connect slack で"
+                    " User OAuth Token（xoxp- で始まる方）を貼り直してください")
+            if code == "missing_scope":
+                raise ConnectorError(
+                    "slack: トークンに検索権限（search:read）がありません。"
+                    "watari connect slack でアプリを作り直してください")
             raise ConnectorError(
-                "slack: bot 用トークンでは読めません。watari connect slack で"
-                " User OAuth Token（xoxp- で始まる方）を貼り直してください")
-        if code == "missing_scope":
-            raise ConnectorError(
-                "slack: トークンに検索権限（search:read）がありません。"
-                "watari connect slack でアプリを作り直してください")
-        raise ConnectorError(
-            f"slack: 読み取りに失敗しました（{code}）。"
-            f"{connector_http.reconnect_hint('slack')}")
-    return ((data.get("messages") or {}).get("matches")) or []
+                f"slack: 読み取りに失敗しました（{code}）。"
+                f"{connector_http.reconnect_hint('slack')}")
+        messages = data.get("messages") or {}
+        matches.extend(messages.get("matches") or [])
+        page_count = (messages.get("pagination") or {}).get("page_count") or 1
+        if page >= page_count:
+            break
+    return matches
 
 
 def read(token: str, since: str | None) -> list[dict]:
@@ -156,6 +174,8 @@ def read(token: str, since: str | None) -> list[dict]:
     matches = []
     matches += _search(token, f"from:<@{user_id}> after:{after_date}")
     matches += _search(token, f"<@{user_id}> after:{after_date}")
+    for channel in config.load_slack_watch_channels():
+        matches += _search(token, f"in:#{channel} after:{after_date}")
 
     rows_by_uuid: dict[str, dict] = {}
     for match in matches:

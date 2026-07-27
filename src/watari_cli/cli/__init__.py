@@ -1027,6 +1027,38 @@ def cmd_connector_list(args) -> int:
     return 0
 
 
+def cmd_connector_watch(args) -> int:
+    """Slack の監視チャンネル（メンションなしでも全件読むチャンネル）を設定/表示/解除する。"""
+    if args.service != "slack":
+        print(
+            f"監視チャンネルの設定は現在 slack のみ対応しています: {args.service}",
+            file=sys.stderr)
+        return 1
+    if args.clear:
+        config.save_slack_watch_channels([])
+        print("Slack の監視チャンネルをすべて解除しました")
+        return 0
+    if args.channels:
+        saved = config.save_slack_watch_channels(args.channels)
+        if not saved:
+            print("チャンネル名を指定してください（全部解除する場合は --clear）", file=sys.stderr)
+            return 1
+        print("Slack の監視チャンネルを更新しました:")
+        for ch in saved:
+            print(f"  #{ch}")
+        print("  以降、これらのチャンネルはメンションなしの投稿も記憶の整理で読みます")
+        return 0
+    current = config.load_slack_watch_channels()
+    if not current:
+        print("Slack の監視チャンネル: なし")
+        print("  設定: watari connector watch slack <チャンネル名...>")
+    else:
+        print("Slack の監視チャンネル:")
+        for ch in current:
+            print(f"  #{ch}")
+    return 0
+
+
 def cmd_connector_add(args) -> int:
     """connector を宣言（同名は更新）。実際の読み取りはエージェントが行い、CLI は宣言だけ持つ。"""
     try:
@@ -1389,6 +1421,16 @@ def _build_parser() -> argparse.ArgumentParser:
     pcr.add_argument("--json", action="store_true",
                      help="（内部用）読み取り結果を JSON 配列で出力する")
     pcr.set_defaults(func=cmd_connector_read)
+    pcw = consub.add_parser(
+        "watch", help="Slack で監視するチャンネル（メンションなしも全件読む）を設定/表示する",
+        description="Slack コネクタが自分の発言とメンションに加えて全件読むチャンネルを"
+                    "設定します。引数なしで現在の一覧を表示します。")
+    pcw.add_argument("service", help="対応サービス名（現在は slack のみ）")
+    pcw.add_argument("channels", nargs="*",
+                     help="監視するチャンネル名（# は付けても付けなくてもよい）")
+    pcw.add_argument("--clear", action="store_true",
+                     help="監視チャンネルをすべて解除する")
+    pcw.set_defaults(func=cmd_connector_watch)
     return p
 
 
