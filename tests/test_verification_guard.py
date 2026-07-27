@@ -71,6 +71,13 @@ class VerificationGuardTest(unittest.TestCase):
         self.assertIn("推測", guarded["text"])
         self.assertEqual(guarded["text"].count("⚠"), 1)
 
+    def test_guard_is_idempotent_when_ui_and_message_hook_both_apply_it(self):
+        once = _call("guardAnswer", "直っています。", True, False)
+        twice = _call("guardAnswer", once["text"], True, False)
+        self.assertEqual(twice["text"], once["text"])
+        self.assertEqual(twice["text"].count("⚠"), 1)
+        self.assertFalse(twice["changed"])
+
     def test_prompts_do_not_force_conversation_stopping_fallback(self):
         extension = GUARD_EXTENSION.read_text(encoding="utf-8")
         skill = SKILL.read_text(encoding="utf-8")
