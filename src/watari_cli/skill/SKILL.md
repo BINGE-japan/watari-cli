@@ -152,6 +152,8 @@ user-invocable: true
 - `watari connector list` / `watari connector add --name <slug> --scope cloud|local --read "..."`
   … 整理のときに読み込むソースの一覧／カスタム追加
 - `watari connector read <name> [--since TS] [--json]` … 接続済みサービスを続きから読む
+- `watari connector watch slack [<チャンネル名...>] [--clear]` … Slack でメンションなしも全件読む
+  監視チャンネルを設定/表示/解除（未設定時は自分の発言とメンションのみ。相談の取りこぼし防止）
 - `watari ingest --rows FILE [--advance-pi TS] [--advance-cloud MACHINE=TS]
   [--advance-ext NAME=TS] [--allow-new-domain] [--dry-run]` … 判定済みの行を記憶へ書く
 - `watari audit [--coverage]` … 記憶の検査
