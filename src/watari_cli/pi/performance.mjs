@@ -5,7 +5,7 @@ export const PERFORMANCE_MODES = Object.freeze({
     id: "fast",
     label: "爆速",
     status: "⚡ 爆速",
-    description: "記憶を4KBに絞り、確認処理の余分な1往復を省略",
+    description: "記憶を4KBに絞り、確認処理を完全にスキップ",
     thinkingLevel: "off",
   }),
   balanced: Object.freeze({
