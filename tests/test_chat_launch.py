@@ -63,11 +63,13 @@ class ChatLaunchTest(unittest.TestCase):
         self.assertIn("quiet-ui.mjs", out)
         self.assertIn("--extension", out)
         self.assertIn("politeness-guard.ts", out)
+        self.assertIn("performance.ts", out)
         self.assertIn("memory-context.ts", out)
         self.assertIn("verification-guard.ts", out)
         self.assertIn("briefing.ts", out)
         self.assertNotIn("--model", out)
         self.assertNotIn("--thinking", out)
+        self.assertIn("WATARI_PERFORMANCE_MODE=balanced", out)
 
     def test_extra_args_pass_through_after_persona(self):
         rc, out, _ = _run(["chat", "--show", "--", "-p", "hi"])

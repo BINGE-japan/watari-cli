@@ -19,6 +19,8 @@ import re
 # 自前で持つ（config は engine より前に読まれる層）。
 _SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 CONNECTOR_SCOPES = ("local", "cloud")
+PERFORMANCE_MODES = ("fast", "balanced", "butler")
+DEFAULT_PERFORMANCE_MODE = "balanced"
 
 
 def _config_dir() -> str:
@@ -73,6 +75,20 @@ def save_home(home: str) -> str:
     resolved = os.path.abspath(os.path.expanduser(home))
     save_config(home=resolved)
     return resolved
+
+
+def load_performance_mode() -> str:
+    """保存済みの性能モード。不明値は安全に標準へ戻す。"""
+    mode = load_config().get("performance")
+    return mode if mode in PERFORMANCE_MODES else DEFAULT_PERFORMANCE_MODE
+
+
+def save_performance_mode(mode: str) -> str:
+    """性能モードをこのパソコンの設定へ保存する。"""
+    if mode not in PERFORMANCE_MODES:
+        raise ValueError(f"不明な性能モードです: {mode}")
+    save_config(performance=mode)
+    return mode
 
 
 def load_connectors() -> list:

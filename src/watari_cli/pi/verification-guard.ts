@@ -5,6 +5,7 @@ import {
   requiresObservation,
   verificationState,
 } from "./verification.mjs";
+import { automaticallyAcceptEvidence } from "./performance.mjs";
 
 const toolStarts = new Map<string, { name: string; args: unknown }>();
 
@@ -21,12 +22,15 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", (event) => {
     if (!verificationState().requiresObservation) return;
+    const evidenceInstruction = automaticallyAcceptEvidence()
+      ? "成功したツール確認は自動登録されるため、watari_evidence は呼ばないでください。"
+      : "確認後、最終回答の前に watari_evidence を呼び、観測したツール名と確認内容を登録してください。";
     return {
       systemPrompt:
         event.systemPrompt +
         "\n\n【観測優先】今回の入力は質問です。実ファイル・実画面・計算・接続サービスなど、" +
         "質問に対応する情報源を利用できる場合はツールで確認してください。" +
-        "確認後、最終回答の前に watari_evidence を呼び、観測したツール名と確認内容を登録してください。" +
+        evidenceInstruction +
         "確認できない部分が残る場合も、確認済みの事実と推測を分け、推測であることを明示して回答を続けてください。",
     };
   });
@@ -41,6 +45,7 @@ export default function (pi: ExtensionAPI) {
     if (!started) return;
     const state = verificationState();
     state.observedToolCalls.add(event.toolCallId);
+    if (automaticallyAcceptEvidence()) state.evidenceAccepted = true;
     const ids = state.observedTools.get(event.toolName) ?? [];
     state.observedTools.set(event.toolName, [...ids, event.toolCallId]);
   });

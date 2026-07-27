@@ -206,15 +206,32 @@ function fitToBudget(context, maxBytes) {
 }
 
 export function buildMemoryContext(life, learning, query, options = {}) {
+  if (options.full) {
+    return {
+      memory_checked: true,
+      full_context: true,
+      profile: sortedObject(life?.profile || {}),
+      life: {
+        updated: life?.updated,
+        interests: life?.interests || {},
+        open_threads: life?.open_threads || [],
+      },
+      learning: learning || {},
+    };
+  }
+
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_CONTEXT_BYTES;
   const maxMatches = options.maxMatches ?? DEFAULT_MAX_MATCHES;
+  const attentionLimit = options.attentionLimit ?? 3;
   const docs = documents(life, learning);
   const context = {
     memory_checked: true,
     profile: sortedObject(life?.profile || {}),
-    attention: attentionThreads(life),
+    attention: attentionThreads(life, attentionLimit),
     matches: rank(docs, query, maxMatches).map(outputEntry),
-    catalog: makeCatalog(docs),
+    catalog: options.includeCatalog === false
+      ? { threads: [], interests: [], learning: {} }
+      : makeCatalog(docs),
     catalog_truncated: false,
   };
   return fitToBudget(context, maxBytes);

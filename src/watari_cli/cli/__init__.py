@@ -24,6 +24,7 @@ _TOP_HELP = """\
 よく使うコマンド:
   install   初回セットアップ（記憶フォルダの用意と設定の保存）
   chat      ワタリと話す（Pi を起動します）
+  performance  返信速度と記憶の詳しさを選ぶ
   connect   外部サービスと接続（Gmail・カレンダー・Slack など）
   brief     期限・予定・未返信・未読をまとめて確認
   status    記憶の様子を確認
@@ -751,6 +752,30 @@ def _auto_update_before_chat() -> bool:
     return False
 
 
+_PERFORMANCE_LABELS = {
+    "fast": "爆速",
+    "balanced": "標準",
+    "butler": "スーパー執事",
+}
+
+
+def cmd_performance(args) -> int:
+    """返信速度と、毎回モデルへ渡す記憶量の設定を表示・保存する。"""
+    if args.set_mode:
+        mode = config.save_performance_mode(args.set_mode)
+        print(f"性能モードを「{_PERFORMANCE_LABELS[mode]}」に変更しました。")
+        print("次回の watari chat からもこの設定を使います。")
+        return 0
+
+    mode = config.load_performance_mode()
+    print(f"現在の性能モード: {_PERFORMANCE_LABELS[mode]} ({mode})")
+    print("  fast     爆速 — 記憶を4KBに絞り、確認処理の余分な1往復を省略")
+    print("  balanced 標準 — 関連する記憶を16KB以内で確認（既定）")
+    print("  butler   スーパー執事 — 現在の記憶全体を理解してから回答")
+    print("変更: watari performance --set fast|balanced|butler")
+    return 0
+
+
 def cmd_chat(args) -> int:
     """ワタリを起動する。スキル・記憶を自動で渡すランチャー（モデルは Pi 側の関心事）。
 
@@ -789,11 +814,12 @@ def cmd_chat(args) -> int:
     skill_md = os.path.join(skill, "SKILL.md")
     quiet_ui = _find_pi_runtime_file("quiet-ui.mjs")
     politeness_guard = _find_pi_runtime_file("politeness-guard.ts")
+    performance_extension = _find_pi_runtime_file("performance.ts")
     memory_context = _find_pi_runtime_file("memory-context.ts")
     verification_guard = _find_pi_runtime_file("verification-guard.ts")
     briefing_extension = _find_pi_runtime_file("briefing.ts")
-    if not all((quiet_ui, politeness_guard, memory_context, verification_guard,
-                briefing_extension)):
+    if not all((quiet_ui, politeness_guard, performance_extension, memory_context,
+                verification_guard, briefing_extension)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -805,6 +831,7 @@ def cmd_chat(args) -> int:
     cmd += [
         "--append-system-prompt", skill_md,
         "--extension", politeness_guard,
+        "--extension", performance_extension,
         "--extension", memory_context,
         "--extension", verification_guard,
         "--extension", briefing_extension,
@@ -812,6 +839,7 @@ def cmd_chat(args) -> int:
 
     env = dict(os.environ)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
+    env["WATARI_PERFORMANCE_MODE"] = config.load_performance_mode()
     # Pi が TUI を組み立てる前に process-local の表示設定を当てる。reasoning/effort と会話ログは
     # 変えず、途中の思考文を隠し、tool 実行は通常1行・Ctrl+Oで詳細表示にする。
     # Pi のグローバル settings.json は触らない。
@@ -823,6 +851,7 @@ def cmd_chat(args) -> int:
         print(f"chat が実行するコマンド（実行環境: {runtime}。"
               "未導入でも初回に npx が自動で取得します）:")
         print(f"WATARI_HOME={home}")
+        print(f"WATARI_PERFORMANCE_MODE={env['WATARI_PERFORMANCE_MODE']}")
         print(f"NODE_OPTIONS={shlex.quote(env['NODE_OPTIONS'])}")
         print(" ".join(shlex.quote(c) for c in cmd))
         return 0
@@ -1190,7 +1219,8 @@ def _build_parser() -> argparse.ArgumentParser:
     # prog を明示しないとトップの usage 文字列（watari <コマンド> [オプション]）が
     # サブコマンドの usage 行にそのまま連結されてしまう。
     sub = p.add_subparsers(dest="command", required=True, parser_class=_ArgumentParser,
-                           prog="watari", metavar="{install,chat,connect,status,auth}")
+                           prog="watari",
+                           metavar="{install,chat,performance,connect,status,auth}")
 
     ps = sub.add_parser(
         "status", help="記憶の様子を確認",
@@ -1292,6 +1322,14 @@ def _build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--no-update", action="store_true", help="今回だけ本体の自動更新を確認しない")
     pc.add_argument("extra", nargs="*", help="実行環境（Pi）へそのまま渡す追加引数（上級者向け）")
     pc.set_defaults(func=cmd_chat)
+
+    pperf = sub.add_parser(
+        "performance", help="返信速度と記憶の詳しさを選ぶ",
+        description="返信速度と、回答前に確認する記憶の詳しさを選びます。"
+                    "watari chat 内では /performance から選べます。")
+    pperf.add_argument("--set", dest="set_mode", choices=config.PERFORMANCE_MODES,
+                       help="fast=爆速 / balanced=標準 / butler=スーパー執事")
+    pperf.set_defaults(func=cmd_performance)
 
     pb = sub.add_parser(
         "brief", help="期限・予定・未返信・未読をまとめて確認",

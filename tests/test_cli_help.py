@@ -35,6 +35,7 @@ class TopHelpTest(unittest.TestCase):
         self.assertIn("内部コマンド（ワタリが自動で使います。手で打つ必要はありません）:", text)
         self.assertIn("watari install", text)
         self.assertIn("watari chat", text)
+        self.assertIn("performance", text)
 
     def test_top_help_hides_dream_and_shows_scan(self):
         text = _build_parser().format_help()
