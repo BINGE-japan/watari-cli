@@ -100,7 +100,8 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   read <name> [--since TS] [--json]` が各サービスの決定論リーダーで統一形式 {ts,uuid,text,meta} を
   昇順で返す（HTTP は urllib のみ）。Linear は「自分が担当/作成した issue の updatedAt>since」
   （viewer クエリで疎通確認）。GitHub は Fine-grained PAT 認証・「自分が関与する issue/PR の
-  updated>since」（`GET /user` で疎通確認、Search API は1ページ(per_page=100)打ち切り）。Notion は
+  updated>since」（`GET /user` で疎通確認、GitHubの必須条件に合わせ `is:issue` / `is:pull-request` を
+  別々に検索し、各1ページ(per_page=100)で打ち切り）。Notion は
   Internal Integration Token 認証・「since 以降に編集されたページ」（`GET /users/me` で疎通確認、
   Search API に時刻フィルタが無いため `last_edited_time` 昇順取得＋クライアント側フィルタ、
   1リクエスト(page_size=100)打ち切り、本文は書き写さずタイトル＋ポインタのみ）。Slack は User OAuth

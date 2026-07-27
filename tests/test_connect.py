@@ -315,9 +315,10 @@ class ConnectorReadGithubTest(_XdgIsolated):
         }
 
     def test_json_output_is_unified_and_ascending(self):
-        items = [self._item(20, "2026-07-15T00:00:00Z"),
-                 self._item(10, "2026-07-10T00:00:00Z")]  # 応答順はわざと逆
-        captured = {}
+        issue = self._item(10, "2026-07-10T00:00:00Z")
+        pull_request = self._item(20, "2026-07-15T00:00:00Z")
+        pull_request["pull_request"] = {"url": "https://api.github.com/pulls/20"}
+        captured = {"queries": [], "orders": []}
 
         def router(method, url, headers, data):
             self.assertEqual(headers.get("Authorization"), "Bearer ghp-secret")
@@ -325,9 +326,14 @@ class ConnectorReadGithubTest(_XdgIsolated):
                 return 200, json.dumps({"login": "exampledev"}).encode()
             parsed = urllib.parse.urlparse(url)
             qs = urllib.parse.parse_qs(parsed.query)
-            captured["q"] = qs["q"][0]
-            captured["order"] = qs["order"][0]
-            return 200, json.dumps({"items": items}).encode()
+            query = qs["q"][0]
+            captured["queries"].append(query)
+            captured["orders"].append(qs["order"][0])
+            if "is:issue" in query:
+                return 200, json.dumps({"items": [issue]}).encode()
+            if "is:pull-request" in query:
+                return 200, json.dumps({"items": [pull_request]}).encode()
+            return 422, b'{"message":"missing is qualifier"}'
         github._http = _fake_http(router)
 
         rc, out, err = _run(
@@ -339,8 +345,11 @@ class ConnectorReadGithubTest(_XdgIsolated):
                           "github:example/watari-cli#20@2026-07-15"])
         self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
         self.assertIn("example/watari-cli#10", rows[0]["text"])
-        self.assertEqual(captured["q"], "involves:exampledev updated:>2026-07-01T00:00:00Z")
-        self.assertEqual(captured["order"], "asc")
+        self.assertEqual(
+            captured["queries"],
+            ["involves:exampledev is:issue updated:>2026-07-01T00:00:00Z",
+             "involves:exampledev is:pull-request updated:>2026-07-01T00:00:00Z"])
+        self.assertEqual(captured["orders"], ["asc", "asc"])
 
     def test_auth_error_is_nonzero_with_no_partial_output(self):
         github._http = _fake_http(lambda m, u, h, d: (401, b'{"message":"Bad credentials"}'))

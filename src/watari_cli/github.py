@@ -5,13 +5,14 @@ REST API（https://api.github.com）に `Authorization: Bearer <token>` ヘッ�
 しない形にしている）。
 
 - 疎通確認（`verify`）は `GET /user`。login 名を返す。watari connect のその場確認に使う。
-- 読み取り（`read`）は Search API（`GET /search/issues?q=involves:<login>+updated:><since>`）で
+- 読み取り（`read`）は Search API を issue（`is:issue`）とPR（`is:pull-request`）に分けて呼び、
   「自分が関与する（author/assignee/mention/review 依頼など）issue・PR のうち since 以降に更新」を
   取得し、統一形式 {ts, uuid, text, meta} の行に整形して updated_at 昇順で返す（API 応答の順序に
-  依存せずクライアント側で昇順に揃える）。
-- ページングは 1 ページ（`per_page=100`）で打ち切り。これを超える件数が同一 since 区間に集中する
-  運用はスコープ外（個人が since 以降に関与する issue/PR がこれを超える規模なら since を詰めて
-  呼び直す）。
+  依存せずクライアント側で昇順に揃える）。GitHub Search API がどちらかの `is:` 修飾子を必須に
+  しているため、両方を得るには2回の検索が必要。
+- ページングは issue・PR それぞれ 1 ページ（`per_page=100`）で打ち切り。これを超える件数が同一
+  since 区間に集中する運用はスコープ外（個人が since 以降に関与する issue/PR がこれを超える
+  規模なら since を詰めて呼び直す）。
 - uuid は `github:<owner/repo>#<number>@<更新日YYYY-MM-DD>`（SCHEMA.md の dedup 規約と同一）。
 - issue/PR の中身は書き写さず、記憶に効く要点（repo#number/title/state/updated/comments 件数）
   だけを text に畳む（正本は GitHub のまま）。
@@ -109,11 +110,13 @@ def read(token: str, since: str | None) -> list[dict]:
     # GitHub の検索修飾子 `updated:>` は秒精度まで。カーソルのミリ秒（...T05:07:01.176Z）を
     # そのまま渡すと 422 Unprocessable Entity になるため、秒に丸めてから渡す。
     since_q = _to_search_ts(since) if since else "1970-01-01T00:00:00Z"
-    query = f"involves:{login} updated:>{since_q}"
-    params = urllib.parse.urlencode(
-        {"q": query, "sort": "updated", "order": "asc", "per_page": "100"})
-    data = _get(token, f"{SEARCH_URL}?{params}")
-    items = data.get("items") or []
+    items = []
+    for kind in ("issue", "pull-request"):
+        query = f"involves:{login} is:{kind} updated:>{since_q}"
+        params = urllib.parse.urlencode(
+            {"q": query, "sort": "updated", "order": "asc", "per_page": "100"})
+        data = _get(token, f"{SEARCH_URL}?{params}")
+        items.extend(data.get("items") or [])
     rows = []
     for item in items:
         updated = item["updated_at"]
