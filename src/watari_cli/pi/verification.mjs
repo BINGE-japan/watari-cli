@@ -3,6 +3,11 @@ const UNVERIFIED_WARNING = "⚠ この回答には、実際の情報源で未確
 const SPECULATION_WARNING = "⚠ この回答には推測表現が含まれています。";
 const UNVERIFIED_SPECULATION_WARNING =
   "⚠ この回答には、実際の情報源で未確認の内容と推測表現が含まれています。";
+const WARNINGS = [
+  UNVERIFIED_WARNING,
+  SPECULATION_WARNING,
+  UNVERIFIED_SPECULATION_WARNING,
+];
 
 export function verificationState() {
   if (!globalThis[STATE_KEY]) {
@@ -53,6 +58,11 @@ export function isClarifyingQuestion(text) {
 
 export function guardAnswer(text, needsObservation, evidenceAccepted) {
   const value = String(text || "");
+  // The message_end hook and the buffered TUI both guard the final message.
+  // Treat an existing terminal warning as final so those two paths cannot append it twice.
+  if (WARNINGS.some((warning) => value.trimEnd().endsWith(warning))) {
+    return { text: value, changed: false, blocked: false };
+  }
   const speculative = containsSpeculation(value);
   const unverified = needsObservation && !evidenceAccepted && !isClarifyingQuestion(value);
   if (!speculative && !unverified) {
