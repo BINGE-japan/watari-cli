@@ -31,15 +31,21 @@ shipped as package data in the wheel). The memory schema is specified in
 - Keep the shipped code generic and portable. Personal data belongs in the
   user's own `WATARI_HOME` cartridge, not in this repository.
 
-## Commit completion is mandatory
+## Commit and push completion is mandatory
 
 - A task that changes repository files is incomplete until relevant tests and
   `git diff --check` pass, the diff has been reviewed, and the task's changes
-  have been committed with a meaningful message.
-- Before reporting completion, run `git status --porcelain`.
-  Do not send the final answer while it has output; commit the task's remaining
-  changes first.
+  have been committed with a meaningful message **and pushed to the configured
+  upstream**. A local commit is not completion.
+- Before reporting completion, run `git status --porcelain`, then `git push`,
+  then verify `git rev-list --left-right --count @{upstream}...HEAD` is `0 0`.
+  Do not send the final answer while the worktree has output or the branch is
+  ahead of, behind, or diverged from its upstream.
 - Never sweep unrelated pre-existing changes into a commit. If the worktree is
   already dirty at task start, stop before editing and report the conflict.
+- If the branch has no upstream, push fails, or synchronization would require a
+  merge/rebase/force-push, stop and report that the task is not complete. Never
+  create an upstream or rewrite history automatically.
 - The project-local Pi extension in `.pi/extensions/commit-worktree/` enforces
-  this rule before final answers and again on graceful session shutdown.
+  commit, push, and upstream verification before final answers and again on
+  graceful session shutdown.

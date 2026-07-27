@@ -1,18 +1,21 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   COMMIT_RULE,
-  ensureCommittedWorktree,
+  ensurePublishedWorktree,
+  readGitHead,
   readGitStatus,
 } from "./guard.mjs";
 
 type TurnState = {
   baselineStatus: string;
+  baselineHead: string;
   prompt: string;
   finalized: boolean;
 };
 
 type GuardResult = {
-  status: "not-git" | "clean" | "preexisting-dirty" | "failed" | "committed";
+  status: "not-git" | "clean" | "published" | "pushed" | "committed-and-pushed" |
+    "preexisting-dirty" | "no-upstream" | "diverged" | "not-synchronized" | "failed";
   detail?: string;
   message?: string;
 };
@@ -20,7 +23,7 @@ type GuardResult = {
 function appendFailure(message: any, result: GuardResult) {
   const warning = result.status === "preexisting-dirty"
     ? "\n\nコミットされていない変更が作業開始時から残っているため、完了扱いにしていません。"
-    : `\n\n自動コミットに失敗したため、完了扱いにしていません: ${result.detail || "原因不明"}`;
+    : `\n\nコミットとpushの完了条件を満たしていないため、完了扱いにしていません: ${result.detail || "原因不明"}`;
   let appended = false;
   const content = message.content.map((block: any) => {
     if (appended || block.type !== "text") return block;
@@ -37,8 +40,10 @@ export default function (pi: ExtensionAPI) {
   pi.on("input", async (event) => {
     if (event.source === "extension") return;
     const baseline = await readGitStatus(exec);
+    const baselineHead = baseline.inRepo ? await readGitHead(exec) : "";
     turn = {
       baselineStatus: baseline.status,
+      baselineHead,
       prompt: event.text,
       finalized: false,
     };
@@ -50,12 +55,18 @@ export default function (pi: ExtensionAPI) {
 
   async function finalize(ctx: ExtensionContext): Promise<GuardResult> {
     if (!turn) return { status: "clean" };
-    const result = await ensureCommittedWorktree(exec, turn.baselineStatus, turn.prompt) as GuardResult;
-    turn.finalized = result.status === "not-git" || result.status === "clean" || result.status === "committed";
-    if (result.status === "committed" && ctx.hasUI) {
-      ctx.ui.notify(`Piのコミット漏れを自動修復しました: ${result.message}`, "warning");
-    } else if ((result.status === "failed" || result.status === "preexisting-dirty") && ctx.hasUI) {
-      ctx.ui.notify("未コミットの変更が残っているため、作業は未完了です。", "error");
+    const result = await ensurePublishedWorktree(
+      exec, turn.baselineStatus, turn.baselineHead, turn.prompt,
+    ) as GuardResult;
+    const success = ["not-git", "clean", "published", "pushed", "committed-and-pushed"]
+      .includes(result.status);
+    turn.finalized = success;
+    if (result.status === "committed-and-pushed" && ctx.hasUI) {
+      ctx.ui.notify(`Piのコミット・push漏れを自動修復しました: ${result.message}`, "warning");
+    } else if (result.status === "pushed" && ctx.hasUI) {
+      ctx.ui.notify("Piのpush漏れを自動修復しました。", "warning");
+    } else if (!success && ctx.hasUI) {
+      ctx.ui.notify("コミットとpushが完了していないため、作業は未完了です。", "error");
     }
     return result;
   }
@@ -66,7 +77,7 @@ export default function (pi: ExtensionAPI) {
     if (event.message.role !== "assistant") return;
     if (event.message.content.some((block: any) => block.type === "toolCall")) return;
     const result = await finalize(ctx);
-    if (result.status !== "failed" && result.status !== "preexisting-dirty") return;
+    if (["not-git", "clean", "published", "pushed", "committed-and-pushed"].includes(result.status)) return;
     return { message: appendFailure(event.message, result) };
   });
 
