@@ -789,9 +789,11 @@ def cmd_chat(args) -> int:
     skill_md = os.path.join(skill, "SKILL.md")
     quiet_ui = _find_pi_runtime_file("quiet-ui.mjs")
     politeness_guard = _find_pi_runtime_file("politeness-guard.ts")
+    memory_context = _find_pi_runtime_file("memory-context.ts")
     verification_guard = _find_pi_runtime_file("verification-guard.ts")
     briefing_extension = _find_pi_runtime_file("briefing.ts")
-    if not all((quiet_ui, politeness_guard, verification_guard, briefing_extension)):
+    if not all((quiet_ui, politeness_guard, memory_context, verification_guard,
+                briefing_extension)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -803,6 +805,7 @@ def cmd_chat(args) -> int:
     cmd += [
         "--append-system-prompt", skill_md,
         "--extension", politeness_guard,
+        "--extension", memory_context,
         "--extension", verification_guard,
         "--extension", briefing_extension,
     ] + args.extra

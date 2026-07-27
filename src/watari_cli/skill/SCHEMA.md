@@ -122,9 +122,17 @@ tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExec
 - mastery は行を書く時点で判定して行に記録し、state は最大値を取る（時間で下げない＝定着）。`freshness` は max(行の freshness または ts)、`note` は note を持つ最新行の値、`related` は全行の和集合（初出順）。復習要否は freshness で判断する。
 
 ## state は「地図＋初期姿勢」
-常時 state を抱えはしないが、ワタリは呼ばれたら該当ジャンルの state を読み、最初の一文から反映する
-（学習話題なら learning の該当 domain だけ読めば足りる。例：domain=english なら口語優先・「説明→本人が書く→レビュー」を一文目から）。詳細が要るときだけ log を読みに行く。
-state の note/tags/related は log を引くための手がかり（地図）でもある。
+`watari chat` の Pi extension は**各ユーザー入力の直後・モデル呼び出し前**に life/learning state を
+ローカルで読み、次だけを system prompt へ一時注入する（session transcript には保存しない）：
+- profile（常時）
+- 期限等で優先した open_threads 最大3件
+- 入力と topic/note/domain/related の文字 n-gram が一致する関連項目 最大6件
+- 全 topic 名の小さな catalog（全体上限16KB。超過時は catalog 末尾から省略）
+
+検索はファイル読み取り＋決定的な文字列照合だけで、モデル・ネットワーク・外部サービスを呼ばない。
+したがって全 state を会話へ積み続けず、入力ごとに現在の関連 domain/topic を最初の一文から反映できる。
+catalog に候補があるのに関連項目へ詳細が出ず、回答がその詳細に依存するときだけ log を読みに行く。
+state の note/related は検索と log を引くための手がかり（地図）でもある。
 
 ## note の記述規約（現在形・絶対・簡潔 — log 行の note を書く時点で守る）
 state は毎ターン読まれる hot path。性能（読む側のトークン効率と指示の鋭さ）のため、次を絶対ルールとする。
