@@ -29,6 +29,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **観測を優先して回答**：質問では利用できる実ツールの情報を優先し、成功結果を evidence として登録する。
   未観測または推測表現を含む回答も隠さず、小さな警告行を末尾に添える
   （2026-07-24 にユーザー指示で緩和。回答が隠れると会話が進まないため）。
+- **性能モード**：`/performance` で fast / balanced（既定）/ butler を選び、このパソコンの config に保存する。
+  fast は記憶4KB・関連3件・catalog無し・thinking off・成功toolを自動evidence化、balanced は現行の
+  16KB関連検索とPi本来のthinking、butlerは全state一時注入・thinking high。モデル自体はPi側で選ぶ。
 - **能動brief**：期限・予定・未返信・未読をread-onlyの実状態から共通signalへ変換し、重要度順に
   最大3件を提示する。通知履歴はXDG stateにfingerprintだけを持ち、各サービスを正本のまま保つ。
 - **本体の自動更新**：`git clone`→`uv tool install .` の導入元が clean な main のときだけ、
@@ -57,7 +60,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 
 ## 現在地（status — 変わったら更新する）
 - **実装済み・検証済み**：CLI 一式（status/host/scan(旧 dream。dream は隠し alias)/recall/ingest/
-  audit/regen/init/install/auth/chat/connect/connector）、記憶エンジン、人格スキル同梱（wheel）。
+  audit/regen/init/install/auth/chat/performance/connect/connector）、記憶エンジン、人格スキル同梱（wheel）。
   クリーンルーム(Docker)で「素の環境に導入→カセット
   clone→recall に実記憶→Pi 上で人格＋記憶付きに起動」を実証。人格は原本に寄せて調整済み。
 - **公開品質化（public-ux）済み**：
@@ -74,18 +77,20 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     `uv tool install --force --refresh`→process再起動。checkoutが既に最新でも、取得フォルダとインストール済み
     ファイルの不一致を検出したら再インストールして反映漏れを修復する。失敗時はcheckoutを旧HEADへ戻し、
     次回再試行できる。更新後は旧/新SHAとcommit件名を最大10件表示。`--no-update`で1回だけ無効化できる。
+  - 同梱 `pi/performance.ts` / `performance.mjs`：`/performance` の選択UI、モード共有、thinking切替、
+    `watari performance --set` 経由のconfig永続化、フッター表示。balanced既定、fastはoff、butlerはhigh。
   - 同梱 `pi/memory-context.ts` / `memory-context.mjs`：各入力の `before_agent_start` で
-    life/learning state をローカル読取し、profile・優先thread最大3件・文字n-gramで関連する詳細最大6件・
-    全topic名catalogを16KB以内でsystem promptへ一時注入する。モデル・network・subprocessを呼ばず、
-    transcriptへ積まないため、全state一括読込より小さく、毎回の検索自体はモデル往復を増やさない。
-  - 同梱 `pi/verification-guard.ts`：質問ターンで成功したtool callを追跡し、`watari_evidence` で
-    evidence登録されない最終回答も隠さず、未確認の警告行を添える。推測表現を含む場合も表示し、
-    未確認と推測が重なれば1行の警告へまとめる。
+    life/learning state をローカル読取し、balancedはprofile・優先thread最大3件・文字n-gramで関連する
+    詳細最大6件・全topic名catalogを16KB以内、fastは4KB/1件/3件/catalog無し、butlerは全stateを
+    system promptへ一時注入する。モデル・network・subprocessを呼ばず、transcriptへ積まない。
+  - 同梱 `pi/verification-guard.ts`：質問ターンで成功したtool callを追跡し、balanced/butlerでは
+    `watari_evidence` で登録する。fastでは成功toolを自動登録して余分なモデル1往復を省く。未確認または
+    推測表現を含む最終回答は隠さず、小さな警告行を添える。
   - `watari chat` は同梱 preload `pi/quiet-ui.mjs` を Pi プロセスの起動時だけ読み込み、reasoning と
     effort、会話ログを変えずに途中の思考文を隠す。tool 実行は通常1操作1行、Ctrl+OでPi本来の詳細へ
     展開する。最終回答は完了までバッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
-    決定論で書き換え、未知の違反は安全な敬語文へ fail closed する。モデル・effort・Pi の
-    グローバル設定はユーザー側のまま。
+    決定論で書き換え、未知の違反は安全な敬語文へ fail closed する。モデルとPiのグローバル設定は
+    ユーザー側のまま。thinkingだけは明示選択した性能モード中に限り fast=off / butler=high へ切り替える。
   - 焼き込みの Google OAuth クライアント（`_BUNDLED_CLIENT_ID` / `_BUNDLED_CLIENT_SECRET`）は
     削除。同期を使う利用者は自分の OAuth アプリを登録する（`docs/google-oauth-setup.md`）。
   - README は日本語正本（冒頭に英語要約）・ユーザー導線に全面改稿。設計記録は `docs/design/` へ隔離。
@@ -155,6 +160,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 
 ## 主要決定（蒸し返さない）
 - ランタイムは **Pi 専用**。`watari chat` は Pi ランチャー。モデルは Pi 側で選ぶ（install は非依存）。
+  性能モードはモデルを変えず、ユーザーが明示選択したときだけthinkingと記憶量・確認往復を変える。
 - **敬語はユーザープリファレンスではなく製品不変条件**。ユーザーの入力口調を模倣せず、スキル指示に加えて
   Pi の表示・message_end ガードで明白な違反を保存・表示前に止める（モデルの遵守だけに依存しない）。
 - **transcript は Pi 一本**、それ以外（他 AI CLI・メール・タスク・チャット等）は connector 宣言。

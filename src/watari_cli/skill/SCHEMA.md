@@ -123,15 +123,15 @@ tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExec
 
 ## state は「地図＋初期姿勢」
 `watari chat` の Pi extension は**各ユーザー入力の直後・モデル呼び出し前**に life/learning state を
-ローカルで読み、次だけを system prompt へ一時注入する（session transcript には保存しない）：
-- profile（常時）
-- 期限等で優先した open_threads 最大3件
-- 入力と topic/note/domain/related の文字 n-gram が一致する関連項目 最大6件
-- 全 topic 名の小さな catalog（全体上限16KB。超過時は catalog 末尾から省略）
+ローカルで読み、選択中の性能モードに応じて system prompt へ一時注入する（session transcript には保存しない）：
+- **fast（爆速）**：profile、優先 open_threads 最大1件、文字 n-gram 関連項目最大3件。catalog無し、全体4KB。
+- **balanced（標準・既定）**：profile、優先 open_threads 最大3件、関連項目最大6件、全topic名catalog。
+  全体16KB（超過時はcatalog末尾から省略）。
+- **butler（スーパー執事）**：life/learning state 全体。上限を設けず現在の記憶全体を渡す。
 
 検索はファイル読み取り＋決定的な文字列照合だけで、モデル・ネットワーク・外部サービスを呼ばない。
-したがって全 state を会話へ積み続けず、入力ごとに現在の関連 domain/topic を最初の一文から反映できる。
-catalog に候補があるのに関連項目へ詳細が出ず、回答がその詳細に依存するときだけ log を読みに行く。
+fast/balanced は全 state を会話へ積み続けず、入力ごとに現在の関連 domain/topic を最初の一文から反映する。
+balanced の catalog に候補があるのに関連項目へ詳細が出ず、回答がその詳細に依存するときだけ log を読みに行く。
 state の note/related は検索と log を引くための手がかり（地図）でもある。
 
 ## note の記述規約（現在形・絶対・簡潔 — log 行の note を書く時点で守る）
