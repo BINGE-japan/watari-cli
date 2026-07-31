@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 
 from watari_cli import config
@@ -702,11 +703,20 @@ def _spawn_background_dream(home: str, runtime: str, skill: str) -> None:
     lock_path = os.path.join(_state_dir(), "dream.lock")
     if _dream_recently(lock_path):
         return
+    secure_memory = _find_pi_runtime_file("secure-memory.ts")
+    if not secure_memory:
+        return  # 固定操作だけの安全なworkerを用意できない回は、汎用toolで代行せず停止する
     cmd = _runtime_base(runtime) + [
-        "--no-skills", "--append-system-prompt", os.path.join(skill, "SKILL.md"),
+        "--no-skills", "--no-extensions", "--no-context-files", "--no-builtin-tools",
+        "--append-system-prompt", os.path.join(skill, "SKILL.md"),
+        "--extension", secure_memory,
         "--no-session", "-p", "記憶を整理して"]
     env = dict(os.environ)
     env["WATARI_HOME"] = home
+    executable = shutil.which("watari")
+    if not executable:
+        return
+    env["WATARI_SECURE_EXECUTABLE"] = os.path.realpath(executable)
     env["WATARI_SKIP_AUTO_DREAM"] = "1"
     try:
         proc = subprocess.Popen(
@@ -819,14 +829,17 @@ def cmd_chat(args) -> int:
     memory_context = _find_pi_runtime_file("memory-context.ts")
     verification_guard = _find_pi_runtime_file("verification-guard.ts")
     briefing_extension = _find_pi_runtime_file("briefing.ts")
+    secure_sandbox = _find_pi_runtime_file("secure-sandbox.ts")
+    secure_memory = _find_pi_runtime_file("secure-memory.ts")
     if not all((quiet_ui, politeness_guard, performance_extension, memory_context,
-                verification_guard, briefing_extension)):
+                verification_guard, briefing_extension, secure_sandbox, secure_memory)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
             "  watari-cli を入れ直してください（例: pip install --force-reinstall watari-cli）。\n")
         return 1
-    cmd = _runtime_base(runtime) + ["--no-skills"]
+    # 自動探索される拡張はホスト権限で任意コードを実行できるため無効化し、同梱・監査済みだけを列挙する。
+    cmd = _runtime_base(runtime) + ["--no-skills", "--no-extensions"]
     for template in _bundled_prompt_templates(skill):
         cmd += ["--prompt-template", template]  # /remember /organize 等の同梱スラッシュコマンド
     cmd += [
@@ -836,10 +849,17 @@ def cmd_chat(args) -> int:
         "--extension", memory_context,
         "--extension", verification_guard,
         "--extension", briefing_extension,
+        "--extension", secure_memory,
+        "--extension", secure_sandbox,
     ] + args.extra
 
     env = dict(os.environ)
-    env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
+    env["WATARI_HOME"] = home
+    executable = shutil.which("watari")
+    if not executable:
+        sys.stderr.write("watari 実行ファイルの絶対パスを確認できません。\n")
+        return 1
+    env["WATARI_SECURE_EXECUTABLE"] = os.path.realpath(executable)
     env["WATARI_PERFORMANCE_MODE"] = config.load_performance_mode()
     # Pi が TUI を組み立てる前に process-local の表示設定を当てる。reasoning/effort と会話ログは
     # 変えず、途中の思考文を隠し、tool 実行は通常1行・Ctrl+Oで詳細表示にする。
