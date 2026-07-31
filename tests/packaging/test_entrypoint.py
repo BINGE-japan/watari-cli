@@ -157,6 +157,7 @@ class EntrypointContractTests(unittest.TestCase):
             "watari_cli/pi/verification-guard.ts", "watari_cli/pi/briefing.ts",
             "watari_cli/pi/secure-sandbox.mjs", "watari_cli/pi/secure-sandbox.ts",
             "watari_cli/pi/secure-memory.mjs", "watari_cli/pi/secure-memory.ts",
+            "watari_cli/pi/secure-browser.mjs", "watari_cli/pi/secure-browser.ts",
             *(f"{dist_info}/{name}" for name in ("METADATA", "WHEEL", "entry_points.txt", "top_level.txt", "RECORD"))}
         with zipfile.ZipFile(wheel) as archive:
             names = archive.namelist()
