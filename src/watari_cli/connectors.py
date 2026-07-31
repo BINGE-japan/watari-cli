@@ -107,12 +107,13 @@ def _notion_adapter() -> ServiceAdapter:
         label="Notion", implemented=True,
         guide=[
             "1. https://www.notion.so/my-integrations を開く",
-            "2. 『New integration』で内部インテグレーションを作成し、表示される"
-            "『内部インテグレーションシークレット』（貼り付け用の文字列）をコピーする",
-            "3. 読ませたいページを開き、右上の『…』メニュー →『接続』（Connections）から、"
+            "2. 『New integration』で内部インテグレーションを作成する",
+            "3. 機能は『コンテンツを読み取る』だけを有効にし、更新・挿入・コメントを無効、"
+            "ユーザー情報は『なし』にする",
+            "4. 読ませたいページを開き、右上の『…』メニュー →『接続』（Connections）から、"
             "今作った integration を追加する"
             "（※この手順を飛ばすと、接続は成功してもページを一切読めません）",
-            "4. コピーしたシークレットをここに貼り付ける",
+            "5. 表示されたアクセストークンをコピーして、ここに貼り付ける",
         ],
         verify=notion.verify, read=notion.read,
     )
