@@ -44,42 +44,30 @@ class LinearActionValidationTest(unittest.TestCase):
                 "input": {"issueId": "GEN-123", "admin": True},
             })
 
-    def test_comment_requires_exactly_one_target(self):
-        for payload in (
-            {"body": "hello"},
-            {"issueId": "GEN-1", "projectId": "project_1", "body": "hello"},
-        ):
-            with self.assertRaisesRegex(ValueError, "どちらか一方"):
-                linear_actions.normalize_request({"action": "comment_create", "input": payload})
+    def test_comment_is_limited_to_issue_comments(self):
+        with self.assertRaisesRegex(ValueError, "issueId は必須"):
+            linear_actions.normalize_request({
+                "action": "comment_create", "input": {"body": "hello"},
+            })
+        with self.assertRaisesRegex(ValueError, "許可されていない項目"):
+            linear_actions.normalize_request({
+                "action": "comment_create",
+                "input": {"projectId": "project_1", "body": "hello"},
+            })
         action, target, fields = linear_actions.normalize_request({
             "action": "comment_create",
-            "input": {"projectId": "project_1", "body": "Synthetic comment"},
+            "input": {"issueId": "GEN-1", "body": "Synthetic comment"},
         })
         self.assertEqual(action, "comment_create")
         self.assertEqual(target, {})
-        self.assertEqual(fields["projectId"], "project_1")
+        self.assertEqual(fields["issueId"], "GEN-1")
 
-    def test_project_updates_dates_teams_and_description(self):
-        action, target, fields = linear_actions.normalize_request({
-            "action": "project_update",
-            "input": {
-                "projectId": "project_1",
-                "description": "Synthetic project",
-                "targetDate": "2026-09-01",
-                "teamIds": ["team_1", "team_2"],
-            },
-        })
-        self.assertEqual(action, "project_update")
-        self.assertEqual(target, {"id": "project_1"})
-        self.assertEqual(fields["teamIds"], ["team_1", "team_2"])
-
-    def test_attachment_blocks_credentials_and_non_https_urls(self):
-        for url in ("http://example.test/file", "https://user:pass@example.test/file"):
-            with self.assertRaisesRegex(ValueError, "https URL"):
-                linear_actions.normalize_request({
-                    "action": "attachment_create",
-                    "input": {"issueId": "GEN-1", "title": "Reference", "url": url},
-                })
+    def test_project_workspace_and_attachment_actions_are_rejected(self):
+        for action in ("project_create", "project_update", "label_create",
+                       "attachment_create", "relation_create"):
+            with self.subTest(action=action), self.assertRaisesRegex(
+                    ValueError, "許可されていないLinear操作"):
+                linear_actions.normalize_request({"action": action, "input": {}})
 
     def test_arbitrary_action_and_graphql_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "許可されていないLinear操作"):
@@ -88,16 +76,14 @@ class LinearActionValidationTest(unittest.TestCase):
             })
         with self.assertRaisesRegex(ValueError, "許可されていない項目"):
             linear_actions.normalize_request({
-                "action": "label_create",
-                "input": {"name": "Synthetic", "color": "#123456", "query": "mutation"},
+                "action": "issue_update",
+                "input": {"issueId": "GEN-1", "query": "mutation"},
             })
 
-    def test_priority_dates_colors_and_self_relations_are_validated(self):
+    def test_priority_and_dates_are_validated(self):
         bad_requests = [
             {"action": "issue_create", "input": {"title": "x", "teamId": "t", "priority": 9}},
             {"action": "issue_create", "input": {"title": "x", "teamId": "t", "dueDate": "2026-02-31"}},
-            {"action": "label_create", "input": {"name": "x", "color": "red"}},
-            {"action": "relation_create", "input": {"issueId": "GEN-1", "relatedIssueId": "GEN-1", "type": "blocks"}},
         ]
         for request in bad_requests:
             with self.subTest(request=request), self.assertRaises(ValueError):

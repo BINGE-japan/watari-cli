@@ -53,6 +53,8 @@ class SecretRedactionTest(unittest.TestCase):
         self.assertIn('["linear", "action", "--request", file]', source)
         self.assertNotIn("params.query", source)
         self.assertNotIn('action: Type.Literal("graphql")', source)
+        self.assertNotIn('action: Type.Literal("project_update")', source)
+        self.assertNotIn('action: Type.Literal("label_create")', source)
 
 
 if __name__ == "__main__":

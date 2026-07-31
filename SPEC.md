@@ -168,11 +168,10 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   project contextを全停止し、`secure-memory.ts` の固定操作だけでscan/read/ingest/auditを行う。
   `watari chat` は拡張の自動探索を止め、同梱・監査済み拡張だけを明示ロードする。Linux以外と、
   home全体のように広すぎるcwdではホスト実行へ戻さずtoolを停止する。
-- **Linearの安全な変更仲介（実装・テスト済み）**：キーをモデルへ渡さず、任意GraphQLとAdmin操作を
-  拒否する。team/user/project/state/labelの固定参照と、issue/projectの作成・更新、issue/projectコメント、
-  label・attachment・relation作成だけを入力schemaとPython側の再検証で許可する。全変更はTUIで内容ごとの
-  本人確認を必須とし、画面のない記憶整理からはfail closedする。キー権限はRead / Write / Create issues /
-  Create comments、Adminなしを案内する。
+- **Linearの安全な変更仲介（実装・テスト済み）**：キーをモデルへ渡さず、任意GraphQL・project/workspace
+  変更・Admin操作を拒否する。team/user/project/state/labelの固定参照と、issueの作成・更新・コメントだけを
+  入力schemaとPython側の再検証で許可する。全変更はTUIで内容ごとの本人確認を必須とし、画面のない記憶整理
+  からはfail closedする。キー権限はRead / Create issues / Create comments、Write / Adminなしを案内する。
 - **Obsidianの安全な固定読み取り（実装・テスト済み）**：旧カスタム指示に依存せず、設定済みvaultの
   Markdownだけをlocal connectorとして読む。読み取り先をvault内へ固定し、内部設定・派生まとめ・
   隠し領域・symlinkを除外、件数/文字数を境界時刻を落とさず制限する。

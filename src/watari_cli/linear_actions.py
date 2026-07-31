@@ -8,18 +8,12 @@ from __future__ import annotations
 from datetime import date
 import re
 from typing import Any
-from urllib.parse import urlsplit
 
 from watari_cli import config, linear
 from watari_cli.connectors import ConnectorError
 
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
-_ACTIONS = {
-    "issue_create", "issue_update", "comment_create",
-    "project_create", "project_update", "label_create",
-    "attachment_create", "relation_create",
-}
+_ACTIONS = {"issue_create", "issue_update", "comment_create"}
 
 
 def configured_api_key() -> str:
@@ -145,35 +139,6 @@ def _issue_fields(data: dict, *, create: bool) -> dict:
     return output
 
 
-def _project_fields(data: dict, *, create: bool) -> dict:
-    allowed = {
-        "name", "teamIds", "description", "startDate", "targetDate",
-        "priority", "leadId", "statusId", "labelIds",
-    }
-    _unknown(data, allowed)
-    output: dict[str, Any] = {}
-    if create:
-        output["name"] = _text(data, "name", required=True, maximum=500)
-        output["teamIds"] = _id_list(data, "teamIds", required=True)
-    else:
-        _copy_present(data, output, "name", lambda d, k: _text(d, k, maximum=500))
-        if "teamIds" in data:
-            output["teamIds"] = _id_list(data, "teamIds")
-    _copy_present(data, output, "description",
-                  lambda d, k: _text(d, k, maximum=20_000, nullable=True))
-    for key in ("startDate", "targetDate"):
-        _copy_present(data, output, key, lambda d, k: _date_value(d, k))
-    for key in ("leadId", "statusId"):
-        _copy_present(data, output, key, lambda d, k: _identifier(d, k, nullable=True))
-    if "priority" in data:
-        output["priority"] = _priority(data)
-    if "labelIds" in data:
-        output["labelIds"] = _id_list(data, "labelIds")
-    if not output:
-        raise ValueError("変更する項目を1つ以上指定してください")
-    return output
-
-
 def normalize_request(request: dict) -> tuple[str, dict, dict]:
     request = _mapping(request, "request")
     _unknown(request, {"action", "input"})
@@ -193,55 +158,10 @@ def normalize_request(request: dict) -> tuple[str, dict, dict]:
         fields.pop("issueId")
         return action, target, _issue_fields(fields, create=False)
     if action == "comment_create":
-        _unknown(source, {"issueId", "projectId", "body"})
-        issue = _identifier(source, "issueId")
-        project = _identifier(source, "projectId")
-        if bool(issue) == bool(project):
-            raise ValueError("issueId または projectId のどちらか一方だけを指定してください")
+        _unknown(source, {"issueId", "body"})
+        issue = _identifier(source, "issueId", required=True)
         body = _text(source, "body", required=True, maximum=10_000)
-        target = {"issueId": issue} if issue else {"projectId": project}
-        return action, {}, {**target, "body": body}
-    if action == "project_create":
-        return action, {}, _project_fields(source, create=True)
-    if action == "project_update":
-        _unknown(source, {"projectId", "name", "teamIds", "description",
-                          "startDate", "targetDate", "priority", "leadId", "statusId",
-                          "labelIds"})
-        target = {"id": _identifier(source, "projectId", required=True)}
-        fields = dict(source)
-        fields.pop("projectId")
-        return action, target, _project_fields(fields, create=False)
-    if action == "label_create":
-        _unknown(source, {"name", "color", "description", "teamId"})
-        fields = {"name": _text(source, "name", required=True, maximum=100)}
-        color = _text(source, "color", required=True, maximum=7)
-        if not _COLOR_RE.fullmatch(color or ""):
-            raise ValueError("color は #RRGGBB 形式で指定してください")
-        fields["color"] = color
-        _copy_present(source, fields, "description",
-                      lambda d, k: _text(d, k, maximum=1_000, nullable=True))
-        _copy_present(source, fields, "teamId", lambda d, k: _identifier(d, k, nullable=True))
-        return action, {}, fields
-    if action == "attachment_create":
-        _unknown(source, {"issueId", "title", "url"})
-        issue = _identifier(source, "issueId", required=True)
-        title = _text(source, "title", required=True, maximum=500)
-        url = _text(source, "url", required=True, maximum=2_000)
-        parsed = urlsplit(url or "")
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("url は認証情報を含まない https URL で指定してください")
-        return action, {}, {"issueId": issue, "title": title, "url": url}
-    if action == "relation_create":
-        _unknown(source, {"issueId", "relatedIssueId", "type"})
-        issue = _identifier(source, "issueId", required=True)
-        related = _identifier(source, "relatedIssueId", required=True)
-        relation_type = _text(source, "type", required=True, maximum=20)
-        if relation_type not in {"blocks", "related", "duplicate", "similar"}:
-            raise ValueError("type は blocks / related / duplicate / similar のいずれかです")
-        if issue == related:
-            raise ValueError("同じissue同士は関連付けできません")
-        return action, {}, {"issueId": issue, "relatedIssueId": related,
-                            "type": relation_type}
+        return action, {}, {"issueId": issue, "body": body}
     raise AssertionError(action)
 
 
@@ -259,31 +179,6 @@ _QUERIES = {
     "comment_create": """
       mutation WatariCommentCreate($input: CommentCreateInput!) {
         commentCreate(input: $input) { success comment { id url createdAt } }
-      }
-    """,
-    "project_create": """
-      mutation WatariProjectCreate($input: ProjectCreateInput!) {
-        projectCreate(input: $input) { success project { id name updatedAt } }
-      }
-    """,
-    "project_update": """
-      mutation WatariProjectUpdate($id: String!, $input: ProjectUpdateInput!) {
-        projectUpdate(id: $id, input: $input) { success project { id name updatedAt } }
-      }
-    """,
-    "label_create": """
-      mutation WatariLabelCreate($input: IssueLabelCreateInput!) {
-        issueLabelCreate(input: $input) { success issueLabel { id name color } }
-      }
-    """,
-    "attachment_create": """
-      mutation WatariAttachmentCreate($input: AttachmentCreateInput!) {
-        attachmentCreate(input: $input) { success attachment { id title url } }
-      }
-    """,
-    "relation_create": """
-      mutation WatariRelationCreate($input: IssueRelationCreateInput!) {
-        issueRelationCreate(input: $input) { success issueRelation { id type } }
       }
     """,
 }
