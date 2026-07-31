@@ -73,7 +73,9 @@ def _linear_adapter() -> ServiceAdapter:
         guide=[
             "1. https://linear.app/settings/account/security を開く",
             "2. 'Personal API keys' で新しいキーを作る",
-            "3. 発行されたキーをここに貼り付ける",
+            "3. 権限は Read / Write / Create issues / Create comments を選び、Admin は付けない。"
+            "対象teamはワタリに任せる仕事があるteamをすべて選ぶ",
+            "4. 発行されたキーをここに貼り付ける",
         ],
         verify=linear.verify, read=linear.read, brief=linear.brief,
     )
