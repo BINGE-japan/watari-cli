@@ -127,6 +127,7 @@ Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari c
   `watari auth` が必要です。承認は `watari auth` と同じ Google アカウントで行ってください。
 - **Linear** はタスクの確認・作成・更新・コメントに必要なRead / Create issues / Create commentsだけを
   付け、Write / Adminは付けません。AIにはキーを渡さず、変更は毎回本人確認を挟みます。
+- **Notion** はコンテンツ読み取りだけを有効にし、更新・挿入・コメント・ユーザー情報は許可しません。
 - **freee** は Client ID / Secret を貼ってからブラウザで承認します（画面の案内どおりで完結します）。
 - **Obsidian** はトークン不要です。指定したvault内のMarkdownだけを読み、`.obsidian`・隠しフォルダ・
   `Journal/Watari`・シンボリックリンクは除外します。任意のシェル命令は実行しません。

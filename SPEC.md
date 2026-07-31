@@ -110,7 +110,8 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   別々に検索し、各1ページ(per_page=100)で打ち切り）。Notion は
   Internal Integration Token 認証・「since 以降に編集されたページ」（`GET /users/me` で疎通確認、
   Search API に時刻フィルタが無いため `last_edited_time` 昇順取得＋クライアント側フィルタ、
-  1リクエスト(page_size=100)打ち切り、本文は書き写さずタイトル＋ポインタのみ）。Slack は User OAuth
+  1リクエスト(page_size=100)打ち切り、本文は書き写さずタイトル＋ポインタのみ）。Notion connectionの
+  capabilityもcontent readだけとし、update/insert/comment/user infoを付けない。Slack は User OAuth
   Token（`xoxp-`、案内内のマニフェストから作成したアプリをインストールして発行）貼り付け・
   `search.messages` を `from:<@自分>` と自分へのメンションの2クエリで取得し ts で統合＋uuid dedup
   （`auth.test` で疎通確認、HTTP 200 でも body の ok を必ず検査、`after:` は日付粒度のため同日再取得は
