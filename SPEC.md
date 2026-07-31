@@ -173,6 +173,11 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   変更・Admin操作を拒否する。team/user/project/state/labelの固定参照と、issueの作成・更新・コメントだけを
   入力schemaとPython側の再検証で許可する。全変更はTUIで内容ごとの本人確認を必須とし、画面のない記憶整理
   からはfail closedする。キー権限はRead / Create issues / Create comments、Write / Adminなしを案内する。
+- **GitHubリポジトリ変更の安全な仲介（実装・テスト済み）**：`gh` の認証情報と任意APIをモデルへ渡さず、
+  ログイン中の本人アカウントに対するリポジトリ作成・削除だけを固定toolにする。名前・公開範囲・説明を
+  検証し、作成先や削除対象をTUIへ明示して1操作ごとの本人承認を必須とする。画面なしではfail closedし、
+  他ユーザー・Organization・任意endpointの変更は許可しない。作成と削除を対で維持するため、`repo` と
+  `delete_repo` scopeはホスト側に保持する。
 - **Obsidianの安全な固定読み取り（実装・テスト済み）**：旧カスタム指示に依存せず、設定済みvaultの
   Markdownだけをlocal connectorとして読む。読み取り先をvault内へ固定し、内部設定・派生まとめ・
   隠し領域・symlinkを除外、件数/文字数を境界時刻を落とさず制限する。
