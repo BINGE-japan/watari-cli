@@ -173,10 +173,11 @@ def semantic_diff(current, generated):
                 else:
                     cmp(f"{path}.{k}", a[k], b[k])
         elif isinstance(a, list) and isinstance(b, list):
-            if path.endswith(".related"):
+            if path.endswith((".related", ".tags")):
                 if set(a) != set(b):
                     diffs.append(f"≠ {path}: {sorted(set(a) ^ set(b))}")
-            else:  # open_threads: topic をキーに比較
+            elif all(isinstance(x, dict) and "topic" in x for x in a + b):
+                # open_threads: topic をキーに比較
                 am = {x["topic"]: x for x in a}
                 bm = {x["topic"]: x for x in b}
                 for k in am.keys() | bm.keys():
@@ -186,6 +187,11 @@ def semantic_diff(current, generated):
                         diffs.append(f"- {path}[{k}]（現在のまとめにのみ存在）")
                     else:
                         cmp(f"{path}[{k}]", am[k], bm[k])
+            elif a != b:
+                diffs.append(
+                    f"≠ {path}: {json.dumps(a, ensure_ascii=False)[:60]} -> "
+                    f"{json.dumps(b, ensure_ascii=False)[:60]}"
+                )
         elif a != b:
             diffs.append(f"≠ {path}: {json.dumps(a, ensure_ascii=False)[:60]} -> {json.dumps(b, ensure_ascii=False)[:60]}")
     for g in current.keys() & generated.keys():
