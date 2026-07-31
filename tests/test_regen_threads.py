@@ -37,7 +37,7 @@ def thread_row(topic, days_ago, uuid, *, status=None, note="n", deadline=None):
 
 def fold_threads(rows, now=NOW):
     """fold_life の open_threads 出力を {topic: dict} で返す。"""
-    _profile, _interests, threads = regen_state.fold_life(rows, now)
+    _profile, _facts, _interests, threads = regen_state.fold_life(rows, now)
     return {t["topic"]: t for t in threads}
 
 

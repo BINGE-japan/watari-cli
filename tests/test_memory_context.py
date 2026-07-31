@@ -38,9 +38,10 @@ def _states(topic_count: int = 0) -> tuple[dict, dict]:
     life = {
         "updated": "2026-01-01T00:00:00.000Z",
         "profile": {
-            "name": "binge",
+            "name": "sample-user",
             "teaching_style": "答えを与えず一工程ずつ進める",
         },
+        "facts": {},
         "interests": {
             "音楽制作": {"last": "2026-01-01T00:00:00.000Z", "heat": 2,
                      "note": "ライブ用の音源を制作する。"},
@@ -87,10 +88,26 @@ class MemoryContextTest(unittest.TestCase):
     def test_relevant_detail_is_selected_while_profile_is_always_present(self):
         life, learning = _states()
         result = _build(life, learning, "strictNullChecksはどこまで理解してた？")
-        self.assertEqual(result["profile"]["name"], "binge")
+        self.assertEqual(result["profile"]["name"], "sample-user")
         matches = {(item["kind"], item["topic"]) for item in result["matches"]}
         self.assertIn(("study", "TypeScript"), matches)
         self.assertNotIn(("interest", "音楽制作"), matches)
+
+    def test_relevant_fact_is_searchable_without_being_always_present(self):
+        life, learning = _states()
+        life["facts"] = {
+            "render_backend": {
+                "last": "2026-01-05T00:00:00.000Z",
+                "note": "描画基盤にはAurora Engineを使う。",
+            },
+        }
+        result = _build(life, learning, "Aurora Engineの描画基盤は？")
+        self.assertNotIn("render_backend", result["profile"])
+        self.assertIn(
+            ("fact", "render_backend"),
+            {(item["kind"], item["topic"]) for item in result["matches"]},
+        )
+        self.assertIn("render_backend", result["catalog"]["facts"])
 
     def test_catalog_keeps_topic_names_without_all_notes(self):
         life, learning = _states()
@@ -100,6 +117,34 @@ class MemoryContextTest(unittest.TestCase):
         self.assertIn("TypeScript", result["catalog"]["learning"]["web"])
         rendered = json.dumps(result, ensure_ascii=False)
         self.assertNotIn("strictNullChecksとSymbol型を学習済み", rendered)
+
+    def test_oversized_profile_cannot_evict_attention_matches_and_catalog(self):
+        life, learning = _states()
+        life["profile"] = {f"account_fact_{index:03d}": "x" * 500 for index in range(40)}
+        life["profile"]["z_response_style"] = "回答は必ず簡潔にする。" + "y" * 900
+        life["facts"] = {
+            "aurora_renderer": {
+                "last": "2026-01-05T00:00:00.000Z",
+                "note": "Aurora Rendererの移行判断を記録している。",
+            },
+        }
+        result = _build(life, learning, "Aurora Renderer")
+        self.assertTrue(result["profile_truncated"])
+        self.assertIn("z_response_style", result["profile"])
+        self.assertEqual(len(result["attention"]), 2)
+        self.assertIn("aurora_renderer", {item["topic"] for item in result["matches"]})
+        self.assertIn("Watariの応答高速化", result["catalog"]["threads"])
+        self.assertIn("TypeScript", result["catalog"]["learning"]["web"])
+
+    def test_common_negative_phrase_does_not_create_false_match(self):
+        life, learning = _states()
+        life["open_threads"] = [{
+            "topic": "自動更新の修復",
+            "last": "2026-01-03T00:00:00.000Z",
+            "note": "自動更新されない問題を修復する。",
+        }]
+        result = _build(life, learning, "具体的に何が正常じゃないの？")
+        self.assertEqual(result["matches"], [])
 
     def test_rendered_context_has_a_hard_byte_cap(self):
         life, learning = _states(topic_count=500)

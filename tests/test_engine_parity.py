@@ -160,6 +160,49 @@ class IngestApplyTest(unittest.TestCase):
         self.assertEqual(wl.load_log("life"), [])            # log は無傷
         self.assertFalse(os.path.exists(host.host_path(self.home)))  # host 記録も書かない
 
+    def test_new_profile_row_requires_explicit_mode(self):
+        row = self._row(
+            uuid="profile-no-mode",
+            kind="fact",
+            profile={"key": "response_style", "value": "brief"},
+        )
+        with self.assertRaises(ValueError) as cm:
+            ingest.apply([row])
+        self.assertTrue(any("profile.mode" in error for error in cm.exception.args[0]))
+        self.assertEqual(wl.load_log("life"), [])
+
+    def test_profile_mode_rejects_unknown_value(self):
+        row = self._row(
+            uuid="profile-mode",
+            kind="fact",
+            profile={"key": "response_style", "value": "brief", "mode": "sometimes"},
+        )
+        with self.assertRaises(ValueError) as cm:
+            ingest.apply([row])
+        self.assertTrue(any("profile.mode" in error for error in cm.exception.args[0]))
+        self.assertEqual(wl.load_log("life"), [])
+
+    def test_new_profile_row_migrates_legacy_value_to_relevant_facts(self):
+        legacy = self._row(
+            uuid="profile-old",
+            kind="fact",
+            ts="2026-07-10T00:00:00.000Z",
+            profile={"key": "render_backend", "value": "Aurora"},
+        )
+        migrated = self._row(
+            uuid="profile-new",
+            kind="fact",
+            ts="2026-07-11T00:00:00.000Z",
+            profile={"key": "render_backend", "value": "Aurora", "mode": "relevant"},
+            note=None,
+        )
+        _write_jsonl(wl.log_path("life"), [legacy])  # 旧記録は読み取り互換
+        ingest.apply([migrated])
+        with open(wl.state_path("life"), encoding="utf-8") as stream:
+            life = json.load(stream)
+        self.assertNotIn("render_backend", life["profile"])
+        self.assertEqual(life["facts"]["render_backend"]["note"], "Aurora")
+
     def test_cursor_backward_rejected_and_atomic(self):
         ingest.apply([self._row(uuid="u1")], advance_pi="2026-07-10T00:00:00.000Z")
         with self.assertRaises(ValueError) as cm:
@@ -392,6 +435,36 @@ class FoldLearningTest(unittest.TestCase):
         self.assertEqual(t["note"], "サマリ")
 
 
+class FoldProfileModesTest(unittest.TestCase):
+    """profile.mode で常時注入と関連時検索を分離する。"""
+
+    def _fact(self, ts, uuid, key, value, mode=None):
+        profile = {"key": key, "value": value}
+        if mode is not None:
+            profile["mode"] = mode
+        return {
+            "kind": "fact", "summary": "s", "ts": ts,
+            "profile": profile, "refs": {"uuid": uuid},
+        }
+
+    def test_relevant_profile_fact_moves_out_of_always_profile(self):
+        now = parse_ts("2026-07-03T00:00:00.000Z")
+        rows = [
+            self._fact("2026-07-01T00:00:00.000Z", "u1", "render_backend", "Legacy", "always"),
+            self._fact("2026-07-02T00:00:00.000Z", "u2", "render_backend", "Aurora", "relevant"),
+        ]
+        profile, facts, _interests, _threads = regen_state.fold_life(rows, now)
+        self.assertNotIn("render_backend", profile)
+        self.assertEqual(facts["render_backend"]["note"], "Aurora")
+
+    def test_legacy_profile_rows_remain_always_for_backward_compatibility(self):
+        now = parse_ts("2026-07-03T00:00:00.000Z")
+        row = self._fact("2026-07-01T00:00:00.000Z", "u1", "response_style", "brief")
+        profile, facts, _interests, _threads = regen_state.fold_life([row], now)
+        self.assertEqual(profile["response_style"], "brief")
+        self.assertEqual(facts, {})
+
+
 class FoldInterestsTest(unittest.TestCase):
     """interests の heat 減衰（30日で1下がり・0で state から落ちる）。"""
 
@@ -404,13 +477,13 @@ class FoldInterestsTest(unittest.TestCase):
     def test_heat_decays_one_per_30_days(self):
         now = parse_ts("2026-07-01T00:00:00.000Z")
         row = self._interest(fmt_ts(now - timedelta(days=60)), "u1", heat=3)  # decay 2 → eff 1
-        _profile, interests, _threads = regen_state.fold_life([row], now)
+        _profile, _facts, interests, _threads = regen_state.fold_life([row], now)
         self.assertEqual(interests["jazz"]["heat"], 1)
 
     def test_interest_drops_when_effective_heat_zero(self):
         now = parse_ts("2026-07-01T00:00:00.000Z")
         row = self._interest(fmt_ts(now - timedelta(days=60)), "u1", heat=1)  # decay 2 → eff 0
-        _profile, interests, _threads = regen_state.fold_life([row], now)
+        _profile, _facts, interests, _threads = regen_state.fold_life([row], now)
         self.assertNotIn("jazz", interests)
 
 

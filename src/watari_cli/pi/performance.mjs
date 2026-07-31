@@ -45,10 +45,27 @@ export function setPerformanceMode(value) {
 export function performanceMemoryOptions(value = getPerformanceMode()) {
   const mode = normalizePerformanceMode(value);
   if (mode === "fast") {
-    return { maxBytes: 4_000, maxMatches: 3, attentionLimit: 1, includeCatalog: false };
+    return {
+      maxBytes: 4_000,
+      profileMaxBytes: 1_600,
+      attentionMaxBytes: 600,
+      matchesMaxBytes: 1_500,
+      maxMatches: 3,
+      attentionLimit: 1,
+      includeCatalog: false,
+    };
   }
   if (mode === "butler") return { full: true };
-  return { maxBytes: 16_000, maxMatches: 6, attentionLimit: 3, includeCatalog: true };
+  return {
+    maxBytes: 16_000,
+    profileMaxBytes: 5_000,
+    attentionMaxBytes: 1_200,
+    matchesMaxBytes: 3_000,
+    catalogMaxBytes: 6_200,
+    maxMatches: 6,
+    attentionLimit: 3,
+    includeCatalog: true,
+  };
 }
 
 export function automaticallyAcceptEvidence(value = getPerformanceMode()) {

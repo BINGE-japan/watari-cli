@@ -20,13 +20,14 @@
  "domain":"<study行のみ・必須>","topic":"<study/interest/thread 行は必須>","summary":"<経緯・根拠。時系列可>",
  "mastery":1..3 (study必須),"heat":0..3 (interest任意),"note":"<state用・現在形1〜2文。study必須/interest・thread推奨>",
  "related":["domain/topic",...] (study任意),"freshness":"<ts>" (study任意・接触時刻の上書き),
- "profile":{"key":"...","value":"..."} (fact任意),"status":"closed" (thread任意),"deadline":"<UTC ISO ...Z>" (thread任意・未来なら age によらず active 固定),
+ "profile":{"key":"...","value":"...","mode":"always|relevant"} (fact任意。旧行はmode省略可),"status":"closed" (thread任意),"deadline":"<UTC ISO ...Z>" (thread任意・未来なら age によらず active 固定),
  "tags":["..."],"refs":{"cwd":"...","session":"...","uuid":"..."}}
 ```
 - **判定は行を書く時点で行い、行に記録する**：state はこれらの値を機械的に畳むだけで、内容の判断を後段でやり直さない。
 - `source` は**開集合**（接続サービス名等の小文字スラッグ）。組み込みは `transcript`（Pi の会話由来）と `watari`（ワタリがその場で足す行）。接続サービス由来の行は、宣言した connector の name をそのまま source に使う（例: transcript, slack, gmail, obsidian, linear, claude-code, watari, ...）。
 - `domain`（learning 行のみ・必須）：小文字 ASCII ケバブケース・最も広い安定名。フレームワーク名や流行語は domain にしない（vue は domain ではなく web 内の topic）。追記前に learning/state.json の既存 domains キーを読み、収まるものには必ず寄せる。新設は既存のどれにも収まらない時のみ（その回の `watari ingest` にだけ `--allow-new-domain` を付けて通す）。
 - `ts` は UTC（…Z）で保存。比較は必ず instant（時刻）として行い、JST と混ぜない。
+- `profile.mode`：`always`＝どの話題でも毎回効く人物像・応答の好み、`relevant`＝職歴・事業・ツール・個別運用など話題に応じて検索すればよい事実。新しい profile 行は必ずどちらかを明示する。mode が無い旧行だけは互換性のため `always` とみなす。
 - `refs.uuid` は元 transcript メッセージの uuid（dedup の鍵）。`refs.session` は session id。
 - 記憶の根拠は原則ユーザー本人（user 発話）。ワタリ(assistant)の発言はユーザーが採用/同意した事実の確認にのみ使う。
   サブエージェント(isSidechain)・ツール出力・メタ行は無視する。
@@ -64,7 +65,8 @@ tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExec
 ```
 {
   "updated": "<ts>",
-  "profile": { "...安定した人物像・好み（変わりにくい）..." },
+  "profile": { "...毎回の応答に効く人物像・好み..." },
+  "facts": { "<key>": { "last": "<ts>", "note": "...", "tags": ["..."](任意) } },
   "interests": { "<topic>": { "last": "<ts>", "heat": 0, "note": "..." } },
   "open_threads": [ { "topic": "...", "note": "...", "last": "<ts>", "deadline": "<ts>"(任意), "dormant": true(dormant 層のみ), "dormant_days": <int>(dormant 層のみ) } ]
 }
@@ -88,7 +90,7 @@ tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExec
 ### kind → フィールド
 - `interest` → life.interests
 - `thread` → life.open_threads
-- `fact` → `profile:{key,value}` を持つ行だけが life.profile に畳まれる（key ごと最新値が勝つ）。昇格の判断（複数回の再確認や本人の明示で載せる・単発の観察は載せない）は行を書く時点の責務。profile 無しの fact は log にのみ残る文脈。
+- `fact` → `profile:{key,value,mode}` を持つ行は key ごと最新値が勝つ。mode=`always` は life.profile、mode=`relevant` は life.facts に畳まれる。昇格と mode の判断（毎回答に必要か、話題に応じて検索すればよいか）は行を書く時点の責務。profile 無しの fact は log にのみ残る文脈。
 - `study` → learning.domains[domain].topics（domain 欠落の learning 行は不正行として畳み込みからスキップする）
 （痕跡・非事実は log に積まない。走ったが事実0件などの記録はカーソルの `last_run`（host 記録内）が受け皿。kind は fact / study / interest / thread の4種のみ。）
 
@@ -112,8 +114,10 @@ tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExec
 - `status:"closed"` は age によらず即クローズ（従来どおり）。
 - **deadline（項目ごとの寿命）**：thread 行に任意の `deadline`（UTC ISO …Z）を付けられる。畳み込みは最新の非 null 値を record に持ち越し、`deadline` が **now より未来**なら age によらず active 固定（dormant/sunk にしない）。active/dormant の出力 dict には `deadline` も載る。deadline が無ければ上の age 規則に従う。
 
-### life.profile
-- `profile:{key,value}` 行の key ごと最新値。恒常的と判断できるものだけ key を付けて書く（profile は変わりにくい人物像のみ。単発の観察には付けない）。
+### life.profile / life.facts
+- `profile:{key,value,mode}` 行の key ごと最新値。mode=`always` は life.profile、mode=`relevant` は life.facts。同じ key の新しい行で mode を変えれば、履歴を残したまま両者を移動できる。
+- `always` は「変わりにくい」だけでは足りず、**どの話題でも毎回の回答へ効く**ことが条件。応答形式、確認境界、呼び方などに限定し、合計 5KB 以内を保つ。監査は超過を問題として報告する。
+- 職歴、会社・事業、使用ツール、個別プロジェクト、特定サービスの運用は、安定事実でも原則 `relevant`。単発の観察には profile 自体を付けない。
 
 ### learning の mastery（1–3、降格しない）
 - `1` = 紹介され、ユーザー自身がその話題に発話で触れた（質問・言い換え・相づち・続きの操作など、読んで反応した痕跡がある）。ワタリが説明しただけ・ユーザーが未読のものは記録しない（説明された≠学習した）。
@@ -124,19 +128,18 @@ tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExec
 ## state は「地図＋初期姿勢」
 `watari chat` の Pi extension は**各ユーザー入力の直後・モデル呼び出し前**に life/learning state を
 ローカルで読み、選択中の性能モードに応じて system prompt へ一時注入する（session transcript には保存しない）：
-- **fast（爆速）**：profile、優先 open_threads 最大1件、文字 n-gram 関連項目最大3件。catalog無し、全体4KB。
-- **balanced（標準・既定）**：profile、優先 open_threads 最大3件、関連項目最大6件、全topic名catalog。
-  全体16KB（超過時はcatalog末尾から省略）。
+- **fast（爆速）**：常時 profile、優先 open_threads 最大1件、関連項目最大3件。catalog無し、全体4KB。
+- **balanced（標準・既定）**：常時 profile（最大5KB）、優先 open_threads 最大3件、関連項目最大6件、profile/facts/thread/interest/study の題名catalog。全体16KB。各区画に容量を先に確保し、profile の肥大で attention・matches・catalog が丸ごと消えないようにする。容量超過時は各区画内で縮め、profile を省略した場合もcatalogにkeyを残す。
 - **butler（スーパー執事）**：life/learning state 全体。上限を設けず現在の記憶全体を渡す。
 
-検索はファイル読み取り＋決定的な文字列照合だけで、モデル・ネットワーク・外部サービスを呼ばない。
+検索はファイル読み取り＋決定的な文字列照合だけで、モデル・ネットワーク・外部サービスを呼ばない。題名・タグ・固有語を優先し、一般的な否定語など短い断片の一致だけでは関連項目に採用しない。
 fast/balanced は全 state を会話へ積み続けず、入力ごとに現在の関連 domain/topic を最初の一文から反映する。
 balanced の catalog に候補があるのに関連項目へ詳細が出ず、回答がその詳細に依存するときだけ log を読みに行く。
 state の note/related は検索と log を引くための手がかり（地図）でもある。
 
 ## note の記述規約（現在形・絶対・簡潔 — log 行の note を書く時点で守る）
 state は毎ターン読まれる hot path。性能（読む側のトークン効率と指示の鋭さ）のため、次を絶対ルールとする。
-- **現在形・絶対形のみ**：profile / interests / open_threads / topics.note 等は「今効く指示・現在地」だけを断定で書く。
+- **現在形・絶対形のみ**：profile / facts / interests / open_threads / topics.note 等は「今効く指示・現在地」だけを断定で書く。
   **時系列叙述を禁止**——「以前は X だったが今は Y」「YYYY-MM-DD に〜事故→こう直した」式は書かない。
   経緯・理由・事件・日付つきの一回性の出来事は log.jsonl に置く（state.note は log を引く手がかり＝地図に徹する）。
 - **希釈を避ける（二重持ちの禁止）**：SKILL.md が既に持つ普遍ルール（人格セクションの敬語・確認してから・一元管理 等）を state に再掲しない。
