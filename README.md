@@ -104,7 +104,7 @@
 知らせます。同じ状態は24時間繰り返しません。
 
 対応サービス: Linear・GitHub・Notion・Slack・Chatwork・freee・Gmail・Google カレンダー・
-Google ドライブ・Claude Code・Codex。引数なしの `watari connect` で選択メニューが出ます。
+Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari connect` で選択メニューが出ます。
 
 - 多くのサービスは、画面の案内に従ってトークンを 1 つ貼るだけです。貼った内容は
   その場で接続テストをしてから保存されます。
@@ -112,10 +112,12 @@ Google ドライブ・Claude Code・Codex。引数なしの `watari connect` で
   先に Google OAuth アプリの用意（[docs/google-oauth-setup.md](docs/google-oauth-setup.md)）と
   `watari auth` が必要です。承認は `watari auth` と同じ Google アカウントで行ってください。
 - **freee** は Client ID / Secret を貼ってからブラウザで承認します（画面の案内どおりで完結します）。
+- **Obsidian** はトークン不要です。指定したvault内のMarkdownだけを読み、`.obsidian`・隠しフォルダ・
+  `Journal/Watari`・シンボリックリンクは除外します。任意のシェル命令は実行しません。
 - **Claude Code・Codex** はトークン不要です。パソコン上の会話ログを自動で見つけて
   （見つからなければフォルダの場所を聞いて）読みます。これらの CLI を使っていない場合、
   この接続は不要です。
-- 一覧にないツール（参照ノートのフォルダ・Obsidian の保管庫など）は、上級者向けに
+- 一覧にないツール（その他の参照ノートや独自サービスなど）は、上級者向けに
   `watari connector add` で読み方を自由記述で登録できます。`watari connector list` で
   登録済みの一覧を確認できます。
 
