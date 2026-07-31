@@ -4,6 +4,7 @@ const TOKEN_PATTERNS = [
   /GOCSPX-[A-Za-z0-9_-]+/g,
   /gh[opusr]_[A-Za-z0-9]{20,}/g,
   /xox[pboa]-[A-Za-z0-9-]{20,}/g,
+  /lin_api_[A-Za-z0-9_-]{20,}/g,
   /sk-[A-Za-z0-9_-]{20,}/g,
   /ya29\.[A-Za-z0-9._-]+/g,
   /Bearer\s+[A-Za-z0-9._-]{20,}/gi,

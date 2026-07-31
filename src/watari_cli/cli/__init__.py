@@ -1033,6 +1033,55 @@ def cmd_ingest(args) -> int:
     return 0
 
 
+def _load_bounded_json(path: str, maximum: int = 65_536):
+    """秘密を含み得る内部requestをsymlink追従なし・上限付きで読む。"""
+    import stat
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("request は通常ファイルで指定してください")
+        if info.st_size > maximum:
+            raise ValueError(f"request が大きすぎます（最大 {maximum} bytes）")
+        with os.fdopen(fd, encoding="utf-8") as handle:
+            fd = -1
+            return json.load(handle)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
+def cmd_linear_catalog(args) -> int:
+    """Linear操作に必要なteam/user/project/state/labelのIDを固定queryで返す。"""
+    from watari_cli import linear_actions
+    from watari_cli.connectors import ConnectorError
+
+    try:
+        result = linear_actions.catalog(linear_actions.configured_api_key())
+    except (ConnectorError, ValueError) as error:
+        sys.stderr.write(f"{error}\n")
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=1))
+    return 0
+
+
+def cmd_linear_action(args) -> int:
+    """検証済みのLinear actionだけを実行する（任意GraphQLは受け付けない）。"""
+    from watari_cli import linear_actions
+    from watari_cli.connectors import ConnectorError
+
+    try:
+        request = _load_bounded_json(args.request)
+        result = linear_actions.perform(linear_actions.configured_api_key(), request)
+    except (OSError, json.JSONDecodeError, ConnectorError, ValueError) as error:
+        sys.stderr.write(f"linear操作を実行できません: {error}\n")
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=1))
+    return 0
+
+
 def cmd_connector_list(args) -> int:
     """宣言済みの読み取りソース(connector)を一覧する。対応サービス/カスタムを区別して表示。"""
     from watari_cli import connectors as connectors_mod
@@ -1461,6 +1510,16 @@ def _build_parser() -> argparse.ArgumentParser:
     pcw.add_argument("--clear", action="store_true",
                      help="監視チャンネルをすべて解除する")
     pcw.set_defaults(func=cmd_connector_watch)
+
+    # AIへ認証情報や任意GraphQLを渡さず、同梱Pi extensionの固定toolだけが使う内部境界。
+    plin = sub.add_parser("linear", help=argparse.SUPPRESS,
+                          description="（内部用）Linearの許可済み操作だけを実行します。")
+    linsub = plin.add_subparsers(dest="linear_command", required=True)
+    plinc = linsub.add_parser("catalog", help=argparse.SUPPRESS)
+    plinc.set_defaults(func=cmd_linear_catalog)
+    plina = linsub.add_parser("action", help=argparse.SUPPRESS)
+    plina.add_argument("--request", required=True, help=argparse.SUPPRESS)
+    plina.set_defaults(func=cmd_linear_action)
     return p
 
 

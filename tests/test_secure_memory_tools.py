@@ -22,6 +22,7 @@ class SecretRedactionTest(unittest.TestCase):
                 "refresh_token": "synthetic-refresh-value",
                 "token": "synthetic-unpatterned-token",
                 "message": "token=" + "xoxp-" + "1234567890-abcdefghijklmnopqrstuv",
+                "linear": "lin_api_" + "synthetic0123456789abcdefghijklmnop",
                 "normal": "keep me",
             },
         }
@@ -41,6 +42,17 @@ class SecretRedactionTest(unittest.TestCase):
         self.assertNotIn("synthetic-refresh-value", result.stdout)
         self.assertNotIn("synthetic-unpatterned-token", result.stdout)
         self.assertNotIn("xoxp-", result.stdout)
+        self.assertNotIn("lin_api_", result.stdout)
+
+    def test_linear_tools_are_fixed_and_confirmation_gated(self):
+        source = (ROOT / "src" / "watari_cli" / "pi" / "secure-memory.ts").read_text()
+        self.assertIn('name: "watari_linear_catalog"', source)
+        self.assertIn('name: "watari_linear_action"', source)
+        self.assertIn('ctx.ui.confirm(', source)
+        self.assertIn('if (!ctx.hasUI)', source)
+        self.assertIn('["linear", "action", "--request", file]', source)
+        self.assertNotIn("params.query", source)
+        self.assertNotIn('action: Type.Literal("graphql")', source)
 
 
 if __name__ == "__main__":
