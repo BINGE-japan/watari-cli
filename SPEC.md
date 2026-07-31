@@ -153,6 +153,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
   （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。全テスト＋packaging green。
+- **Obsidianの安全な固定読み取り（実装・テスト済み）**：旧カスタム指示に依存せず、設定済みvaultの
+  Markdownだけをlocal connectorとして読む。読み取り先をvault内へ固定し、内部設定・派生まとめ・
+  隠し領域・symlinkを除外、件数/文字数を境界時刻を落とさず制限する。
 - **Google OAuth セキュリティ強化（実装・テスト済み）**：インストール型アプリのloopback認可へ
   PKCE S256（RFC 7636）を追加し、認可コードを横取りされても一時verifierなしでは交換できない。
   秘密を含むローカル設定はPOSIXでフォルダ700・ファイル600へ毎回補正し、緩いumaskや既存644を
@@ -168,7 +171,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **敬語はユーザープリファレンスではなく製品不変条件**。ユーザーの入力口調を模倣せず、スキル指示に加えて
   Pi の表示・message_end ガードで明白な違反を保存・表示前に止める（モデルの遵守だけに依存しない）。
 - **transcript は Pi 一本**、それ以外（他 AI CLI・メール・タスク・チャット等）は connector 宣言。
-- **Obsidian は connector**（専用フラグを廃止し宣言制へ一本化）。
+- **Obsidian は組み込みlocal connector**。vault内のMarkdownだけを読み、`.obsidian`・隠しフォルダ・
+  `Journal/Watari`・symlinkを除外する。旧自由記述の `vault=<path>` は実在vaultに限り構造化パスへ移行し、
+  自由記述をshellとして実行しない。
 - **組み込みコネクタは案内型 wizard**：`watari connect <service>` が「案内→貼り付け→その場で実 API
   疎通確認→config 保存→connector 宣言」を一本化する（生コマンドをユーザーに打たせない原則の延長）。
   第一弾は Linear（Personal API key）。読み取りは `watari connector read <name>` が決定論で行い、

@@ -228,6 +228,22 @@ def _chatwork_adapter() -> ServiceAdapter:
     )
 
 
+def _obsidian_adapter() -> ServiceAdapter:
+    from watari_cli import obsidian
+
+    return ServiceAdapter(
+        label=obsidian.LABEL, implemented=True, auth_kind="local", scope="local",
+        connected=obsidian.is_connected,
+        guide=[
+            "ObsidianのMarkdownノートを、vault内だけに限定した読み取り専用処理で取り込みます。",
+            "認証は不要です。既存のObsidian設定があれば安全な形式へ自動移行します。",
+            "見つからない場合だけ、vaultフォルダのパスを聞きます。",
+            "※ .obsidian、隠しフォルダ、Journal/Watari、シンボリックリンクは読みません。",
+        ],
+        verify=obsidian.verify, read=obsidian.read,
+    )
+
+
 def _claude_code_adapter() -> ServiceAdapter:
     from watari_cli.transcripts import claude_code as cc
 
@@ -279,6 +295,7 @@ REGISTRY = {
     "gmail": _gmail_adapter,
     "calendar": _calendar_adapter,
     "gdrive": _gdrive_adapter,
+    "obsidian": _obsidian_adapter,
     "claude-code": _claude_code_adapter,
     "codex": _codex_adapter,
     # 未実装のサービスはここに載せない——選べるのに使えない行はメニューのノイズになる。
