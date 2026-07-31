@@ -832,9 +832,10 @@ def cmd_chat(args) -> int:
     secure_sandbox = _find_pi_runtime_file("secure-sandbox.ts")
     secure_memory = _find_pi_runtime_file("secure-memory.ts")
     secure_browser = _find_pi_runtime_file("secure-browser.ts")
+    secure_github = _find_pi_runtime_file("secure-github.ts")
     if not all((quiet_ui, politeness_guard, performance_extension, memory_context,
                 verification_guard, briefing_extension, secure_sandbox, secure_memory,
-                secure_browser)):
+                secure_browser, secure_github)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -853,6 +854,7 @@ def cmd_chat(args) -> int:
         "--extension", briefing_extension,
         "--extension", secure_memory,
         "--extension", secure_browser,
+        "--extension", secure_github,
         "--extension", secure_sandbox,
     ] + args.extra
 
@@ -863,6 +865,11 @@ def cmd_chat(args) -> int:
         sys.stderr.write("watari 実行ファイルの絶対パスを確認できません。\n")
         return 1
     env["WATARI_SECURE_EXECUTABLE"] = os.path.realpath(executable)
+    gh = shutil.which("gh")
+    if gh:
+        env["WATARI_SECURE_GH"] = os.path.realpath(gh)
+    else:
+        env.pop("WATARI_SECURE_GH", None)
     env["WATARI_PERFORMANCE_MODE"] = config.load_performance_mode()
     browser = settings.get("browser") if isinstance(settings.get("browser"), dict) else {}
     allowed_hosts = browser.get("allowed_hosts") if isinstance(browser.get("allowed_hosts"), list) else []

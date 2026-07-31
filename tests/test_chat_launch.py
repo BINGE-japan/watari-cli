@@ -70,6 +70,7 @@ class ChatLaunchTest(unittest.TestCase):
         self.assertIn("secure-sandbox.ts", out)
         self.assertIn("secure-memory.ts", out)
         self.assertIn("secure-browser.ts", out)
+        self.assertIn("secure-github.ts", out)
         self.assertIn("--no-extensions", out)
         self.assertNotIn("--model", out)
         self.assertNotIn("--thinking", out)
