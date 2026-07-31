@@ -171,6 +171,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **Obsidianの安全な固定読み取り（実装・テスト済み）**：旧カスタム指示に依存せず、設定済みvaultの
   Markdownだけをlocal connectorとして読む。読み取り先をvault内へ固定し、内部設定・派生まとめ・
   隠し領域・symlinkを除外、件数/文字数を境界時刻を落とさず制限する。
+- **ログイン済みブラウザの読み取り仲介（実装・テスト済み）**：CDPはloopbackだけを受け、設定で明示した
+  HTTPS hostのタブ一覧・表示テキスト・query/fragmentなしのページ移動だけを固定toolとして公開する。
+  URLのquery/fragment・Cookie・websocket URL・任意JavaScript・click/type/submitはモデルへ渡さない。
 - **Google OAuth セキュリティ強化（実装・テスト済み）**：インストール型アプリのloopback認可へ
   PKCE S256（RFC 7636）を追加し、認可コードを横取りされても一時verifierなしでは交換できない。
   秘密を含むローカル設定はPOSIXでフォルダ700・ファイル600へ毎回補正し、緩いumaskや既存644を

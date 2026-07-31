@@ -831,8 +831,10 @@ def cmd_chat(args) -> int:
     briefing_extension = _find_pi_runtime_file("briefing.ts")
     secure_sandbox = _find_pi_runtime_file("secure-sandbox.ts")
     secure_memory = _find_pi_runtime_file("secure-memory.ts")
+    secure_browser = _find_pi_runtime_file("secure-browser.ts")
     if not all((quiet_ui, politeness_guard, performance_extension, memory_context,
-                verification_guard, briefing_extension, secure_sandbox, secure_memory)):
+                verification_guard, briefing_extension, secure_sandbox, secure_memory,
+                secure_browser)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -850,6 +852,7 @@ def cmd_chat(args) -> int:
         "--extension", verification_guard,
         "--extension", briefing_extension,
         "--extension", secure_memory,
+        "--extension", secure_browser,
         "--extension", secure_sandbox,
     ] + args.extra
 
@@ -861,6 +864,12 @@ def cmd_chat(args) -> int:
         return 1
     env["WATARI_SECURE_EXECUTABLE"] = os.path.realpath(executable)
     env["WATARI_PERFORMANCE_MODE"] = config.load_performance_mode()
+    browser = settings.get("browser") if isinstance(settings.get("browser"), dict) else {}
+    allowed_hosts = browser.get("allowed_hosts") if isinstance(browser.get("allowed_hosts"), list) else []
+    env["WATARI_BROWSER_ALLOWED_HOSTS"] = ",".join(
+        str(host).strip().lower() for host in allowed_hosts if str(host).strip())
+    env["WATARI_BROWSER_CDP_URL"] = str(
+        browser.get("cdp_url") or "http://127.0.0.1:9223")
     # Pi が TUI を組み立てる前に process-local の表示設定を当てる。reasoning/effort と会話ログは
     # 変えず、途中の思考文を隠し、tool 実行は通常1行・Ctrl+Oで詳細表示にする。
     # Pi のグローバル settings.json は触らない。
