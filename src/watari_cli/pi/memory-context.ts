@@ -17,13 +17,13 @@ function memoryGuidance(mode: string) {
   }
   const catalog = mode === "fast"
     ? "爆速のためcatalogは省略されています。"
-    : "catalogは記憶にある話題名の一覧です。題名だけなので詳細を推測しないでください。";
+    : "catalogは記憶にある人物情報のkeyと話題名の一覧です。名前だけなので詳細を推測しないでください。";
   return `
 【入力前に自動確認した記憶：${performanceInfo(mode).label}】
 次のJSONは、今回のユーザー入力に対してローカルで自動検索した記憶です。
 - profile: 常に反映する人物像・好み
 - attention: 今すぐ効く進行中事項
-- matches: 今回の入力に関連する詳しい記憶
+- matches: 今回の入力に関連する事実・詳しい記憶
 - ${catalog}
 回答はprofileとmatchesを最初から反映してください。標準モードでcatalogに関係しそうな題名があるのに
 matchesに詳細がなく、回答がその詳細に依存する場合だけ、記憶フォルダの該当記録を追加確認してください。

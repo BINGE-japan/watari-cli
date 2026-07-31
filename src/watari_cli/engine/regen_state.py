@@ -9,7 +9,8 @@
     freshness= 最大 (行の freshness or ts)
     note     = note を持つ最新行の note（無ければ最新行の summary）
     related  = 全行の related の和集合（初出順・自己参照除外）
-- life.profile: kind=fact で profile:{key,value} を持つ行の key ごと最新値。
+- life.profile: kind=fact の profile.mode=always（旧行の既定）の key ごと最新値。
+- life.facts: kind=fact の profile.mode=relevant。常時注入せず、話題に応じて検索する現在値。
 - life.interests: kind=interest で topic を持つ行を topic ごとに畳み、
     base heat = heat を持つ最新行の heat（無ければ1）
     effective = max(0, base - floor((now-last)/30日))、0 なら state から落ちる。
@@ -75,13 +76,19 @@ def fold_learning(rows, aliases):
 
 
 def fold_life(rows, now):
-    profile, interests, threads = {}, {}, {}
+    profile_entries, interests, threads = {}, {}, {}
     for d in sorted_rows(rows):
         kind = d.get("kind")
         if kind == "fact":
             p = d.get("profile")
             if isinstance(p, dict) and p.get("key") and p.get("value"):
-                profile[p["key"]] = p["value"]
+                profile_entries[p["key"]] = {
+                    "value": p["value"],
+                    "mode": p.get("mode", "always"),  # 旧記録は従来どおり常時反映
+                    "last": d["ts"],
+                    "note": d.get("note") or p["value"],
+                    "tags": d.get("tags") or [],
+                }
         elif kind == "interest" and d.get("topic"):
             it = interests.setdefault(d["topic"], {"last": None, "heat": 1, "note": ""})
             it["last"] = max(it["last"], parse_ts(d["ts"])) if it["last"] else parse_ts(d["ts"])
@@ -101,6 +108,16 @@ def fold_life(rows, now):
                 th["note"] = d["note"]
             elif d.get("summary") and not th["note"]:
                 th["note"] = d["summary"]
+    profile, facts = {}, {}
+    for key, entry in profile_entries.items():
+        if entry["mode"] == "relevant":
+            fact = {"last": entry["last"], "note": entry["note"]}
+            if entry["tags"]:
+                fact["tags"] = entry["tags"]
+            facts[key] = fact
+        else:
+            profile[key] = entry["value"]
+
     out_interests = {}
     for topic, it in interests.items():
         decay = int((now - it["last"]).total_seconds() // 86400) // HEAT_DECAY_DAYS
@@ -123,14 +140,20 @@ def fold_life(rows, now):
             out["dormant"] = True  # 声かけ待ち：state に残すが「最近どうなってる？」の印を付ける
             out["dormant_days"] = int(age_days)
         out_threads.append(out)
-    return profile, out_interests, out_threads
+    return profile, facts, out_interests, out_threads
 
 
 def regen(now):
     aliases = load_aliases()
     learning = {"updated": fmt_ts(now), "domains": fold_learning(load_log("learning"), aliases)}
-    profile, interests, threads = fold_life(load_log("life"), now)
-    life = {"updated": fmt_ts(now), "profile": profile, "interests": interests, "open_threads": threads}
+    profile, facts, interests, threads = fold_life(load_log("life"), now)
+    life = {
+        "updated": fmt_ts(now),
+        "profile": profile,
+        "facts": facts,
+        "interests": interests,
+        "open_threads": threads,
+    }
     return {"learning": learning, "life": life}
 
 

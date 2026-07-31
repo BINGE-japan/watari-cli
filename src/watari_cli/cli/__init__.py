@@ -152,7 +152,8 @@ def cmd_status(args) -> int:
     print(f"  生活の記憶: {counts['life']} 件"
           f"（進行中の話題 {len(life.get('open_threads', []))}・"
           f"関心 {len(life.get('interests', {}))}・"
-          f"プロフィール {len(life.get('profile', {}))} 項目）")
+          f"常に確認する人物像 {len(life.get('profile', {}))}・"
+          f"必要時に確認する事実 {len(life.get('facts', {}))} 項目）")
     print(f"  学習の記憶: {counts['learning']} 件（分野 {len(domains)}・トピック {topics}）")
     # 読み取り位置はこのパソコンの host 記録から（旧 cursors.json があれば初回に移行して読む）
     cursors = {k: v for k, v in host.load_cursors(home).items() if v}

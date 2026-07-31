@@ -28,6 +28,7 @@ from . import regen_state
 
 # 必須フィールド欠落（参考情報）の表示上限。多い場合は先頭だけ見せて残りは件数で示す。
 FIELD_INFO_LIMIT = 5
+PROFILE_ALWAYS_MAX_BYTES = 5_000
 
 
 def check_logs():
@@ -78,6 +79,23 @@ def check_state_derivation():
             f"記憶のまとめ({g})が記録と食い違っています → watari regen で作り直せます: {x}"
             for x in diffs]
     return problems
+
+
+def check_profile_budget():
+    """標準モードの常時 profile 枠を超えたら、関連時だけ読む分類への移行を促す。"""
+    try:
+        with open(state_path("life"), encoding="utf-8") as stream:
+            life = json.load(stream)
+    except FileNotFoundError:
+        return []  # まとめ未生成は check_state_derivation が報告する
+    profile = life.get("profile") or {}
+    size = len(json.dumps(profile, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    if size <= PROFILE_ALWAYS_MAX_BYTES:
+        return []
+    return [
+        f"常に確認する人物像・好みが {size} bytes あり、標準モードの {PROFILE_ALWAYS_MAX_BYTES} bytes 枠を超えています。"
+        "話題に応じて確認すればよい項目を、必要なときだけ確認する事実へ分類してください"
+    ]
 
 
 def check_references(now):
@@ -154,6 +172,7 @@ def audit_report(coverage=False):
     now = now_utc()
     problems, field_infos = check_logs()
     problems += check_state_derivation()
+    problems += check_profile_budget()
     infos = check_references(now)
     if len(field_infos) > FIELD_INFO_LIMIT:
         shown = field_infos[:FIELD_INFO_LIMIT]

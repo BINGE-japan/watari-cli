@@ -34,7 +34,8 @@ def _mode_contexts() -> dict:
     if not node:
         raise unittest.SkipTest("node is required by the Pi runtime")
     life = {
-        "profile": {"name": "binge", "style": "one step"},
+        "profile": {"name": "sample-user", "style": "one step"},
+        "facts": {},
         "open_threads": [
             {"topic": f"thread-{i}", "note": "pending " + "x" * 200,
              "last": "2026-01-01T00:00:00.000Z"}
@@ -104,8 +105,10 @@ class PerformanceRuntimeTest(unittest.TestCase):
         compact = lambda value: len(json.dumps(value, ensure_ascii=False,
                                                 separators=(",", ":")).encode())
         self.assertLessEqual(compact(contexts["fast"]), 4_000)
-        self.assertEqual(contexts["fast"]["catalog"],
-                         {"threads": [], "interests": [], "learning": {}})
+        self.assertEqual(
+            contexts["fast"]["catalog"],
+            {"profiles": [], "facts": [], "threads": [], "interests": [], "learning": {}},
+        )
         self.assertLessEqual(compact(contexts["balanced"]), 16_000)
         self.assertTrue(contexts["butler"]["full_context"])
         self.assertIn("full detail 0", json.dumps(contexts["butler"], ensure_ascii=False))

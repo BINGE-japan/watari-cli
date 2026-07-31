@@ -144,6 +144,19 @@ class RenderReportTest(_Home):
         self.assertIn("watari install", wl.MSG_SETUP_REQUIRED)
 
 
+class ProfileBudgetTest(_Home):
+    def test_oversized_always_profile_is_reported(self):
+        self._build_state()
+        with open(wl.state_path("life"), encoding="utf-8") as stream:
+            state = json.load(stream)
+        state["profile"] = {f"rule_{index}": "x" * 500 for index in range(20)}
+        wl.atomic_write_json(wl.state_path("life"), state)
+        problems = audit.check_profile_budget()
+        self.assertEqual(len(problems), 1)
+        self.assertIn("常に確認する人物像・好み", problems[0])
+        self.assertIn("必要なときだけ確認する事実", problems[0])
+
+
 class ReferenceInfoWordingTest(_Home):
     def test_sinking_thread_wording_is_plain(self):
         self._write_rows("life", [_thread("古い話題", "2026-04-25T00:00:00.000Z", "u1")])

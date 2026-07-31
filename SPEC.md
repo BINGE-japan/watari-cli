@@ -19,8 +19,8 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 ## 満たすこと（要件）
 - **記録**：会話から「後で効く事実」だけを自動で記憶へ移す（夢ループ）。
 - **伴走**：state（現在地）を初期姿勢に、最初の一文から反映して話す。全 state を会話へ積まず、
-  各入力の直後・モデル呼び出し前に profile＋優先事項＋関連 topic＋topic catalog をローカル検索して
-  一時注入する（上限16KB、モデル呼び出し追加なし、transcriptへ保存しない）。
+  各入力の直後・モデル呼び出し前に常時 profile＋優先事項＋関連 fact/topic＋profile/topic catalog をローカル検索して
+  一時注入する（上限16KB、モデル呼び出し追加なし、transcriptへ保存しない）。profile は always（毎回）と relevant（関連時）を明示分類し、always は5KB以内。区画別の容量予約で profile 肥大時も地図と関連情報を丸ごと失わない。
 - **リマインド**：進行中(open_threads)・締切(deadline)・休眠(dormant)の声かけ。
 - **決定論**：log＝正本（追記専用）→ state＝派生（log から再生成）。同じ log＋now なら必ず同じ state。
 - **モデル非依存**：判定はランタイム上のモデル、機械処理は CLI。**CLI はモデルも MCP も呼ばない**。
@@ -80,9 +80,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   - 同梱 `pi/performance.ts` / `performance.mjs`：`/performance` の選択UI、モード共有、thinking切替、
     `watari performance --set` 経由のconfig永続化、フッター表示。balanced既定、fastはoff、butlerはhigh。
   - 同梱 `pi/memory-context.ts` / `memory-context.mjs`：各入力の `before_agent_start` で
-    life/learning state をローカル読取し、balancedはprofile・優先thread最大3件・文字n-gramで関連する
-    詳細最大6件・全topic名catalogを16KB以内、fastは4KB/1件/3件/catalog無し、butlerは全stateを
-    system promptへ一時注入する。モデル・network・subprocessを呼ばず、transcriptへ積まない。
+    life/learning state をローカル読取する。factのprofile.modeをalways（毎回）/relevant（関連時検索）に分離し、balancedはalways profile最大5KB・優先thread最大3件・関連fact/topic最大6件・profile/fact/topic名catalogを区画別予算つき16KB以内、fastは4KB/1件/3件/catalog無し、butlerは全stateをsystem promptへ一時注入する。検索は題名・タグ・固有語を優先し、一般的な短い否定表現だけの誤一致を拒否する。always profileの5KB超過はauditで検出。モデル・network・subprocessを呼ばず、transcriptへ積まない。
   - 同梱 `pi/verification-guard.ts`：質問ターンで成功したtool callを追跡し、balanced/butlerでは
     `watari_evidence` で登録する。fastでは成功toolを自動登録して余分なモデル1往復を省く。未確認または
     推測表現を含む最終回答は隠さず、小さな警告行を添える。

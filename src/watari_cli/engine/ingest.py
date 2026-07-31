@@ -87,7 +87,12 @@ def validate(rows, allow_new_domain):
         elif kind == "fact":
             p = d.get("profile")
             if p is not None and (not isinstance(p, dict) or not p.get("key") or not p.get("value")):
-                errors.append(f"{where}: profile は {{key, value}} 形式")
+                errors.append(f"{where}: profile は {{key, value, mode?}} 形式")
+            elif isinstance(p, dict) and "mode" not in p:
+                errors.append(f"{where}: 新しい profile 行には profile.mode（'always' または 'relevant'）が必須です")
+            elif isinstance(p, dict) and p.get("mode") not in ("always", "relevant"):
+                errors.append(
+                    f"{where}: profile.mode は 'always' または 'relevant': {p.get('mode')!r}")
         # regen が消費するフィールドの形も検証する（不正値は log に入ると regen/audit を毎回
         # クラッシュさせる「毒行」になり、追記専用 log では手編集でしか除けなくなる）。
         if d.get("freshness") is not None:
