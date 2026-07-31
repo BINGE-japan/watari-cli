@@ -155,6 +155,11 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
   （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。全テスト＋packaging green。
+- **Google OAuth セキュリティ強化（実装・テスト済み）**：インストール型アプリのloopback認可へ
+  PKCE S256（RFC 7636）を追加し、認可コードを横取りされても一時verifierなしでは交換できない。
+  秘密を含むローカル設定はPOSIXでフォルダ700・ファイル600へ毎回補正し、緩いumaskや既存644を
+  引き継がない。2026-07-31の実環境監査で旧Google認証は失効・設定から除去済み。新しい認証は
+  PKCE対応版の導入後に発行する。
 - **未了（実地検証）**：Google OAuth アプリ登録（`docs/google-oauth-setup.md` の手順）→ 各マシンで
   `watari auth` → 2台間の会話同期を実機で確認する。コード・テストは整備済みで、実環境での通し確認が
   残タスク。client_id 未設定の間は同期はスキップされ、ローカルのみで普通に動く。

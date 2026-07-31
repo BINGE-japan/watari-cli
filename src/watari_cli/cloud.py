@@ -7,7 +7,7 @@ appDataFolder はユーザーの Drive UI に出ず、アプリ専用で、API �
 依存を増やさないため HTTP は標準ライブラリ(urllib)だけで叩く。バックエンドは `CloudStore` で
 抽象化し、今は Drive appDataFolder を第一実装とする（将来の差し替え余地。他実装は今は作らない）。
 
-認証 = Google OAuth（インストール型アプリ・loopback フロー）。client_id/secret は **config.json の
+認証 = Google OAuth（インストール型アプリ・loopback＋PKCE S256 フロー）。client_id/secret は **config.json の
 google セクション**に保存し、環境変数で上書きもできる（解決順: env > config）。
 `watari auth` の初回に env か対話入力で受け取って config に保存するので、以後は無人で読める。
 リフレッシュトークンも同じ google セクションに保存する。登録手順は docs/google-oauth-setup.md。
@@ -245,8 +245,21 @@ def _union_scopes(scopes: list[str] | None) -> list[str]:
     return requested
 
 
+def _pkce_pair() -> tuple[str, str]:
+    """RFC 7636 の verifier と S256 challenge を1回の認可用に生成する。"""
+    import base64
+    import hashlib
+    import secrets
+
+    # token_urlsafe(64) は RFC 7636 の許可文字だけで約86文字（規定の43〜128文字内）。
+    verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return verifier, challenge
+
+
 def authorize(scopes: list[str] | None = None) -> tuple[bool, str]:
-    """インストール型 OAuth（loopback、incremental 対応）。ブラウザで承認 → refresh token
+    """インストール型 OAuth（loopback、PKCE S256、incremental 対応）。ブラウザで承認 → refresh token
     ＋付与済みスコープ一覧を config に保存。(ok, メッセージ)。
 
     要求スコープは常に drive.appdata（発話中継所）＋ 引数の和集合。`include_granted_scopes=true`
@@ -267,6 +280,7 @@ def authorize(scopes: list[str] | None = None) -> tuple[bool, str]:
     import webbrowser
 
     requested_scopes = _union_scopes(scopes)
+    code_verifier, code_challenge = _pkce_pair()
 
     captured: dict = {}
 
@@ -292,6 +306,7 @@ def authorize(scopes: list[str] | None = None) -> tuple[bool, str]:
         "client_id": _client_id(), "redirect_uri": redirect_uri, "response_type": "code",
         "scope": " ".join(requested_scopes), "access_type": "offline", "prompt": "consent",
         "include_granted_scopes": "true", "state": state,
+        "code_challenge": code_challenge, "code_challenge_method": "S256",
     })
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print("ブラウザで Google の承認画面を開きます。自動で開かない場合は、"
@@ -325,6 +340,7 @@ def authorize(scopes: list[str] | None = None) -> tuple[bool, str]:
     data = urllib.parse.urlencode({
         "code": captured["code"], "client_id": _client_id(), "client_secret": _client_secret(),
         "redirect_uri": redirect_uri, "grant_type": "authorization_code",
+        "code_verifier": code_verifier,
     }).encode()
     status, body = _http("POST", _TOKEN_URL,
                          {"Content-Type": "application/x-www-form-urlencoded"}, data)
