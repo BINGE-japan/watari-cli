@@ -49,6 +49,24 @@ export function assertAllowedNavigation(raw, allowedHosts) {
   return url.href;
 }
 
+export function elementIndex(raw) {
+  const match = /^e([0-9]{1,3})$/.exec(String(raw));
+  if (!match) throw new Error("Invalid browser element identifier");
+  const value = Number(match[1]);
+  if (!Number.isInteger(value) || value < 0 || value >= 200) {
+    throw new Error("Invalid browser element identifier");
+  }
+  return value;
+}
+
+export function isSensitiveField(field = {}) {
+  const type = String(field.type || "").toLowerCase();
+  const description = [field.name, field.id, field.aria, field.autocomplete]
+    .map((value) => String(value || "").toLowerCase()).join(" ");
+  return ["password", "hidden", "file"].includes(type) ||
+    /(pass(word)?|secret|token|api[-_ ]?key|credential|one[-_ ]?time|card|credit|cc[-_ ]?(number|csc|exp)|account[-_ ]?(number|no)|routing|iban|swift|口座|カード|暗証)/i.test(description);
+}
+
 export function sanitizePageUrl(raw) {
   try {
     const url = new URL(String(raw));

@@ -61,6 +61,19 @@ class SecureBrowserPolicyTest(unittest.TestCase):
         self.assertEqual(result, ["https://console.cloud.google.com/apis/credentials", False,
                                   False, False, False])
 
+    def test_element_ids_and_sensitive_fields_are_strictly_checked(self):
+        result = _node(
+            "const ids=['e0','e199','e200','x1'];"
+            "console.log(JSON.stringify({ids:ids.map(x=>{try{return b.elementIndex(x)}catch{return false}}),"
+            "password:b.isSensitiveField({type:'password'}),"
+            "token:b.isSensitiveField({type:'text',name:'api_token'}),"
+            "normal:b.isSensitiveField({type:'text',name:'project_title'})}));"
+        )
+        self.assertEqual(result["ids"], [0, 199, False, False])
+        self.assertTrue(result["password"])
+        self.assertTrue(result["token"])
+        self.assertFalse(result["normal"])
+
     def test_page_urls_returned_to_model_drop_query_and_fragment(self):
         result = _node(
             "console.log(JSON.stringify(b.sanitizePageUrl(" 
@@ -73,6 +86,10 @@ class SecureBrowserPolicyTest(unittest.TestCase):
         self.assertIn('name: "watari_browser_tabs"', text)
         self.assertIn('name: "watari_browser_snapshot"', text)
         self.assertIn('name: "watari_browser_open"', text)
+        self.assertIn('name: "watari_browser_elements"', text)
+        self.assertIn('name: "watari_browser_click"', text)
+        self.assertIn('name: "watari_browser_type"', text)
+        self.assertIn("ctx.ui.confirm", text)
         self.assertNotIn('name: "watari_browser_evaluate"', text)
         self.assertNotIn("params.expression", text)
 
