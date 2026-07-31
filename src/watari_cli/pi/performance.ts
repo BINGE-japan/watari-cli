@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   getPerformanceMode,
@@ -64,7 +65,12 @@ export default function (pi: ExtensionAPI) {
       setPerformanceMode(mode);
       applyMode(mode, ctx);
 
-      const saved = await pi.exec("watari", ["performance", "--set", mode]);
+      const executable = process.env.WATARI_SECURE_EXECUTABLE;
+      if (!executable || !path.isAbsolute(executable)) {
+        ctx.ui.notify("この会話では切り替えましたが、安全な保存処理を開始できません。", "warning");
+        return;
+      }
+      const saved = await pi.exec(executable, ["performance", "--set", mode]);
       if (saved.code !== 0) {
         ctx.ui.notify("この会話では切り替えましたが、次回用の保存に失敗しました。", "warning");
         return;

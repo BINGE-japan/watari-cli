@@ -5,7 +5,7 @@ argument-hint: "<忘れてほしい話題>"
 次の話題を記憶から外してください: $@
 
 手順:
-1. `watari recall` で該当する項目（open_threads の topic / profile・facts の key / interests の topic）を探す。
+1. `watari_recall` で該当する項目（open_threads の topic / profile・facts の key / interests の topic）を探す。
 2. 見つかった項目を「これを忘れますか: <項目の要約>」と 1 行で確認する（複数あればまとめて確認する）。
-3. 同意を得たら: 進行中の事柄（thread）は `status:"closed"` の行を、profile / facts の誤りは正しい値（不要なら「該当なし」等の中立値）と適切な mode で上書きする行を、SCHEMA の行仕様で作り `watari ingest --rows <file>` で書き込む。
+3. 同意を得たら: 進行中の事柄（thread）は `status:"closed"` の行を、profile / facts の誤りは正しい値（不要なら「該当なし」等の中立値）と適切な mode で上書きする行を、SCHEMA の行仕様で作り `watari_ingest` の rows に渡して書き込む。
 4. 「忘れました: <話題>」と 1 行で報告する。記録の原本（log）は追記式のため履歴には残ることを、聞かれたら正直に伝える（完全に消したい場合は記憶フォルダの該当行を本人が削除できる）。
