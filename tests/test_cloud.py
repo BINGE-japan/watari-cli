@@ -143,6 +143,18 @@ class IncrementalScopeTest(_Base):
         self.assertIn(cloud.SCOPE, seen_query["scope"][0])
         self.assertIn(extra_scope, seen_query["scope"][0])
         self.assertEqual(seen_query["include_granted_scopes"][0], "true")
+        self.assertEqual(seen_query["code_challenge_method"], ["S256"])
+        challenge = seen_query["code_challenge"][0]
+        token_call = next(call for call in self.calls if call[1] == cloud._TOKEN_URL)
+        token_fields = urllib.parse.parse_qs(token_call[2].decode())
+        verifier = token_fields["code_verifier"][0]
+        import base64
+        import hashlib
+        expected = base64.urlsafe_b64encode(
+            hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+        self.assertEqual(challenge, expected)
+        self.assertGreaterEqual(len(verifier), 43)
+        self.assertLessEqual(len(verifier), 128)
         self.assertEqual(config.load_config()["google"]["refresh_token"], "NEWRT")
         self.assertEqual(cloud.granted_scopes(), [cloud.SCOPE, extra_scope])
 

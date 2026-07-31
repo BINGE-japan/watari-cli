@@ -40,16 +40,44 @@ def load_config() -> dict:
         return {}
 
 
+def _secure_config_dir() -> str:
+    """設定フォルダを用意し、POSIX では本人以外のアクセスを外す。"""
+    directory = _config_dir()
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    if os.name == "posix":
+        os.chmod(directory, 0o700)
+    return directory
+
+
 def save_config(**kwargs) -> dict:
-    """None でない値だけを既存設定にマージして保存する。"""
+    """None でない値だけを既存設定にマージし、秘密を含む前提の権限で保存する。"""
     cfg = load_config()
     cfg.update({k: v for k, v in kwargs.items() if v is not None})
-    os.makedirs(_config_dir(), exist_ok=True)
-    tmp = _config_file() + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=1)
-        f.write("\n")
-    os.replace(tmp, _config_file())
+    _secure_config_dir()
+    target = _config_file()
+    tmp = target + ".tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(tmp, flags, 0o600)
+    try:
+        if os.name == "posix":
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = -1  # fdopen が所有権を引き継ぐ
+            json.dump(cfg, f, ensure_ascii=False, indent=1)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, target)
+        if os.name == "posix":
+            os.chmod(target, 0o600)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        except OSError:
+            pass
     return cfg
 
 
