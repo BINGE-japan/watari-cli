@@ -26,14 +26,6 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **モデル非依存**：判定はランタイム上のモデル、機械処理は CLI。**CLI はモデルも MCP も呼ばない**。
 - **一般公開可能な汎用性**：特定の個人・会社・別製品・私的運用を条件分岐へ持ち込まない。
   接続サービスは共通adapter契約で扱い、ユーザー固有の事情は記憶フォルダ/configだけに置く。
-- **AIの道具を隔離**：Piのモデルが呼べるread/write/edit/bash等はOS境界内で実行し、作業フォルダ外・
-  Windows側・認証情報・SSH Agent・ネットワークへ到達させない。記憶と接続サービスは引数を固定した
-  `watari_*` ツールだけをホスト側で実行し、秘密を応答から除去する。隔離を開始できない環境では
-  ホスト実行へ戻さず fail closed する。
-- **安全化で秘書能力を落とさない**：権限の全面撤去はしない。記憶・予定・メール・チャット・タスク・
-  会計・ブラウザ等、従来の秘書業務に必要なアクセスは用途別の固定操作として外側へ残し、AIへ秘密や
-  汎用ホスト権限を渡さずに結果と必要な操作だけ仲介する。対応する安全な窓口が未実装の機能があれば、
-  「安全になったが使えない」状態を完成扱いにしない。
 - **観測を優先して回答**：質問では利用できる実ツールの情報を優先し、成功結果を evidence として登録する。
   未観測または推測表現を含む回答も隠さず、小さな警告行を末尾に添える
   （2026-07-24 にユーザー指示で緩和。回答が隠れると会話が進まないため）。
@@ -110,8 +102,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   別々に検索し、各1ページ(per_page=100)で打ち切り）。Notion は
   Internal Integration Token 認証・「since 以降に編集されたページ」（`GET /users/me` で疎通確認、
   Search API に時刻フィルタが無いため `last_edited_time` 昇順取得＋クライアント側フィルタ、
-  1リクエスト(page_size=100)打ち切り、本文は書き写さずタイトル＋ポインタのみ）。Notion connectionの
-  capabilityもcontent readだけとし、update/insert/comment/user infoを付けない。Slack は User OAuth
+  1リクエスト(page_size=100)打ち切り、本文は書き写さずタイトル＋ポインタのみ）。Slack は User OAuth
   Token（`xoxp-`、案内内のマニフェストから作成したアプリをインストールして発行）貼り付け・
   `search.messages` を `from:<@自分>` と自分へのメンションの2クエリで取得し ts で統合＋uuid dedup
   （`auth.test` で疎通確認、HTTP 200 でも body の ok を必ず検査、`after:` は日付粒度のため同日再取得は
@@ -162,29 +153,6 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
   （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。全テスト＋packaging green。
-- **Pi道具の隔離（Linux/WSL実装・テスト済み）**：同梱 `secure-sandbox.ts` が全組み込みtoolを
-  上書きし、ファイル操作を起動時の作業フォルダ内へ固定する。bashとユーザーの `!` コマンドは
-  bubblewrapでhome/mnt/run/tmpを隠し、network/IPC/PID等を分離、環境変数をallowlist化する。
-  `.env`・鍵・資格情報らしい作業フォルダ内ファイルも読ませない。自動の記憶整理は組み込みtoolと
-  project contextを全停止し、`secure-memory.ts` の固定操作だけでscan/read/ingest/auditを行う。
-  `watari chat` は拡張の自動探索を止め、同梱・監査済み拡張だけを明示ロードする。Linux以外と、
-  home全体のように広すぎるcwdではホスト実行へ戻さずtoolを停止する。
-- **Linearの安全な変更仲介（実装・テスト済み）**：キーをモデルへ渡さず、任意GraphQL・project/workspace
-  変更・Admin操作を拒否する。team/user/project/state/labelの固定参照と、issueの作成・更新・コメントだけを
-  入力schemaとPython側の再検証で許可する。全変更はTUIで内容ごとの本人確認を必須とし、画面のない記憶整理
-  からはfail closedする。キー権限はRead / Create issues / Create comments、Write / Adminなしを案内する。
-- **GitHubリポジトリ変更の安全な仲介（実装・テスト済み）**：`gh` の認証情報と任意APIをモデルへ渡さず、
-  ログイン中の本人アカウントに対するリポジトリ作成・削除だけを固定toolにする。名前・公開範囲・説明を
-  検証し、作成先や削除対象をTUIへ明示して1操作ごとの本人承認を必須とする。画面なしではfail closedし、
-  他ユーザー・Organization・任意endpointの変更は許可しない。作成と削除を対で維持するため、`repo` と
-  `delete_repo` scopeはホスト側に保持する。
-- **Obsidianの安全な固定読み取り（実装・テスト済み）**：旧カスタム指示に依存せず、設定済みvaultの
-  Markdownだけをlocal connectorとして読む。読み取り先をvault内へ固定し、内部設定・派生まとめ・
-  隠し領域・symlinkを除外、件数/文字数を境界時刻を落とさず制限する。
-- **ログイン済みブラウザの安全な仲介（実装・テスト済み）**：CDPはloopbackだけを受け、設定で明示した
-  HTTPS hostだけを固定toolとして公開する。query/fragment・Cookie・websocket URL・任意JavaScriptは
-  モデルへ渡さない。clickと非秘密fieldへのtypeは対象・内容ごとにTUIで本人承認を必須とし、秘密fieldは
-  常時拒否、typeだけではsubmitしない。許可外リンク/form action/遷移は遮断する。
 - **Google OAuth セキュリティ強化（実装・テスト済み）**：インストール型アプリのloopback認可へ
   PKCE S256（RFC 7636）を追加し、認可コードを横取りされても一時verifierなしでは交換できない。
   秘密を含むローカル設定はPOSIXでフォルダ700・ファイル600へ毎回補正し、緩いumaskや既存644を
@@ -200,9 +168,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **敬語はユーザープリファレンスではなく製品不変条件**。ユーザーの入力口調を模倣せず、スキル指示に加えて
   Pi の表示・message_end ガードで明白な違反を保存・表示前に止める（モデルの遵守だけに依存しない）。
 - **transcript は Pi 一本**、それ以外（他 AI CLI・メール・タスク・チャット等）は connector 宣言。
-- **Obsidian は組み込みlocal connector**。vault内のMarkdownだけを読み、`.obsidian`・隠しフォルダ・
-  `Journal/Watari`・symlinkを除外する。旧自由記述の `vault=<path>` は実在vaultに限り構造化パスへ移行し、
-  自由記述をshellとして実行しない。
+- **Obsidian は connector**（専用フラグを廃止し宣言制へ一本化）。
 - **組み込みコネクタは案内型 wizard**：`watari connect <service>` が「案内→貼り付け→その場で実 API
   疎通確認→config 保存→connector 宣言」を一本化する（生コマンドをユーザーに打たせない原則の延長）。
   第一弾は Linear（Personal API key）。読み取りは `watari connector read <name>` が決定論で行い、

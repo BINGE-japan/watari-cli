@@ -204,15 +204,6 @@ class RegenWordingTest(_Home):
         self.assertIn("まとめを作り直しました", message)
         self.assertNotIn("state", message)
 
-    def test_semantic_diff_handles_fact_tags_and_plain_lists(self):
-        current = {"life": {"facts": {"scope": {"tags": ["security", "linear"],
-                                                    "values": ["read", "write"]}}}}
-        generated = {"life": {"facts": {"scope": {"tags": ["linear", "security"],
-                                                      "values": ["read"]}}}}
-        diffs = regen_state.semantic_diff(current, generated)
-        self.assertEqual(len(diffs), 1)
-        self.assertIn("life.facts.scope.values", diffs[0])
-
     def test_load_current_states_raises_when_missing(self):
         with self.assertRaises(FileNotFoundError):
             regen_state.load_current_states()
