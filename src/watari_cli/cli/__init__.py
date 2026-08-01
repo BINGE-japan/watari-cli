@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import sys
 
 from watari_cli import config
@@ -703,20 +702,11 @@ def _spawn_background_dream(home: str, runtime: str, skill: str) -> None:
     lock_path = os.path.join(_state_dir(), "dream.lock")
     if _dream_recently(lock_path):
         return
-    secure_memory = _find_pi_runtime_file("secure-memory.ts")
-    if not secure_memory:
-        return  # 固定操作だけの安全なworkerを用意できない回は、汎用toolで代行せず停止する
     cmd = _runtime_base(runtime) + [
-        "--no-skills", "--no-extensions", "--no-context-files", "--no-builtin-tools",
-        "--append-system-prompt", os.path.join(skill, "SKILL.md"),
-        "--extension", secure_memory,
+        "--no-skills", "--append-system-prompt", os.path.join(skill, "SKILL.md"),
         "--no-session", "-p", "記憶を整理して"]
     env = dict(os.environ)
     env["WATARI_HOME"] = home
-    executable = shutil.which("watari")
-    if not executable:
-        return
-    env["WATARI_SECURE_EXECUTABLE"] = os.path.realpath(executable)
     env["WATARI_SKIP_AUTO_DREAM"] = "1"
     try:
         proc = subprocess.Popen(
@@ -829,20 +819,14 @@ def cmd_chat(args) -> int:
     memory_context = _find_pi_runtime_file("memory-context.ts")
     verification_guard = _find_pi_runtime_file("verification-guard.ts")
     briefing_extension = _find_pi_runtime_file("briefing.ts")
-    secure_sandbox = _find_pi_runtime_file("secure-sandbox.ts")
-    secure_memory = _find_pi_runtime_file("secure-memory.ts")
-    secure_browser = _find_pi_runtime_file("secure-browser.ts")
-    secure_github = _find_pi_runtime_file("secure-github.ts")
     if not all((quiet_ui, politeness_guard, performance_extension, memory_context,
-                verification_guard, briefing_extension, secure_sandbox, secure_memory,
-                secure_browser, secure_github)):
+                verification_guard, briefing_extension)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
             "  watari-cli を入れ直してください（例: pip install --force-reinstall watari-cli）。\n")
         return 1
-    # 自動探索される拡張はホスト権限で任意コードを実行できるため無効化し、同梱・監査済みだけを列挙する。
-    cmd = _runtime_base(runtime) + ["--no-skills", "--no-extensions"]
+    cmd = _runtime_base(runtime) + ["--no-skills"]
     for template in _bundled_prompt_templates(skill):
         cmd += ["--prompt-template", template]  # /remember /organize 等の同梱スラッシュコマンド
     cmd += [
@@ -852,31 +836,11 @@ def cmd_chat(args) -> int:
         "--extension", memory_context,
         "--extension", verification_guard,
         "--extension", briefing_extension,
-        "--extension", secure_memory,
-        "--extension", secure_browser,
-        "--extension", secure_github,
-        "--extension", secure_sandbox,
     ] + args.extra
 
     env = dict(os.environ)
-    env["WATARI_HOME"] = home
-    executable = shutil.which("watari")
-    if not executable:
-        sys.stderr.write("watari 実行ファイルの絶対パスを確認できません。\n")
-        return 1
-    env["WATARI_SECURE_EXECUTABLE"] = os.path.realpath(executable)
-    gh = shutil.which("gh")
-    if gh:
-        env["WATARI_SECURE_GH"] = os.path.realpath(gh)
-    else:
-        env.pop("WATARI_SECURE_GH", None)
+    env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
     env["WATARI_PERFORMANCE_MODE"] = config.load_performance_mode()
-    browser = settings.get("browser") if isinstance(settings.get("browser"), dict) else {}
-    allowed_hosts = browser.get("allowed_hosts") if isinstance(browser.get("allowed_hosts"), list) else []
-    env["WATARI_BROWSER_ALLOWED_HOSTS"] = ",".join(
-        str(host).strip().lower() for host in allowed_hosts if str(host).strip())
-    env["WATARI_BROWSER_CDP_URL"] = str(
-        browser.get("cdp_url") or "http://127.0.0.1:9223")
     # Pi が TUI を組み立てる前に process-local の表示設定を当てる。reasoning/effort と会話ログは
     # 変えず、途中の思考文を隠し、tool 実行は通常1行・Ctrl+Oで詳細表示にする。
     # Pi のグローバル settings.json は触らない。
@@ -1037,55 +1001,6 @@ def cmd_ingest(args) -> int:
         from watari_cli import git_sync, relay
         git_sync.sync_after_write(wl.MEM)  # 書いた記憶を commit→pull→push（offline は繰り越し）
         relay.prune_cloud(wl.MEM)          # 全パソコンが取り込み済み＋90日超の共有発話を削除
-    return 0
-
-
-def _load_bounded_json(path: str, maximum: int = 65_536):
-    """秘密を含み得る内部requestをsymlink追従なし・上限付きで読む。"""
-    import stat
-
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags)
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
-            raise ValueError("request は通常ファイルで指定してください")
-        if info.st_size > maximum:
-            raise ValueError(f"request が大きすぎます（最大 {maximum} bytes）")
-        with os.fdopen(fd, encoding="utf-8") as handle:
-            fd = -1
-            return json.load(handle)
-    finally:
-        if fd >= 0:
-            os.close(fd)
-
-
-def cmd_linear_catalog(args) -> int:
-    """Linear操作に必要なteam/user/project/state/labelのIDを固定queryで返す。"""
-    from watari_cli import linear_actions
-    from watari_cli.connectors import ConnectorError
-
-    try:
-        result = linear_actions.catalog(linear_actions.configured_api_key())
-    except (ConnectorError, ValueError) as error:
-        sys.stderr.write(f"{error}\n")
-        return 1
-    print(json.dumps(result, ensure_ascii=False, indent=1))
-    return 0
-
-
-def cmd_linear_action(args) -> int:
-    """検証済みのLinear actionだけを実行する（任意GraphQLは受け付けない）。"""
-    from watari_cli import linear_actions
-    from watari_cli.connectors import ConnectorError
-
-    try:
-        request = _load_bounded_json(args.request)
-        result = linear_actions.perform(linear_actions.configured_api_key(), request)
-    except (OSError, json.JSONDecodeError, ConnectorError, ValueError) as error:
-        sys.stderr.write(f"linear操作を実行できません: {error}\n")
-        return 1
-    print(json.dumps(result, ensure_ascii=False, indent=1))
     return 0
 
 
@@ -1517,16 +1432,6 @@ def _build_parser() -> argparse.ArgumentParser:
     pcw.add_argument("--clear", action="store_true",
                      help="監視チャンネルをすべて解除する")
     pcw.set_defaults(func=cmd_connector_watch)
-
-    # AIへ認証情報や任意GraphQLを渡さず、同梱Pi extensionの固定toolだけが使う内部境界。
-    plin = sub.add_parser("linear", help=argparse.SUPPRESS,
-                          description="（内部用）Linearの許可済み操作だけを実行します。")
-    linsub = plin.add_subparsers(dest="linear_command", required=True)
-    plinc = linsub.add_parser("catalog", help=argparse.SUPPRESS)
-    plinc.set_defaults(func=cmd_linear_catalog)
-    plina = linsub.add_parser("action", help=argparse.SUPPRESS)
-    plina.add_argument("--request", required=True, help=argparse.SUPPRESS)
-    plina.set_defaults(func=cmd_linear_action)
     return p
 
 

@@ -11,7 +11,6 @@ import os
 import tempfile
 import time
 import unittest
-from unittest import mock
 
 from watari_cli import cli
 
@@ -66,22 +65,6 @@ class DreamGuardTest(unittest.TestCase):
         before = open(self._lock(), encoding="utf-8").read()
         cli._spawn_background_dream("/nope", "pi", "/nope")
         self.assertEqual(open(self._lock(), encoding="utf-8").read(), before)  # 変わらない
-
-    def test_worker_has_only_fixed_memory_tools_and_no_project_context(self):
-        class Proc:
-            pid = 12345
-
-        with mock.patch.object(cli, "_find_pi_runtime_file", return_value="/safe/secure-memory.ts"), \
-             mock.patch.object(cli.shutil, "which", return_value="/safe/bin/watari"), \
-             mock.patch("subprocess.Popen", return_value=Proc()) as popen:
-            cli._spawn_background_dream("/memory", "pi", "/skill")
-        command = popen.call_args.args[0]
-        self.assertIn("--no-builtin-tools", command)
-        self.assertIn("--no-context-files", command)
-        self.assertIn("--no-extensions", command)
-        self.assertIn("/safe/secure-memory.ts", command)
-        self.assertNotIn("secure-sandbox.ts", " ".join(command))
-        self.assertEqual(popen.call_args.kwargs["env"]["WATARI_SECURE_EXECUTABLE"], "/safe/bin/watari")
 
 
 if __name__ == "__main__":

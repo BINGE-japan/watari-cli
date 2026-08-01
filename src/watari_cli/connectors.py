@@ -73,9 +73,7 @@ def _linear_adapter() -> ServiceAdapter:
         guide=[
             "1. https://linear.app/settings/account/security を開く",
             "2. 'Personal API keys' で新しいキーを作る",
-            "3. 権限は Read / Create issues / Create comments を選び、Write / Admin は付けない。"
-            "対象teamはワタリに任せる仕事があるteamをすべて選ぶ",
-            "4. 発行されたキーをここに貼り付ける",
+            "3. 発行されたキーをここに貼り付ける",
         ],
         verify=linear.verify, read=linear.read, brief=linear.brief,
     )
@@ -107,13 +105,12 @@ def _notion_adapter() -> ServiceAdapter:
         label="Notion", implemented=True,
         guide=[
             "1. https://www.notion.so/my-integrations を開く",
-            "2. 『New integration』で内部インテグレーションを作成する",
-            "3. 機能は『コンテンツを読み取る』だけを有効にし、更新・挿入・コメントを無効、"
-            "ユーザー情報は『なし』にする",
-            "4. 読ませたいページを開き、右上の『…』メニュー →『接続』（Connections）から、"
+            "2. 『New integration』で内部インテグレーションを作成し、表示される"
+            "『内部インテグレーションシークレット』（貼り付け用の文字列）をコピーする",
+            "3. 読ませたいページを開き、右上の『…』メニュー →『接続』（Connections）から、"
             "今作った integration を追加する"
             "（※この手順を飛ばすと、接続は成功してもページを一切読めません）",
-            "5. 表示されたアクセストークンをコピーして、ここに貼り付ける",
+            "4. コピーしたシークレットをここに貼り付ける",
         ],
         verify=notion.verify, read=notion.read,
     )
@@ -231,22 +228,6 @@ def _chatwork_adapter() -> ServiceAdapter:
     )
 
 
-def _obsidian_adapter() -> ServiceAdapter:
-    from watari_cli import obsidian
-
-    return ServiceAdapter(
-        label=obsidian.LABEL, implemented=True, auth_kind="local", scope="local",
-        connected=obsidian.is_connected,
-        guide=[
-            "ObsidianのMarkdownノートを、vault内だけに限定した読み取り専用処理で取り込みます。",
-            "認証は不要です。既存のObsidian設定があれば安全な形式へ自動移行します。",
-            "見つからない場合だけ、vaultフォルダのパスを聞きます。",
-            "※ .obsidian、隠しフォルダ、Journal/Watari、シンボリックリンクは読みません。",
-        ],
-        verify=obsidian.verify, read=obsidian.read,
-    )
-
-
 def _claude_code_adapter() -> ServiceAdapter:
     from watari_cli.transcripts import claude_code as cc
 
@@ -298,7 +279,6 @@ REGISTRY = {
     "gmail": _gmail_adapter,
     "calendar": _calendar_adapter,
     "gdrive": _gdrive_adapter,
-    "obsidian": _obsidian_adapter,
     "claude-code": _claude_code_adapter,
     "codex": _codex_adapter,
     # 未実装のサービスはここに載せない——選べるのに使えない行はメニューのノイズになる。

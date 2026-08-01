@@ -5,7 +5,6 @@ import {
   performanceInfo,
   performanceMemoryOptions,
 } from "./performance.mjs";
-import { redactSensitiveValue } from "./secure-memory.mjs";
 
 function memoryGuidance(mode: string) {
   if (mode === "butler") {
@@ -51,7 +50,7 @@ export default function (pi: ExtensionAPI) {
       };
     }
     return {
-      systemPrompt: `${event.systemPrompt}\n\n${memoryGuidance(mode)}${JSON.stringify(redactSensitiveValue(payload))}`,
+      systemPrompt: `${event.systemPrompt}\n\n${memoryGuidance(mode)}${JSON.stringify(payload)}`,
     };
   });
 }

@@ -56,7 +56,7 @@ tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExec
 - dedup の単位は（`refs.uuid`, `kind`）。同一発話から複数 kind（life の thread と fact、learning の study 等）を書くのは正当。
 - 追記は必ず `watari ingest` 経由（検証・dedup・カーソル前進・state 再生成が一括で走る。同 (uuid, kind) は黙ってスキップされる）。
 - 補填行（state からの還元・移行時の topic アンカー等）は合成 uuid `reconcile:<domain>/<slug>` を正当な dedup 鍵として使ってよい（元発話が特定できない場合は refs.session 省略可）。
-- Obsidian vault 由来の行（`source:"obsidian"`）は、読み取り結果の uuid `obsidian:<vault相対パス>@<更新時刻UTC>` を dedup 鍵として `refs.uuid` に使う（後日加筆されたノートは新しい更新時刻で再び処理でき、同一更新分は dedup される）。`refs.cwd` にノートの vault 相対パスを残す。
+- Obsidian vault 由来の行（`source:"obsidian"`）は合成 uuid `obsidian:<vault相対パス>@<処理対象更新日YYYY-MM-DD>` を dedup 鍵とする（更新日を含めるのは、後日加筆されたノートから新しい行を書けるようにするため。同一更新分の再処理は dedup される）。`refs.cwd` にノートの vault 相対パスを残す。
 - Linear 由来の行（`source:"linear"`）は合成 uuid `linear:<issue識別子（例 ABC-123）>@<処理対象更新日YYYY-MM-DD>` を dedup 鍵とする（考え方は obsidian と同じ：issue が後日動いたら新しい行を書け、同一更新分の再処理は dedup される）。issue の中身は log に写さず、ユーザーの活動・予定として効く要点だけを書く（中身の正本は Linear）。
 - 同一発話が複数ソース（Pi transcript と connector 等）に二重に現れることがある。**近接 ts ＋ 同一 `refs.cwd` の同義行は1件に畳む**（先に拾った方を残す）。
 
@@ -180,7 +180,7 @@ state は毎ターン読まれる hot path。性能（読む側のトークン�
 - **cloud スコープの connector（メール等）の扱い**：カーソルは他と同じくマシンごとの host 記録に置くが、cloud 源は本来
   どのマシンから取り込んでも同じ位置であるべき（マシン間で共有すべき性質）。多重取り込みを避けるため、**cloud connector は
   「接続したマシンが読み取り担当」**——接続情報を持つマシンだけが記憶の整理で読む（他のマシンでは同じサービスを接続しない）。local スコープは各マシンが自分で読む。
-- Obsidian は `watari connect obsidian` で接続し、vault内のMarkdownだけを固定処理で読む。旧カスタム宣言の `vault=<path>` は実在するObsidian vaultに限って安全な設定へ移行する。ノートはユーザー本人の産出物なので、自分の言葉でまとめた内容は mastery 2 の根拠になり得る。知識の中身は log に写さず、到達状態とノートへのポインタ（refs.cwd）だけを書く（ノートの正本は vault）。カーソルは他 connector と同じく `--advance-ext obsidian=<最新ts>`。
+- Obsidian を使うなら connector として宣言する（`watari connector add --name obsidian --scope local`）。ノートはユーザー本人の産出物なので、自分の言葉でまとめた内容は mastery 2 の根拠になり得る。知識の中身は log に写さず、到達状態とノートへのポインタ（refs.cwd）だけを書く（ノートの中身の正本は vault）。カーソルは他 connector と同じく `--advance-ext obsidian=<最新ts>`。
 
 ## connector（記憶の整理のときに読み込むソースの宣言）
 transcript 以外のソース（メール・タスク・チャット等）は、`config.json` の `connectors` に**宣言される**。

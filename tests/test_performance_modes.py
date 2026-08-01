@@ -119,8 +119,7 @@ class PerformanceRuntimeTest(unittest.TestCase):
         self.assertIn('pi.registerCommand("performance"', text)
         self.assertIn("ctx.ui.select", text)
         self.assertIn("pi.setThinkingLevel", text)
-        self.assertIn('pi.exec(executable, ["performance", "--set", mode])', text)
-        self.assertIn("WATARI_SECURE_EXECUTABLE", text)
+        self.assertIn('pi.exec("watari", ["performance", "--set", mode])', text)
 
     def test_fast_mode_removes_the_extra_evidence_round_trip(self):
         text = VERIFICATION.read_text(encoding="utf-8")

@@ -1,7 +1,5 @@
-import path from "node:path";
 import { Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { redactSensitiveValue } from "./secure-memory.mjs";
 
 type Signal = {
   id: string;
@@ -35,19 +33,14 @@ export default function (pi: ExtensionAPI) {
   async function refresh(ctx: ExtensionContext, markShown: boolean, notifyEmpty = false) {
     const args = ["brief", "--json"];
     if (markShown) args.push("--mark-shown");
-    const executable = process.env.WATARI_SECURE_EXECUTABLE;
-    if (!executable || !path.isAbsolute(executable)) {
-      if (notifyEmpty) ctx.ui.notify("安全な確認処理を開始できませんでした。", "warning");
-      return;
-    }
-    const result = await pi.exec(executable, args, { timeout: 120_000 });
+    const result = await pi.exec("watari", args, { timeout: 120_000 });
     if (result.code !== 0) {
       if (notifyEmpty) ctx.ui.notify("確認事項を取得できませんでした。", "warning");
       return;
     }
     let parsed: BriefResult;
     try {
-      parsed = redactSensitiveValue(JSON.parse(result.stdout)) as BriefResult;
+      parsed = JSON.parse(result.stdout) as BriefResult;
     } catch {
       if (notifyEmpty) ctx.ui.notify("確認事項を読み取れませんでした。", "warning");
       return;
