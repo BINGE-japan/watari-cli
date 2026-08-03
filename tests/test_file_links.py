@@ -1,16 +1,19 @@
 """検証済みローカルファイルだけを、クリック可能なFiles欄へ出す。"""
 from __future__ import annotations
 
+import base64
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
 from watari_cli import file_links
+from watari_cli.cli import _build_parser
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "src" / "watari_cli" / "pi" / "file-links.mjs"
@@ -78,6 +81,63 @@ class FileLinksTest(unittest.TestCase):
              mock.patch.object(file_links, "reveal_file") as reveal:
             self.assertEqual(file_links.cmd_open_file_link(), 0)
         reveal.assert_called_once_with(self.sample)
+
+    def test_handler_accepts_url_argument_from_os_protocol(self):
+        url = file_links.build_file_link(str(self.sample))
+        args = SimpleNamespace(url=url, key_path=str(self.key))
+        with mock.patch.dict(os.environ, {"HERDR_PLUGIN_CLICKED_URL": ""}, clear=False), \
+             mock.patch.object(file_links, "reveal_file") as reveal:
+            self.assertEqual(file_links.cmd_open_file_link(args), 0)
+        reveal.assert_called_once_with(self.sample)
+
+    def test_hidden_open_command_parses_os_url_and_key_path(self):
+        url = file_links.build_file_link(str(self.sample))
+        args = _build_parser().parse_args([
+            "_open-file-link", "--key-path", str(self.key), url,
+        ])
+        self.assertEqual(args.url, url)
+        self.assertEqual(args.key_path, str(self.key))
+
+    def test_windows_protocol_command_invokes_watari_directly(self):
+        command = file_links.windows_file_link_command(
+            "Ubuntu Test",
+            "/home/example user/.local/bin/watari",
+            user="example user",
+            key_path="/home/example user/.local/state/watari/file-links.key",
+        )
+        self.assertIn(
+            r'C:\Windows\System32\wsl.exe -d "Ubuntu Test" -u "example user" --exec',
+            command,
+        )
+        self.assertIn(
+            r'"/home/example user/.local/bin/watari" _open-file-link --key-path '
+            r'"/home/example user/.local/state/watari/file-links.key" "%1"',
+            command,
+        )
+        self.assertNotIn("cmd.exe", command.lower())
+        self.assertNotIn("powershell", command.lower())
+        self.assertNotIn("bash", command.lower())
+
+    def test_windows_protocol_registration_is_per_user_and_idempotent(self):
+        completed = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu"}, clear=False), \
+             mock.patch("shutil.which", return_value="/home/example/.local/bin/watari"), \
+             mock.patch.object(subprocess, "run", return_value=completed) as run:
+            self.assertTrue(file_links.ensure_windows_file_link_protocol())
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[:3], ["powershell.exe", "-NoProfile", "-NonInteractive"])
+        script = base64.b64decode(argv[-1]).decode("utf-16le")
+        self.assertIn(r"HKCU:\Software\Classes\watari-file", script)
+        self.assertIn("URL Protocol", script)
+        self.assertIn(r"C:\Windows\System32\wsl.exe", script)
+        self.assertIn('"%1"', script)
+        self.assertIn("Set-Item", script)
+
+    def test_windows_protocol_registration_is_skipped_outside_wsl(self):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+             mock.patch.object(subprocess, "run") as run:
+            self.assertFalse(file_links.ensure_windows_file_link_protocol())
+        run.assert_not_called()
 
     def test_files_card_is_tui_only_and_uses_fixed_hyperlinks(self):
         source = EXTENSION.read_text(encoding="utf-8")

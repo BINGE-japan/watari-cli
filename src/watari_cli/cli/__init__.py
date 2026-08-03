@@ -912,9 +912,15 @@ def cmd_chat(args) -> int:
     env = dict(os.environ)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
     env["WATARI_PERFORMANCE_MODE"] = config.load_performance_mode()
-    from watari_cli.file_links import ensure_file_link_key, file_link_key_path
+    from watari_cli.file_links import (
+        ensure_file_link_key,
+        ensure_windows_file_link_protocol,
+        file_link_key_path,
+    )
     if not args.show:
         ensure_file_link_key()
+        if os.environ.get("WSL_DISTRO_NAME") and not ensure_windows_file_link_protocol():
+            sys.stderr.write("! Windowsへファイルリンクの起動設定を登録できませんでした。\n")
     env["WATARI_FILE_LINK_KEY_PATH"] = str(file_link_key_path())
     # Pi が TUI を組み立てる前に process-local の表示設定を当てる。reasoning/effort と会話ログは
     # 変えず、途中の思考文を隠し、tool 実行は通常1行・Ctrl+Oで詳細表示にする。
@@ -1439,6 +1445,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "_open-file-link", help=argparse.SUPPRESS,
         description="（内部用）署名済みのローカルファイルリンクをファイル管理画面で開きます。",
     )
+    popen.add_argument("--key-path", help=argparse.SUPPRESS)
+    popen.add_argument("url", nargs="?", help=argparse.SUPPRESS)
     from watari_cli.file_links import cmd_open_file_link
     popen.set_defaults(func=cmd_open_file_link)
 
