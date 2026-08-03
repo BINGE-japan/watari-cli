@@ -67,6 +67,8 @@ class ChatLaunchTest(unittest.TestCase):
         self.assertIn("memory-context.ts", out)
         self.assertIn("verification-guard.ts", out)
         self.assertIn("briefing.ts", out)
+        self.assertIn("file-links.ts", out)
+        self.assertIn("WATARI_FILE_LINK_KEY_PATH=", out)
         self.assertNotIn("--model", out)
         self.assertNotIn("--thinking", out)
         self.assertIn("WATARI_PERFORMANCE_MODE=balanced", out)

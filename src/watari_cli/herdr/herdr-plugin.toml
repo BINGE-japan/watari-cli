@@ -1,0 +1,18 @@
+id = "watari.file-links"
+name = "Watari file links"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Open Watari's signed local-file links in the OS file manager"
+platforms = ["linux", "macos", "windows"]
+
+[[actions]]
+id = "reveal-file"
+title = "Reveal Watari file"
+contexts = ["pane"]
+command = ["watari", "_open-file-link"]
+
+[[link_handlers]]
+id = "watari-file"
+title = "Reveal a verified Watari file"
+pattern = "^watari-file://open/[A-Za-z0-9_-]+\\?sig=[0-9a-f]{64}$"
+action = "reveal-file"
