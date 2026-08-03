@@ -49,7 +49,8 @@ def _translate_parser_error(message: str) -> str:
     if m:
         dest, value, raw = m.group(1), m.group(2), m.group(3)
         choices = [c.strip().strip("'\"") for c in raw.split(",")]
-        visible = [c for c in choices if c != "dream"]  # 隠し alias は候補に出さない
+        hidden = {"dream", "_open-file-link"}
+        visible = [c for c in choices if c not in hidden]  # 隠しコマンドは候補に出さない
         # サブコマンド位置のエラーか（dest 名のほか、metavar "{install,...}" 表記でも判定）
         if dest in ("command", "connector_command") or dest.startswith("{"):
             hints = difflib.get_close_matches(value, visible, n=2)
@@ -638,6 +639,73 @@ def _find_pi_runtime_file(name: str) -> str | None:
     return None
 
 
+def _find_herdr_plugin_dir() -> str | None:
+    """検証済みファイルリンクを開く同梱Herdr pluginの場所を返す。"""
+    try:
+        from importlib import resources
+
+        candidate = resources.files("watari_cli") / "herdr"
+        if (candidate / "herdr-plugin.toml").is_file():
+            return str(candidate)
+    except (ModuleNotFoundError, FileNotFoundError, NotADirectoryError, TypeError):
+        pass
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, "..", "herdr"),
+        os.path.join(os.getcwd(), "src", "watari_cli", "herdr"),
+    ]
+    for path in candidates:
+        resolved = os.path.abspath(path)
+        if os.path.isfile(os.path.join(resolved, "herdr-plugin.toml")):
+            return resolved
+    return None
+
+
+def _ensure_herdr_file_links(plugin_dir: str | None) -> bool:
+    """Herdr内で起動した時だけ、ローカルfile link handlerを一度だけ登録する。"""
+    import shutil
+    import subprocess
+
+    if os.environ.get("HERDR_ENV") != "1" or not plugin_dir:
+        return False
+    herdr = shutil.which("herdr")
+    if not herdr:
+        return False
+    try:
+        listed = subprocess.run(
+            [herdr, "plugin", "list", "--json"], capture_output=True, text=True,
+            timeout=10, check=False,
+        )
+        existing = None
+        if listed.returncode == 0:
+            payload = json.loads(listed.stdout)
+            plugins = payload.get("result", {}).get("plugins", [])
+            existing = next(
+                (plugin for plugin in plugins if plugin.get("plugin_id") == "watari.file-links"),
+                None,
+            )
+            if existing and os.path.realpath(existing.get("plugin_root", "")) == os.path.realpath(plugin_dir):
+                if existing.get("enabled") is True:
+                    return True
+                enabled = subprocess.run(
+                    [herdr, "plugin", "enable", "watari.file-links"],
+                    capture_output=True, text=True, timeout=10, check=False,
+                )
+                return enabled.returncode == 0
+        if existing:
+            subprocess.run(
+                [herdr, "plugin", "unlink", "watari.file-links"],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+        linked = subprocess.run(
+            [herdr, "plugin", "link", plugin_dir], capture_output=True, text=True,
+            timeout=15, check=False,
+        )
+        return linked.returncode == 0
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return False
+
+
 def _bundled_prompt_templates(skill: str) -> list[str]:
     """同梱スラッシュコマンド（skill/prompts/*.md）の絶対パス一覧（名前順で安定）。"""
     import glob
@@ -819,8 +887,10 @@ def cmd_chat(args) -> int:
     memory_context = _find_pi_runtime_file("memory-context.ts")
     verification_guard = _find_pi_runtime_file("verification-guard.ts")
     briefing_extension = _find_pi_runtime_file("briefing.ts")
+    file_links_extension = _find_pi_runtime_file("file-links.ts")
+    herdr_plugin = _find_herdr_plugin_dir()
     if not all((quiet_ui, politeness_guard, performance_extension, memory_context,
-                verification_guard, briefing_extension)):
+                verification_guard, briefing_extension, file_links_extension)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -836,11 +906,16 @@ def cmd_chat(args) -> int:
         "--extension", memory_context,
         "--extension", verification_guard,
         "--extension", briefing_extension,
+        "--extension", file_links_extension,
     ] + args.extra
 
     env = dict(os.environ)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
     env["WATARI_PERFORMANCE_MODE"] = config.load_performance_mode()
+    from watari_cli.file_links import ensure_file_link_key, file_link_key_path
+    if not args.show:
+        ensure_file_link_key()
+    env["WATARI_FILE_LINK_KEY_PATH"] = str(file_link_key_path())
     # Pi が TUI を組み立てる前に process-local の表示設定を当てる。reasoning/effort と会話ログは
     # 変えず、途中の思考文を隠し、tool 実行は通常1行・Ctrl+Oで詳細表示にする。
     # Pi のグローバル settings.json は触らない。
@@ -853,9 +928,13 @@ def cmd_chat(args) -> int:
               "未導入でも初回に npx が自動で取得します）:")
         print(f"WATARI_HOME={home}")
         print(f"WATARI_PERFORMANCE_MODE={env['WATARI_PERFORMANCE_MODE']}")
+        print(f"WATARI_FILE_LINK_KEY_PATH={env['WATARI_FILE_LINK_KEY_PATH']}")
         print(f"NODE_OPTIONS={shlex.quote(env['NODE_OPTIONS'])}")
         print(" ".join(shlex.quote(c) for c in cmd))
         return 0
+
+    if os.environ.get("HERDR_ENV") == "1" and not _ensure_herdr_file_links(herdr_plugin):
+        sys.stderr.write("! ファイルリンクを開くHerdr連携を登録できませんでした。\n")
 
     import signal
     from watari_cli import host, relay
@@ -1355,6 +1434,13 @@ def _build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--no-update", action="store_true", help="今回だけ本体の自動更新を確認しない")
     pc.add_argument("extra", nargs="*", help="実行環境（Pi）へそのまま渡す追加引数（上級者向け）")
     pc.set_defaults(func=cmd_chat)
+
+    popen = sub.add_parser(
+        "_open-file-link", help=argparse.SUPPRESS,
+        description="（内部用）署名済みのローカルファイルリンクをファイル管理画面で開きます。",
+    )
+    from watari_cli.file_links import cmd_open_file_link
+    popen.set_defaults(func=cmd_open_file_link)
 
     pperf = sub.add_parser(
         "performance", help="返信速度と記憶の詳しさを選ぶ",

@@ -33,7 +33,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-watari_cli = ["skill/*.md", "skill/prompts/*.md", "pi/*.mjs", "pi/*.ts"]
+watari_cli = ["skill/*.md", "skill/prompts/*.md", "pi/*.mjs", "pi/*.ts", "herdr/*.toml"]
 
 [dependency-groups]
 dev = ["pytest"]
