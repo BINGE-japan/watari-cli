@@ -164,6 +164,23 @@ def _powershell_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _windows_powershell_executable() -> str:
+    """Windows PATHを継承しないWSLプロセスからもPowerShellを見つける。"""
+    standard = Path("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
+    if standard.is_file():
+        return str(standard)
+    found = shutil.which("powershell.exe")
+    if found:
+        return found
+    converted = subprocess.run(
+        ["wslpath", "-u", r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"],
+        capture_output=True, text=True, timeout=10, check=True,
+    ).stdout.strip()
+    if converted and Path(converted).is_file():
+        return converted
+    raise FileNotFoundError("Windows PowerShell was not found")
+
+
 def windows_file_link_command(
     distro: str,
     watari_executable: str,
@@ -222,7 +239,8 @@ def ensure_windows_file_link_protocol(watari_executable: str | None = None) -> b
         )
         encoded = base64.b64encode(script.encode("utf-16le")).decode()
         subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            [_windows_powershell_executable(), "-NoProfile", "-NonInteractive",
+             "-EncodedCommand", encoded],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=True,
         )
         return True
@@ -244,7 +262,8 @@ def reveal_file(path: Path) -> None:
         )
         encoded = base64.b64encode(script.encode("utf-16le")).decode()
         subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            [_windows_powershell_executable(), "-NoProfile", "-NonInteractive",
+             "-EncodedCommand", encoded],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=True,
         )
         return

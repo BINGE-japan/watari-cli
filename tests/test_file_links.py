@@ -125,7 +125,14 @@ class FileLinksTest(unittest.TestCase):
              mock.patch.object(subprocess, "run", return_value=completed) as run:
             self.assertTrue(file_links.ensure_windows_file_link_protocol())
         argv = run.call_args.args[0]
-        self.assertEqual(argv[:3], ["powershell.exe", "-NoProfile", "-NonInteractive"])
+        self.assertEqual(
+            argv[:3],
+            [
+                "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+            ],
+        )
         script = base64.b64decode(argv[-1]).decode("utf-16le")
         self.assertIn(r"HKCU:\Software\Classes\watari-file", script)
         self.assertIn("URL Protocol", script)
@@ -138,6 +145,18 @@ class FileLinksTest(unittest.TestCase):
              mock.patch.object(subprocess, "run") as run:
             self.assertFalse(file_links.ensure_windows_file_link_protocol())
         run.assert_not_called()
+
+    def test_wsl_reveal_uses_absolute_windows_powershell_path(self):
+        converted = subprocess.CompletedProcess([], 0, r"C:\Users\BINGE\report.md\n", "")
+        opened = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu", "PATH": "/usr/bin"},
+                             clear=True), \
+             mock.patch.object(subprocess, "run", side_effect=[converted, opened]) as run:
+            file_links.reveal_file(self.sample)
+        self.assertEqual(
+            run.call_args_list[1].args[0][0],
+            "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+        )
 
     def test_files_card_is_tui_only_and_uses_fixed_hyperlinks(self):
         source = EXTENSION.read_text(encoding="utf-8")
