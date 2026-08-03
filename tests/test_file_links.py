@@ -158,13 +158,37 @@ class FileLinksTest(unittest.TestCase):
             "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
         )
 
-    def test_files_card_is_tui_only_and_uses_fixed_hyperlinks(self):
+    def test_only_mentioned_files_become_inline_links(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is required by the Pi runtime")
+        script = (
+            f"import {{ linkMentionedLocalFiles }} from {json.dumps(HELPER.as_uri())};"
+            "console.log(linkMentionedLocalFiles("
+            "process.argv[1], [process.argv[2]], process.cwd(), process.argv[3]));"
+        )
+        mentioned = subprocess.run(
+            [node, "--input-type=module", "-e", script,
+             f"資料: `{self.sample}`", "", str(self.key)],
+            capture_output=True, text=True, timeout=10, check=True,
+        ).stdout.strip()
+        self.assertIn(f"[`{self.sample}`](watari-file://open/", mentioned)
+
+        unmentioned = subprocess.run(
+            [node, "--input-type=module", "-e", script,
+             "作業は完了しました。", str(self.sample), str(self.key)],
+            capture_output=True, text=True, timeout=10, check=True,
+        ).stdout.strip()
+        self.assertEqual(unmentioned, "作業は完了しました。")
+
+    def test_extension_rewrites_answer_without_trailing_file_card(self):
         source = EXTENSION.read_text(encoding="utf-8")
-        self.assertIn('pi.registerEntryRenderer<FileCardData>(ENTRY_TYPE', source)
-        self.assertIn('pi.appendEntry<FileCardData>(ENTRY_TYPE', source)
+        self.assertIn('pi.on("message_end"', source)
         self.assertIn('pi.on("tool_result"', source)
         self.assertIn('pi.on("agent_settled"', source)
-        self.assertIn("hyperlink(currentPath, expectedUrl)", source)
+        self.assertIn("linkMentionedLocalFiles", source)
+        self.assertNotIn("registerEntryRenderer", source)
+        self.assertNotIn("appendEntry", source)
         self.assertNotIn("pi.sendMessage", source)
 
     def test_herdr_handler_only_accepts_signed_watari_urls(self):
