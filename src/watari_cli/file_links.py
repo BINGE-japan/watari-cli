@@ -1,4 +1,4 @@
-"""検証済みローカルファイルを Herdr から安全に開くための固定処理。"""
+"""検証済みローカルファイルをクリックから安全に開くための固定処理。"""
 from __future__ import annotations
 
 import base64
@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
 import stat
 import subprocess
 import sys
@@ -137,8 +138,8 @@ def build_file_link(raw_path: str, *, cwd: str | None = None) -> str:
     return f"{_SCHEME}://open/{payload}?sig={_signature(path, _load_key())}"
 
 
-def verify_file_link(url: str) -> Path:
-    """Herdrから渡されたURLを検証し、現在も安全な実ファイルなら返す。"""
+def verify_file_link(url: str, *, key_path: Path | None = None) -> Path:
+    """渡されたURLを検証し、現在も安全な実ファイルなら返す。"""
     parsed = urlparse(url)
     if parsed.scheme != _SCHEME or parsed.netloc != "open" or parsed.fragment:
         raise ValueError("invalid file link")
@@ -153,7 +154,7 @@ def verify_file_link(url: str) -> Path:
         path = base64.b64decode(padded, altchars=b"-_", validate=True).decode("utf-8")
     except (ValueError, UnicodeDecodeError) as exc:
         raise ValueError("invalid file link payload") from exc
-    expected = _signature(path, _load_key())
+    expected = _signature(path, _load_key(key_path))
     if not hmac.compare_digest(query["sig"][0], expected):
         raise ValueError("invalid file link signature")
     return validate_local_file(path)
@@ -161,6 +162,72 @@ def verify_file_link(url: str) -> Path:
 
 def _powershell_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def windows_file_link_command(
+    distro: str,
+    watari_executable: str,
+    *,
+    user: str | None = None,
+    key_path: str | None = None,
+) -> str:
+    """WindowsのURL起動設定に保存する、shellを介さない固定コマンドを返す。"""
+    if not distro or any(ord(ch) < 32 for ch in distro):
+        raise ValueError("invalid WSL distribution name")
+    executable = Path(watari_executable)
+    if not executable.is_absolute() or any(ord(ch) < 32 for ch in watari_executable):
+        raise ValueError("watari executable must be an absolute path")
+    if user is None:
+        import pwd
+        user = pwd.getpwuid(os.getuid()).pw_name
+    if not user or any(ord(ch) < 32 for ch in user):
+        raise ValueError("invalid WSL user name")
+    key = Path(key_path) if key_path else file_link_key_path()
+    if not key.is_absolute() or any(ord(ch) < 32 for ch in str(key)):
+        raise ValueError("file link key must have an absolute path")
+    argv = [
+        r"C:\Windows\System32\wsl.exe",
+        "-d", distro,
+        "-u", user,
+        "--exec", watari_executable,
+        "_open-file-link",
+        "--key-path", str(key),
+    ]
+    # URLはShellExecuteが %1 に入れる。cmd/bashを介さずwatariの引数として直接渡す。
+    return subprocess.list2cmdline(argv) + ' "%1"'
+
+
+def ensure_windows_file_link_protocol(watari_executable: str | None = None) -> bool:
+    """WSL利用時、watari-file URLを現在のWindowsユーザーへ登録する。"""
+    distro = os.environ.get("WSL_DISTRO_NAME", "")
+    if not distro:
+        return False
+    executable = watari_executable or shutil.which("watari")
+    if not executable:
+        return False
+    try:
+        command = windows_file_link_command(
+            distro, executable, key_path=str(file_link_key_path()))
+        root = r"HKCU:\Software\Classes\watari-file"
+        command_key = root + r"\shell\open\command"
+        script = (
+            f"$root = {_powershell_literal(root)}; "
+            f"$commandKey = {_powershell_literal(command_key)}; "
+            f"$command = {_powershell_literal(command)}; "
+            "$null = New-Item -Path $commandKey -Force; "
+            "Set-Item -LiteralPath $root -Value 'URL:Watari file link'; "
+            "$null = New-ItemProperty -LiteralPath $root -Name 'URL Protocol' "
+            "-Value '' -PropertyType String -Force; "
+            "Set-Item -LiteralPath $commandKey -Value $command"
+        )
+        encoded = base64.b64encode(script.encode("utf-16le")).decode()
+        subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=True,
+        )
+        return True
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
 
 
 def reveal_file(path: Path) -> None:
@@ -190,11 +257,13 @@ def reveal_file(path: Path) -> None:
     subprocess.Popen(["xdg-open", str(path.parent)], close_fds=True, start_new_session=True)
 
 
-def cmd_open_file_link(_args=None) -> int:
-    """Herdr plugin専用入口。署名済みURLだけをファイル管理画面で開く。"""
-    url = os.environ.get("HERDR_PLUGIN_CLICKED_URL", "")
+def cmd_open_file_link(args=None) -> int:
+    """OSまたはHerdrから渡された署名済みURLだけをファイル管理画面で開く。"""
+    url = getattr(args, "url", None) or os.environ.get("HERDR_PLUGIN_CLICKED_URL", "")
+    raw_key_path = getattr(args, "key_path", None)
+    key_path = Path(raw_key_path) if raw_key_path else None
     try:
-        path = verify_file_link(url)
+        path = verify_file_link(url, key_path=key_path)
         reveal_file(path)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         print(f"ファイルを開けませんでした: {exc}", file=sys.stderr)
