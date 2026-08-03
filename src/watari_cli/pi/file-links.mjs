@@ -98,6 +98,49 @@ export function buildFileLink(rawPath, cwd = process.cwd(), keyPath) {
   return `watari-file://open/${payload}?sig=${signature}`;
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function markdownPathLabel(filePath) {
+  if (!filePath.includes("`")) return `\`${filePath}\``;
+  return filePath.replace(/([\\[\]])/g, "\\$1");
+}
+
+export function linkMentionedLocalFiles(
+  text,
+  candidates = [],
+  cwd = process.cwd(),
+  keyPath,
+) {
+  if (typeof text !== "string" || text.length === 0) return text;
+  const requested = new Set(
+    candidates.filter((value) => typeof value === "string" && value.length > 0),
+  );
+  for (const match of text.matchAll(/`(\/[^`\r\n]+)`/g)) requested.add(match[1]);
+
+  const links = new Map();
+  for (const candidate of requested) {
+    try {
+      const filePath = validateLocalFile(candidate, cwd);
+      links.set(filePath, buildFileLink(filePath, cwd, keyPath));
+    } catch {
+      // 実在しない・秘密・リンク等のパスは回答中でもリンクにしない。
+    }
+  }
+  if (links.size === 0) return text;
+
+  const alternatives = [...links.keys()]
+    .sort((left, right) => right.length - left.length)
+    .map(escapeRegex)
+    .join("|");
+  const pattern = new RegExp(`\`(${alternatives})\`|(${alternatives})`, "g");
+  return text.replace(pattern, (_match, codePath, plainPath) => {
+    const filePath = codePath ?? plainPath;
+    return `[${markdownPathLabel(filePath)}](${links.get(filePath)})`;
+  });
+}
+
 export function toolFileCandidate(toolName, input, cwd = process.cwd()) {
   const labels = { read: "参照", edit: "更新", write: "保存" };
   const label = labels[toolName];

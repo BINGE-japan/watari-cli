@@ -87,10 +87,11 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   - 同梱 `pi/verification-guard.ts`：質問ターンで成功したtool callを追跡し、balanced/butlerでは
     `watari_evidence` で登録する。fastでは成功toolを自動登録して余分なモデル1往復を省く。未確認または
     推測表現を含む最終回答は隠さず、小さな警告行を添える。
-  - 同梱 `pi/file-links.ts`：成功したread/edit/writeの実ファイルだけをTUI専用Files欄へ集約する。
-    owner管理の通常ファイル・許可root・非symlink/hardlink・非秘密名を検証し、本人専用鍵のHMAC付き
-    `watari-file` URLを出す。Herdr pluginに加え、WSLでは`watari chat`起動時にWindowsの現在ユーザーへ
-    URL起動設定を登録し、固定の`wsl.exe`→内部コマンド（shell不使用）で再検証してExplorerに表示する。
+  - 同梱 `pi/file-links.ts`：毎回答のFiles欄は出さず、回答本文で実際に案内したローカルファイルの
+    絶対パスだけをクリック可能にする。owner管理の通常ファイル・許可root・非symlink/hardlink・非秘密名を
+    検証し、本人専用鍵のHMAC付き`watari-file` URLへ表示直前に置換する。Herdr pluginに加え、WSLでは
+    `watari chat`起動時にWindowsの現在ユーザーへURL起動設定を登録し、固定の`wsl.exe`→内部コマンド
+    （shell不使用）で再検証してExplorerに表示する。
   - `watari chat` は同梱 preload `pi/quiet-ui.mjs` を Pi プロセスの起動時だけ読み込み、reasoning と
     effort、会話ログを変えずに途中の思考文を隠す。tool 実行は通常1操作1行、Ctrl+OでPi本来の詳細へ
     展開する。最終回答は完了までバッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
