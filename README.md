@@ -195,9 +195,10 @@ Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari c
 - `watari chat` で Pi が起動しない → `node --version` が 22.19 以上か確認してください。
   未導入・古い場合は <https://nodejs.org/> の LTS 版を。
   `npx -y @earendil-works/pi-coding-agent` が通るかでも確認できます。
-- 「会話の同期にログインし直しが必要です」と出る → `watari auth` を再実行してください。
-  OAuth client自体が削除済みなら、有効なclient ID / client secretの入力へ自動で切り替わります。
-  別のパソコンでGoogle連携が動いている場合は同じOAuth clientを使えるため、新規作成は不要です。
+- 「会話を同期できません」と出る → 未送信分はそのパソコンに保存されています。
+  `watari auth` で接続を直すと、次回の `watari chat` で再送されます。OAuth client自体が削除済みなら、
+  有効なclient ID / client secretの入力へ自動で切り替わります。別のパソコンでGoogle連携が動いている
+  場合は同じOAuth clientを使えるため、新規作成は不要です。
 - 接続したサービスの認証が切れた → `watari connect <サービス名>` をもう一度実行してください。
 - 「記憶の同期に失敗しました（オフライン？）」と出る → 変更は保存済みです。
   ネットワーク復帰後の実行時に自動で再試行されます。

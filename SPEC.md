@@ -160,7 +160,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   一次情報が取れた時点で本実装のアダプタとして追加する。
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
-  （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。全テスト＋packaging green。
+  （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。chat起動時は
+  保存値でなくtoken実交換で同期可否を確認し、失敗なら即時に1行警告する。未送信発話はローカルキューへ
+  残し、再認証後の次回chatで再送する（完全未設定の利用者には警告もキューも作らない）。
 - **Obsidianの安全な固定読み取り（実装・テスト済み）**：旧カスタム指示に依存せず、設定済みvaultの
   Markdownだけをlocal connectorとして読む。読み取り先をvault内へ固定し、内部設定・派生まとめ・
   隠し領域・symlinkを除外、件数/文字数を境界時刻を落とさず制限する。
