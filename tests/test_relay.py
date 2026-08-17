@@ -165,8 +165,11 @@ class TickFlushTest(_Base):
         with contextlib.redirect_stderr(err):
             r._tick()
             r._flush()
-        self.assertIn("会話を同期できません", err.getvalue())
+        self.assertIn("Googleとの接続が切れた", err.getvalue())
+        self.assertIn("ほかのパソコンのワタリ", err.getvalue())
         self.assertIn("このパソコンに保存", err.getvalue())
+        self.assertIn("ターミナル", err.getvalue())
+        self.assertIn("watari auth", err.getvalue())
         self.assertEqual(err.getvalue().count("!"), 1)
         with open(relay._queue_path(), encoding="utf-8") as f:
             self.assertIn("hi", f.read())
@@ -245,7 +248,8 @@ class StartTest(_Base):
         # 設定はあるのにログインできていない（トークン失効等）→ 1行だけ知らせる
         r, err = self._start(configured=True, store=None, live=False)
         self.assertIsNotNone(r._thread)  # 未送信分をローカルキューへ残すため抽出は続ける
-        self.assertIn("会話を同期できません", err)
+        self.assertIn("Googleとの接続が切れた", err)
+        self.assertIn("ほかのパソコンのワタリ", err)
         self.assertIn("watari auth", err)
         self.assertIn("このパソコンに保存", err)
         self.assertEqual(err.count("!"), 1)
@@ -255,7 +259,7 @@ class StartTest(_Base):
         r, err = self._start(configured=True, store=FakeStore(), live=False)
         self.assertIsNone(r._store)
         self.assertIsNotNone(r._thread)
-        self.assertIn("会話を同期できません", err)
+        self.assertIn("Googleとの接続が切れた", err)
 
     def test_start_warns_when_queue_exceeds_limit(self):
         with open(relay._queue_path(), "w", encoding="utf-8") as f:
