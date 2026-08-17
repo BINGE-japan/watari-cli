@@ -37,14 +37,15 @@ class _Base(unittest.TestCase):
         # 同梱既定(_BUNDLED_*)が焼き込まれていてもテストは「未設定」を再現できるよう空に固定
         self._saved_bundled = (cloud._BUNDLED_CLIENT_ID, cloud._BUNDLED_CLIENT_SECRET)
         cloud._BUNDLED_CLIENT_ID = cloud._BUNDLED_CLIENT_SECRET = ""
-        self._saved = {"authorize": cloud.authorize, "text": prompts.text,
-                       "confirm": prompts.confirm}
+        self._saved = {"authorize": cloud.authorize, "http": cloud._http,
+                       "text": prompts.text, "confirm": prompts.confirm}
         self.authorized_with = []
         cloud.authorize = lambda: (self.authorized_with.append(cloud.credentials()) or (True, "ok"))
 
     def tearDown(self):
         cloud._BUNDLED_CLIENT_ID, cloud._BUNDLED_CLIENT_SECRET = self._saved_bundled
         cloud.authorize = self._saved["authorize"]
+        cloud._http = self._saved["http"]
         prompts.text = self._saved["text"]
         prompts.confirm = self._saved["confirm"]
         for k, v in self._saved_env.items():
@@ -86,6 +87,41 @@ class AuthCommandTest(_Base):
         rc, out, _ = _run(["auth"])
         self.assertEqual(rc, 1)
         self.assertEqual(self.authorized_with, [])  # 承認まで行かない
+
+    def test_deleted_saved_client_prompts_for_replacement(self):
+        config.save_config(google={
+            "client_id": "deleted-id", "client_secret": "deleted-secret",
+            "refresh_token": "stale-token", "scopes": [cloud.SCOPE],
+        })
+        cloud._http = lambda *args, **kwargs: (
+            401, b'{"error":"deleted_client","error_description":"The OAuth client was deleted."}')
+        answers = iter(["new-id", "new-secret"])
+        prompts.text = lambda *a, **k: next(answers)
+
+        rc, out, _ = _run(["auth"])
+
+        self.assertEqual(rc, 0)
+        self.assertIn("削除されています", out)
+        google = config.load_config()["google"]
+        self.assertEqual((google["client_id"], google["client_secret"]),
+                         ("new-id", "new-secret"))
+        self.assertNotIn("refresh_token", google)
+        self.assertNotIn("scopes", google)
+        self.assertEqual(self.authorized_with, [("new-id", "new-secret")])
+
+    def test_revoked_token_keeps_existing_client_for_reauthorization(self):
+        config.save_config(google={
+            "client_id": "current-id", "client_secret": "current-secret",
+            "refresh_token": "revoked-token", "scopes": [cloud.SCOPE],
+        })
+        cloud._http = lambda *args, **kwargs: (
+            400, b'{"error":"invalid_grant","error_description":"Token revoked"}')
+        prompts.text = lambda *a, **k: self.fail("clientが有効なら差し替え入力を求めてはいけない")
+
+        rc, _out, _ = _run(["auth"])
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.authorized_with, [("current-id", "current-secret")])
 
 
 class InstallUnifiesAuthTest(_Base):

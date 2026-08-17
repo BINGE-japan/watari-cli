@@ -165,8 +165,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **Google OAuth セキュリティ強化（実装・テスト済み）**：インストール型アプリのloopback認可へ
   PKCE S256（RFC 7636）を追加し、認可コードを横取りされても一時verifierなしでは交換できない。
   秘密を含むローカル設定はPOSIXでフォルダ700・ファイル600へ毎回補正し、緩いumaskや既存644を
-  引き継がない。2026-07-31の実環境監査で旧Google認証は失効・設定から除去済み。新しい認証は
-  PKCE対応版の導入後に発行する。
+  引き継がない。`watari auth` はtoken endpointの `deleted_client` を事前検出し、保存済みclientを
+  再利用してブラウザで401になる代わりに、新しいclient ID / secretの入力へ切り替える。差し替え時は
+  旧clientに属するrefresh tokenとscopeも破棄する。
 - **未了（実地検証）**：Google OAuth アプリ登録（`docs/google-oauth-setup.md` の手順）→ 各マシンで
   `watari auth` → 2台間の会話同期を実機で確認する。コード・テストは整備済みで、実環境での通し確認が
   残タスク。client_id 未設定の間は同期はスキップされ、ローカルのみで普通に動く。

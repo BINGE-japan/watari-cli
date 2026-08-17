@@ -557,17 +557,33 @@ def _google_auth_flow(prompt_for_creds: bool) -> tuple[bool, str]:
     from watari_cli import cloud, prompts
 
     cid, csec = cloud.credentials()
-    if not (cid and csec):
+    replace_deleted_client = bool(prompt_for_creds and cloud.oauth_client_is_deleted())
+    if replace_deleted_client:
+        if (os.environ.get("WATARI_GOOGLE_CLIENT_ID")
+                or os.environ.get("WATARI_GOOGLE_CLIENT_SECRET")):
+            return False, ("環境変数のGoogle OAuth clientが削除されています。"
+                           "WATARI_GOOGLE_CLIENT_ID / WATARI_GOOGLE_CLIENT_SECRETを"
+                           "新しい値へ更新してから、もう一度watari authを実行してください")
+        print("保存されているGoogle OAuth clientはGoogle側で削除されています。"
+              "新しいclientへ差し替えます。", flush=True)
+        print(_GOOGLE_SETUP_GUIDE, flush=True)
+        cid = prompts.text("新しい client_id")
+        csec = prompts.text("新しい client_secret")
+    elif not (cid and csec):
         if not prompt_for_creds:
             return False, ("Google 連携は未設定です（任意機能。使う場合は `watari auth` で"
                            "設定できます）")
         print(_GOOGLE_SETUP_GUIDE, flush=True)
         cid = cid or prompts.text("client_id")
         csec = csec or prompts.text("client_secret")
-        if not (cid and csec):
-            return False, ("client_id / client_secret が空のため中止しました。"
-                           "もう一度 `watari auth` を実行して入力してください")
-    cloud.save_credentials(cid, csec)  # env 由来でも config に保存し、以後の token 更新を無人化
+    if not (cid and csec):
+        return False, ("client_id / client_secret が空のため中止しました。"
+                       "もう一度 `watari auth` を実行して入力してください")
+    if replace_deleted_client:
+        cloud.replace_credentials(cid, csec)
+    else:
+        # env 由来でも config に保存し、以後の token 更新を無人化する。
+        cloud.save_credentials(cid, csec)
     if sys.stdin.isatty():
         # ブラウザを突然開かない（何が起きるかを言ってから開く）。既定は Yes。
         if not prompts.confirm("ブラウザで Google の承認画面を開きます。よろしいですか？",
