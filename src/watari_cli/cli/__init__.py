@@ -535,20 +535,12 @@ def cmd_install(args) -> int:
     return 0
 
 
-# creds 未設定時に表示するインライン手順。docs のリポジトリ相対パスへは誘導しない
-# （pip で入れたユーザーの手元に docs/ は無い。要点はこの場で完結させる）。
+# 初回利用者にも読み切れる短い分岐だけを表示し、Google Cloudの詳細操作は公開ドキュメントへ寄せる。
 _GOOGLE_SETUP_GUIDE = """\
-Google 連携には、有効な Google OAuth クライアント（無料）が必要です。
-別のパソコンでワタリのGoogle連携が動いている場合は、同じclient ID / client secretを使えます。
-その場合、新しいOAuthクライアントを作る必要はありません。
-有効なclient ID / client secretがまだ無い場合だけ、次の手順で作成してください。
-  1. https://console.cloud.google.com/ を開き、プロジェクトを作成する（既存のものでも可）
-  2. 「API とサービス」→「ライブラリ」で「Google Drive API」を有効にする
-  3. 「OAuth 同意画面」を設定し、公開ステータスを「本番環境」（In production）にする
-  4. 「認証情報」→「認証情報を作成」→「OAuth クライアント ID」を選ぶ
-  5. アプリケーションの種類は「デスクトップアプリ」を選んで作成する
-  6. 発行された client_id と client_secret を、この下に貼り付けてください
-詳しい手順は README の「複数のパソコンで使う」の節にあります。"""
+Google連携を設定します。
+・別のパソコンで接続済み：同じclient IDとclient secretを入力
+・初めて使う：Google Cloudで「デスクトップアプリ」の認証情報を作成
+  手順: https://github.com/BINGE-japan/watari-cli/blob/main/docs/google-oauth-setup.md"""
 
 
 def _google_auth_flow(prompt_for_creds: bool) -> tuple[bool, str]:
@@ -567,20 +559,20 @@ def _google_auth_flow(prompt_for_creds: bool) -> tuple[bool, str]:
             return False, ("環境変数のGoogle OAuth clientが削除されています。"
                            "WATARI_GOOGLE_CLIENT_ID / WATARI_GOOGLE_CLIENT_SECRETを"
                            "新しい値へ更新してから、もう一度watari authを実行してください")
-        print("保存されているGoogle OAuth clientはGoogle側で削除されています。"
-              "有効なclientへ差し替えます。", flush=True)
+        print("保存済みのGoogle認証（OAuth client）は削除されています。"
+              "認証情報を入れ直します。", flush=True)
         print(_GOOGLE_SETUP_GUIDE, flush=True)
-        cid = prompts.text("有効な client_id")
-        csec = prompts.text("有効な client_secret")
+        cid = prompts.text("client ID")
+        csec = prompts.text("client secret")
     elif not (cid and csec):
         if not prompt_for_creds:
             return False, ("Google 連携は未設定です（任意機能。使う場合は `watari auth` で"
                            "設定できます）")
         print(_GOOGLE_SETUP_GUIDE, flush=True)
-        cid = cid or prompts.text("client_id")
-        csec = csec or prompts.text("client_secret")
+        cid = cid or prompts.text("client ID")
+        csec = csec or prompts.text("client secret")
     if not (cid and csec):
-        return False, ("client_id / client_secret が空のため中止しました。"
+        return False, ("client ID / client secret が空のため中止しました。"
                        "もう一度 `watari auth` を実行して入力してください")
     if replace_deleted_client:
         cloud.replace_credentials(cid, csec)

@@ -57,6 +57,13 @@ class _Base(unittest.TestCase):
 
 
 class AuthCommandTest(_Base):
+    def test_first_time_guide_is_short_and_covers_both_paths(self):
+        lines = [line for line in cli._GOOGLE_SETUP_GUIDE.splitlines() if line.strip()]
+        self.assertLessEqual(len(lines), 4)
+        self.assertIn("別のパソコン", cli._GOOGLE_SETUP_GUIDE)
+        self.assertIn("初めて", cli._GOOGLE_SETUP_GUIDE)
+        self.assertIn("https://github.com/BINGE-japan/watari-cli/", cli._GOOGLE_SETUP_GUIDE)
+
     def test_uses_saved_creds_without_prompting(self):
         config.save_config(google={"client_id": "cid", "client_secret": "csec"})
         prompts.text = lambda *a, **k: self.fail("入力を求めてはいけない")
