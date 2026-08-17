@@ -7,7 +7,8 @@ tail し、user＋assistant の発話テキストだけ（tool 出力・thinking
 - 発火は数秒ポーリング（zero-dep で移植性優先。実質ターン終了時に送信になる粒度）。
 - 送信失敗（offline 等）はローカルキューに繰り越し、次の tick か次回 chat で再送。
 - 終了時（正常/SIGINT は finally、SIGTERM はハンドラ）に最終 flush。
-- クラウド未認証なら start() は何もしない＝ローカルのみで普通に動く。
+- Google連携が完全未設定なら start() は何もしない。設定済みなのに実接続できない場合は即時警告し、
+  発話をローカルキューへ残して再認証後の次回chatで再送する。
 
 抽出のバイトオフセット・再送キューはローカル状態（XDG_STATE_HOME/watari、非同期・マシン固有）。
 """
@@ -91,23 +92,33 @@ class Relay:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._store: cloud.CloudStore | None = None
+        self._enabled = False  # Google連携を設定した利用者だけローカルキューを使う
+        self._warned_sync_failure = False
         self._offsets = _load_offsets()
         self._meta: dict[str, dict] = {}  # path -> {"cwd", "session"}
         self._pi_cursor = _pi_cursor_epoch(home)  # 初見ファイルの「夢見済み」判定用
 
     # --- ライフサイクル ---
     def start(self) -> None:
-        self._store = cloud.get_store()
-        if cloud.is_configured():
-            if self._store is None:
-                # 設定はあるのにログインできていない（トークン失効・未承認）。無言だと
-                # 会話の同期が止まったことに気づけないため、1行だけ知らせる。
-                print("! 会話の同期にログインし直しが必要です: watari auth", file=sys.stderr)
-            self._warn_if_queue_large()
+        if not cloud.is_configured():
+            return  # 完全未設定（同期を使っていない）は無言で中継しない
+        self._enabled = True
+        if cloud.has_live_authorization():
+            self._store = cloud.get_store()
         if self._store is None:
-            return  # 完全未設定（同期を使っていない）は従来どおり無言で中継しない
+            # 保存値の存在だけでなくtoken実交換に失敗した場合も即時に知らせる。送れない間も
+            # transcript抽出は続け、再認証後に送れるようローカルキューへ残す。
+            self._warn_sync_failure()
+        self._warn_if_queue_large()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
+
+    def _warn_sync_failure(self) -> None:
+        if self._warned_sync_failure:
+            return
+        print("! 会話を同期できません。未送信分はこのパソコンに保存します。"
+              "接続を直すには: watari auth", file=sys.stderr)
+        self._warned_sync_failure = True
 
     def _warn_if_queue_large(self) -> None:
         """送信できていないキューが肥大していたら1行警告する（会話は止めない）。"""
@@ -129,14 +140,15 @@ class Relay:
             self._stop.wait(self.poll_interval)
 
     def stop_and_flush(self) -> None:
+        if not self._enabled:
+            return
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=10)
-        if self._store is not None:
-            try:
-                self._tick()  # Pi 終了直後の残り分を拾って送る
-            except Exception:
-                pass
+        try:
+            self._tick()  # 送信不能でもPi終了直後の残り分をローカルキューへ拾う
+        except Exception:
+            pass
 
     # --- 1 tick: 抽出 → キュー → 送信 ---
     def _tick(self) -> None:
@@ -224,11 +236,12 @@ class Relay:
                 content = f.read()
         except FileNotFoundError:
             return
-        if not content:
+        if not content or self._store is None:
             return
         try:
             self._store.append(self.cloud_name, content)
         except cloud.CloudError:
+            self._warn_sync_failure()
             return  # 繰り越し（キューはそのまま・次回再送）
         open(_queue_path(), "w", encoding="utf-8").close()  # 送信成功 → キューを空に
 

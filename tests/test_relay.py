@@ -157,6 +157,29 @@ class TickFlushTest(_Base):
         with open(relay._queue_path(), encoding="utf-8") as f:
             self.assertEqual(f.read(), "")
 
+    def test_send_failure_warns_once_and_keeps_queue(self):
+        self._one_user()
+        r = relay.Relay(self.pi_store, "m1")
+        r._store = FakeStore(fail=True)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            r._tick()
+            r._flush()
+        self.assertIn("会話を同期できません", err.getvalue())
+        self.assertIn("このパソコンに保存", err.getvalue())
+        self.assertEqual(err.getvalue().count("!"), 1)
+        with open(relay._queue_path(), encoding="utf-8") as f:
+            self.assertIn("hi", f.read())
+
+    def test_stop_queues_final_messages_when_auth_is_invalid(self):
+        self._one_user()
+        r = relay.Relay(self.pi_store, "m1")
+        r._enabled = True
+        r._store = None
+        r.stop_and_flush()
+        with open(relay._queue_path(), encoding="utf-8") as f:
+            self.assertIn("hi", f.read())
+
 
 class FirstRunSkipTest(_Base):
     def _home_with_pi_cursor(self, cursor_ts):
@@ -195,17 +218,18 @@ class FirstRunSkipTest(_Base):
 
 
 class StartTest(_Base):
-    def _start(self, *, configured, store):
-        saved = (cloud.get_store, cloud.is_configured)
+    def _start(self, *, configured, store, live=True):
+        saved = (cloud.get_store, cloud.is_configured, cloud.has_live_authorization)
         cloud.get_store = lambda: store
         cloud.is_configured = lambda: configured
+        cloud.has_live_authorization = lambda: live
         r = relay.Relay(self.pi_store, "m1")
         err = io.StringIO()
         try:
             with contextlib.redirect_stderr(err):
                 r.start()
         finally:
-            cloud.get_store, cloud.is_configured = saved
+            cloud.get_store, cloud.is_configured, cloud.has_live_authorization = saved
             r._stop.set()
             if r._thread is not None:
                 r._thread.join(timeout=5)
@@ -219,11 +243,19 @@ class StartTest(_Base):
 
     def test_start_warns_relogin_when_configured_but_not_authorized(self):
         # 設定はあるのにログインできていない（トークン失効等）→ 1行だけ知らせる
-        r, err = self._start(configured=True, store=None)
-        self.assertIsNone(r._thread)  # 中継はしない
-        self.assertIn("会話の同期にログインし直しが必要です", err)
+        r, err = self._start(configured=True, store=None, live=False)
+        self.assertIsNotNone(r._thread)  # 未送信分をローカルキューへ残すため抽出は続ける
+        self.assertIn("会話を同期できません", err)
         self.assertIn("watari auth", err)
+        self.assertIn("このパソコンに保存", err)
         self.assertEqual(err.count("!"), 1)
+
+    def test_start_checks_live_auth_instead_of_saved_token_presence(self):
+        # storeを作れる（保存値あり）だけでは接続済みにしない。token実交換が失敗したら即警告する。
+        r, err = self._start(configured=True, store=FakeStore(), live=False)
+        self.assertIsNone(r._store)
+        self.assertIsNotNone(r._thread)
+        self.assertIn("会話を同期できません", err)
 
     def test_start_warns_when_queue_exceeds_limit(self):
         with open(relay._queue_path(), "w", encoding="utf-8") as f:
