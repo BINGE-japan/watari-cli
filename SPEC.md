@@ -133,7 +133,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   書き写さない）。カレンダーは `calendar.readonly`・primary カレンダーの `events.list
   (updatedMin=since, showDeleted=true)`。ドライブは `drive.metadata.readonly`・`files.list
   (q=modifiedTime>since, orderBy=modifiedTime)` でメタデータのみ。3つとも `watari connect` は
-  貼り付けを求めずブラウザ承認のみ（未接続時に必要スコープだけを追加要求）。Gmail/ドライブは
+  貼り付けを求めずブラウザ承認のみ（未接続時に必要スコープだけを追加要求）。接続済み表示は
+  保存済み設定だけで決めず、refresh token の実交換と各サービスのプロフィール用 API の読み取りに
+  成功した場合に限る（削除済みclient・許可取消・対象API無効を接続済みと誤表示しない）。Gmail/ドライブは
   「制限付き(restricted)スコープ」のため External・未確認のままだと使えない場合がある
   （`docs/google-oauth-setup.md`、Google Workspace なら Internal 推奨）。
   Claude Code / Codex は他の組み込みコネクタと違い**認証そのものが不要**（ローカルの会話ログを

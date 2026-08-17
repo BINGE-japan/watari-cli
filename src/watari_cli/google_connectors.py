@@ -4,8 +4,10 @@ linear/github/notion と違い、この3つは認証がトークン貼り付け�
 OAuth（drive.appdata 用に既に確立済み）の incremental scope 拡張**を共有する。個別のトークン
 文字列を connectors_auth に保存する代わりに、サービスごとの verify が「必要スコープが
 `cloud.granted_scopes()` に含まれるか」を見て、無ければ `cloud.authorize([必要スコープ])` を
-その場で起動してブラウザ承認を求める（既存の drive.appdata 権限や他サービスの権限は
-`include_granted_scopes=true` により失われない）。read はアクセストークンだけを使う
+その場で起動してブラウザ承認を求める。接続済み表示では保存値だけを見ず、各サービスの
+プロフィール用 API まで実際に読み、現在利用できる場合だけ接続済みとする（既存の
+`drive.appdata` 権限や他サービスの権限は `include_granted_scopes=true` により失われない）。
+read はアクセストークンだけを使う
 （`cloud.access_token()`）ので、この3サービスは connectors.py の ServiceAdapter に
 `auth_kind="oauth"` を持たせて呼び分ける（connectors.read/is_connected 側で分岐、サービス名の
 if/elif はどこにも書かない）。
@@ -101,6 +103,17 @@ def _ensure_scope_and_describe(scope: str, describe) -> tuple[bool, str]:
         return False, str(error)
 
 
+def _has_live_service_access(scope: str, describe) -> bool:
+    """ブラウザ認可を起動せず、保存済み認証で対象サービスを現在読めるか確認する。"""
+    if scope not in cloud.granted_scopes() or not cloud.is_authorized():
+        return False
+    try:
+        describe()
+    except (ConnectorError, cloud.CloudError):
+        return False
+    return True
+
+
 # ---- gmail ------------------------------------------------------------------
 
 def _gmail_profile_email() -> str:
@@ -111,6 +124,10 @@ def _gmail_profile_email() -> str:
 def gmail_verify() -> tuple[bool, str]:
     """必要スコープ gmail.readonly の確認（無ければブラウザ承認）→ profile の emailAddress。"""
     return _ensure_scope_and_describe(GMAIL_SCOPE, _gmail_profile_email)
+
+
+def gmail_is_connected() -> bool:
+    return _has_live_service_access(GMAIL_SCOPE, _gmail_profile_email)
 
 
 def _epoch_seconds(ts: str | None) -> int:
@@ -260,6 +277,10 @@ def calendar_verify() -> tuple[bool, str]:
     return _ensure_scope_and_describe(CALENDAR_SCOPE, _calendar_primary_summary)
 
 
+def calendar_is_connected() -> bool:
+    return _has_live_service_access(CALENDAR_SCOPE, _calendar_primary_summary)
+
+
 def calendar_brief(now: datetime) -> list[dict]:
     """Observe events starting in the next seven days, independent of update cursors."""
     from watari_cli.briefing import _parse_ts, _signal, rank_signals
@@ -358,6 +379,10 @@ def _drive_about_user() -> str:
 def gdrive_verify() -> tuple[bool, str]:
     """必要スコープ drive.metadata.readonly の確認（無ければブラウザ承認）→ about.user の表示。"""
     return _ensure_scope_and_describe(GDRIVE_SCOPE, _drive_about_user)
+
+
+def gdrive_is_connected() -> bool:
+    return _has_live_service_access(GDRIVE_SCOPE, _drive_about_user)
 
 
 def gdrive_read(since: str | None) -> list[dict]:

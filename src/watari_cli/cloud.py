@@ -90,7 +90,22 @@ def _refresh_token() -> str | None:
 
 
 def is_authorized() -> bool:
+    """OAuth 設定と refresh token がローカルに保存されているか。実疎通は確認しない。"""
     return is_configured() and bool(_refresh_token())
+
+
+def has_live_authorization() -> bool:
+    """保存済み refresh token を実際に交換できるか確認する。
+
+    `is_authorized()` はローカル設定の存在判定であり、OAuth client の削除や Google 側での
+    許可取り消しは検出できない。ユーザーへ「接続済み」と表示する場合はこちらを使う。
+    """
+    if not is_authorized():
+        return False
+    try:
+        return bool(_access_token())
+    except (CloudError, json.JSONDecodeError, KeyError, TypeError):
+        return False
 
 
 def _access_token() -> str:

@@ -434,6 +434,52 @@ class RegistryGoogleExtensionTest(_GoogleIsolated):
         # ラベルには接続状態が付く（未接続なら「（未接続）」）
         self.assertIn(("⬜ Google ドライブ", "gdrive"), captured["options"])
 
+    def test_deleted_oauth_client_is_not_labeled_connected(self):
+        """保存済み設定だけで、実際には無効な Google OAuth を接続済みにしない。"""
+        from watari_cli import prompts
+
+        config.save_config(google={
+            "client_id": "deleted-cid", "client_secret": "csec", "refresh_token": "stale-rt",
+            "scopes": [cloud.SCOPE, gconn.GMAIL_SCOPE, gconn.CALENDAR_SCOPE, gconn.GDRIVE_SCOPE],
+        })
+        cloud._http = lambda *args, **kwargs: (
+            401, b'{"error":"deleted_client","error_description":"The OAuth client was deleted."}')
+        captured = {}
+
+        def fake_select(message, options, default=0):
+            captured["options"] = options
+            raise prompts.Cancelled
+
+        prompts.select = fake_select
+        rc, _out, _err = _run(["connect"])
+        self.assertEqual(rc, 0)
+        labels = dict((value, label) for label, value in captured["options"])
+        self.assertEqual(labels["gmail"], "⬜ Gmail")
+        self.assertEqual(labels["calendar"], "⬜ Google カレンダー")
+        self.assertEqual(labels["gdrive"], "⬜ Google ドライブ")
+
+    def test_service_api_failure_is_not_labeled_connected(self):
+        """token 更新だけ成功しても、対象 API が使えなければ接続済みにしない。"""
+        from watari_cli import prompts
+
+        config.save_config(google={
+            "client_id": "cid", "client_secret": "csec", "refresh_token": "rt",
+            "scopes": [cloud.SCOPE, gconn.GMAIL_SCOPE],
+        })
+        cloud._http = lambda *args, **kwargs: (200, b'{"access_token":"AT"}')
+        gconn._http = lambda *args, **kwargs: (403, b'{"error":"accessNotConfigured"}')
+        captured = {}
+
+        def fake_select(message, options, default=0):
+            captured["options"] = options
+            raise prompts.Cancelled
+
+        prompts.select = fake_select
+        rc, _out, _err = _run(["connect"])
+        self.assertEqual(rc, 0)
+        labels = dict((value, label) for label, value in captured["options"])
+        self.assertEqual(labels["gmail"], "⬜ Gmail")
+
 
 if __name__ == "__main__":
     unittest.main()

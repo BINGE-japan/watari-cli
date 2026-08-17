@@ -81,6 +81,16 @@ class AuthTest(_Base):
         self.fake(lambda m, u, d: (200, b'{"access_token":"AT2"}'))
         self.assertEqual(cloud.access_token(), "AT2")
 
+    def test_live_authorization_refreshes_saved_token(self):
+        self.fake(lambda m, u, d: (200, b'{"access_token":"AT"}'))
+        self.assertTrue(cloud.has_live_authorization())
+        self.assertEqual(self.calls[0][1], cloud._TOKEN_URL)
+
+    def test_live_authorization_rejects_deleted_client(self):
+        self.fake(lambda m, u, d: (
+            401, b'{"error":"deleted_client","error_description":"client deleted"}'))
+        self.assertFalse(cloud.has_live_authorization())
+
 
 class IncrementalScopeTest(_Base):
     """gmail/calendar/gdrive（google_connectors.py）が使う incremental scope の土台。"""

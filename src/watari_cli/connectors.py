@@ -37,11 +37,11 @@ class ServiceAdapter:
       - paste: verify(api_key) -> (ok, message) / read(api_key, since) -> rows
       - oauth / local: verify() -> (ok, message) / read(since) -> rows
     oauth の内部実装は一様ではない: Google 系（gmail/calendar/gdrive）は cloud.py の共有 OAuth
-    （cloud.authorize(scopes)）を使い、接続判定も cloud.granted_scopes() で行う。freee のように
-    Google を共有しない独立した OAuth（Client ID/Secret 貼り付け→ブラウザ認可→自前のトークン
-    保存）を持つサービスは、`connected` にそのサービス自身の接続判定関数を渡す——
-    connectors.is_connected() はこれを優先し、無ければ Google 系の既定判定にフォールバックする。
-    auth_kind="local" は常に `connected` を渡す（Google の既定判定は当てはまらないため）。
+    （cloud.authorize(scopes)）を使い、`available` で各サービスのプロフィール用 API が現在読める
+    ことまで確認する。freee のように Google を共有しない独立した OAuth（Client ID/Secret
+    貼り付け→ブラウザ認可→自前のトークン保存）を持つサービスは、`connected` にそのサービス
+    自身の保存済み設定判定関数を渡す。auth_kind="local" も常に `connected` を渡す（Google の
+    既定判定は当てはまらないため）。
 
     `scope` は接続成功時に登録する connector 宣言の scope（既定 "cloud"）。transcript 系は
     各マシンが自分のログを自分で夢に見るため "local" を渡す（cloud の「担当1台」ルールとは別）。
@@ -50,7 +50,7 @@ class ServiceAdapter:
     def __init__(self, label: str, implemented: bool = True,
                 guide: list[str] | None = None, verify=None, read=None, brief=None,
                 auth_kind: str = "paste", scopes: list[str] | None = None, connected=None,
-                scope: str = "cloud"):
+                available=None, scope: str = "cloud"):
         self.label = label
         self.implemented = implemented
         self.guide = guide or []  # 案内行（`watari connect <name>` がそのまま表示する短い日本語）
@@ -59,9 +59,11 @@ class ServiceAdapter:
         self.brief = brief  # current actionable state reader; independent of memory cursors
         self.auth_kind = auth_kind
         self.scopes = scopes or []  # auth_kind="oauth" のとき、このサービスに必要な追加スコープ
-        # auth_kind="oauth"/"local" のとき接続判定を自前で持つサービス用（例: freee, transcript 系）。
-        # 無ければ Google 系の既定（cloud.granted_scopes()）にフォールバックする（oauth のみ）。
+        # 保存済み設定の存在判定を自前で持つサービス用（例: freee, transcript 系）。
+        # 無ければ Google 系の既定（cloud.is_authorized + granted_scopes）を使う（oauth のみ）。
         self.connected = connected
+        # 表示用の実接続テスト。Google 系はプロフィール用 API まで読める場合だけ True にする。
+        self.available = available
         self.scope = scope  # 接続成功時に登録する connector 宣言の scope
 
 
@@ -128,6 +130,7 @@ def _gmail_adapter() -> ServiceAdapter:
             "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
         ],
         verify=g.gmail_verify, read=g.gmail_read, brief=g.gmail_brief,
+        available=g.gmail_is_connected,
     )
 
 
@@ -143,6 +146,7 @@ def _calendar_adapter() -> ServiceAdapter:
             "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
         ],
         verify=g.calendar_verify, read=g.calendar_read, brief=g.calendar_brief,
+        available=g.calendar_is_connected,
     )
 
 
@@ -158,7 +162,7 @@ def _gdrive_adapter() -> ServiceAdapter:
             "（別のアカウントを選ぶと、これまでの同期データが読めなくなります）。",
             "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
         ],
-        verify=g.gdrive_verify, read=g.gdrive_read,
+        verify=g.gdrive_verify, read=g.gdrive_read, available=g.gdrive_is_connected,
     )
 
 
@@ -335,7 +339,8 @@ def save_auth(name: str, api_key: str) -> None:
     config.save_config(connectors_auth=auth)
 
 
-def is_connected(name: str) -> bool:
+def is_configured(name: str) -> bool:
+    """読み取りを試せるだけの認証設定が保存されているか。外部サービスへは接続しない。"""
     service = get_service(name)
     if service is None:
         return False
@@ -352,12 +357,26 @@ def is_connected(name: str) -> bool:
     return bool(auth_key(name))
 
 
+def is_connected(name: str) -> bool:
+    """現在利用できる接続か。表示用なので、対応サービスでは実 API まで確認する。"""
+    service = get_service(name)
+    if service is None or not is_configured(name):
+        return False
+    if service.available is not None:
+        return service.available()
+    if service.auth_kind == "oauth" and service.connected is None:
+        from watari_cli import cloud
+
+        return cloud.has_live_authorization()
+    return True
+
+
 def brief(name: str, now) -> list[dict]:
     """Read current actionable state without touching connector/memory cursors."""
     service = get_service(name)
     if service is None or service.brief is None:
         return []
-    if not is_connected(name):
+    if not is_configured(name):
         raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name}）")
     if service.auth_kind in ("oauth", "local"):
         return service.brief(now)
@@ -376,7 +395,7 @@ def read(name: str, since: str | None) -> list[dict]:
     if not service.implemented:
         raise ConnectorError(f"{service.label} は未対応です（対応予定）")
     if service.auth_kind in ("oauth", "local"):
-        if not is_connected(name):
+        if not is_configured(name):
             raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name}）")
         return service.read(since)
     api_key = auth_key(name)
