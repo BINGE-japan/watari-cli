@@ -116,8 +116,10 @@ class Relay:
     def _warn_sync_failure(self) -> None:
         if self._warned_sync_failure:
             return
-        print("! 会話を同期できません。未送信分はこのパソコンに保存します。"
-              "接続を直すには: watari auth", file=sys.stderr)
+        print("! Googleとの接続が切れたため、このパソコンの会話を"
+              "ほかのパソコンのワタリへ共有できません。\n"
+              "  会話はこのパソコンに保存されるため、内容は失われません。\n"
+              "  直すには、ターミナルで `watari auth` を実行してください。", file=sys.stderr)
         self._warned_sync_failure = True
 
     def _warn_if_queue_large(self) -> None:
