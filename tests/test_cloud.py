@@ -90,6 +90,12 @@ class AuthTest(_Base):
         self.fake(lambda m, u, d: (
             401, b'{"error":"deleted_client","error_description":"client deleted"}'))
         self.assertFalse(cloud.has_live_authorization())
+        self.assertTrue(cloud.oauth_client_is_deleted())
+
+    def test_revoked_token_is_not_misclassified_as_deleted_client(self):
+        self.fake(lambda m, u, d: (
+            400, b'{"error":"invalid_grant","error_description":"token revoked"}'))
+        self.assertFalse(cloud.oauth_client_is_deleted())
 
 
 class IncrementalScopeTest(_Base):

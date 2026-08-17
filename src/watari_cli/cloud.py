@@ -62,8 +62,26 @@ def save_credentials(client_id: str, client_secret: str) -> None:
     config.save_config(google=google)
 
 
+def replace_credentials(client_id: str, client_secret: str) -> None:
+    """削除・交換したOAuth clientを差し替え、旧clientに属する認証状態を破棄する。"""
+    google = _google_cfg()
+    google["client_id"] = client_id
+    google["client_secret"] = client_secret
+    google.pop("refresh_token", None)
+    google.pop("scopes", None)
+    config.save_config(google=google)
+
+
 class CloudError(Exception):
     """クラウド置き場の操作失敗（呼び出し側はスキップ/繰り越しで扱う）。"""
+
+
+class OAuthTokenError(CloudError):
+    """Google token endpoint が返したOAuthエラー。機械判定用のcodeを保持する。"""
+
+    def __init__(self, message: str, *, code: str | None = None):
+        super().__init__(message)
+        self.code = code
 
 
 def _http(method: str, url: str, headers: dict | None = None, data: bytes | None = None):
@@ -108,6 +126,19 @@ def has_live_authorization() -> bool:
         return False
 
 
+def oauth_client_is_deleted() -> bool:
+    """保存済みOAuth clientがGoogle側で削除済みならTrue。ネットワーク障害等はFalse。"""
+    if not is_authorized():
+        return False
+    try:
+        _access_token()
+    except OAuthTokenError as error:
+        return error.code == "deleted_client"
+    except (CloudError, json.JSONDecodeError, KeyError, TypeError):
+        return False
+    return False
+
+
 def _access_token() -> str:
     rt = _refresh_token()
     if not rt:
@@ -119,9 +150,15 @@ def _access_token() -> str:
     status, body = _http("POST", _TOKEN_URL,
                          {"Content-Type": "application/x-www-form-urlencoded"}, data)
     if status != 200:
-        raise CloudError(
+        try:
+            error_code = json.loads(body).get("error")
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            error_code = None
+        raise OAuthTokenError(
             f"Google へのログインが期限切れか取り消されています({status})。"
-            f"watari auth で再ログインしてください（詳細: {connector_http.body_text(body)}）")
+            f"watari auth で再ログインしてください（詳細: {connector_http.body_text(body)}）",
+            code=error_code,
+        )
     return json.loads(body)["access_token"]
 
 

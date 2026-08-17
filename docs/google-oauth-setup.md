@@ -41,7 +41,8 @@
 各パソコンで **`watari auth`** を一度実行します（`watari install` の「Google Drive 経由で
 同期しますか？」の質問でも同じ承認が走ります）。承認するとブラウザが開き、
 Google ログイン → 許可 → 完了で、以後は無人で同期されます。ログインが切れたときも
-`watari auth` をもう一度実行するだけです。
+`watari auth` をもう一度実行するだけです。保存済みのOAuth client自体がGoogle側で削除されている
+場合は、`watari auth` が検出して新しいclient ID / client secretの入力へ切り替えます。
 
 - 既定の権限は `drive.appdata`（アプリ専用領域）のみです。**あなたの Drive の他のファイルには
   一切アクセスしません**（`watari connect gmail|calendar|gdrive` で個別に増やすまでは、
