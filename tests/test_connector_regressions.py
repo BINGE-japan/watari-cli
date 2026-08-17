@@ -200,8 +200,8 @@ class NotionZeroPagesWarningTest(unittest.TestCase):
         ok, message = notion.verify("secret")
         self.assertTrue(ok)
         self.assertIn("Watari（WS）", message)
-        self.assertIn("まだ読めるページがありません", message)
-        self.assertIn("接続", message)  # ページ右上メニュー→接続 の導線
+        self.assertIn("No pages are available yet", message)
+        self.assertIn("Connections", message)  # top-right menu path
 
     def test_readable_pages_present_keeps_message_clean(self):
         notion._http = self._router([{"id": "p1"}])
@@ -228,7 +228,7 @@ class GithubGuideTest(unittest.TestCase):
         self.assertIn("https://github.com/settings/personal-access-tokens/new", guide)
         self.assertIn("Repository access", guide)
         self.assertIn("Read-only", guide)
-        self.assertIn("有効期限", guide)
+        self.assertIn("expires", guide)
         self.assertIn("watari connect github", guide)
 
 

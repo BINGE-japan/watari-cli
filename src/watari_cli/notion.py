@@ -61,8 +61,8 @@ def _request(token: str, method: str, url: str, payload: dict | None = None) -> 
 
 # integration にページが1つも接続されていないと、認証は成功しても read が永遠に 0 件のまま
 # 静かに空回りする。verify がその場で気づかせるための注意文（成功メッセージに添える）。
-NO_PAGES_HINT = ("まだ読めるページがありません。Notion で読ませたいページを開き、"
-                 "右上の『…』メニュー →『接続』から、作成した integration を追加してください")
+NO_PAGES_HINT = ("No pages are available yet. In Notion, open each page Watari should read, "
+                 "then use the top-right '...' menu > 'Connections' to add the integration")
 
 
 def _readable_page_count(token: str) -> int | None:

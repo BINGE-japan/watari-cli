@@ -143,8 +143,8 @@ def _authorize_url(client_id: str, redirect_uri: str, state: str) -> str:
 
 
 def _open_browser(auth_url: str) -> None:
-    print("ブラウザで freee の承認画面を開きます。自動で開かない場合は、"
-          "次の URL をブラウザのアドレス欄に貼り付けて開いてください:", flush=True)
+    print("Opening the freee authorization page. If the browser does not open, "
+          "paste this URL into the address bar:", flush=True)
     print(f"  {auth_url}", flush=True)
     try:
         webbrowser.open(auth_url)
@@ -158,10 +158,9 @@ def _run_authorization_loopback(client_id: str, server) -> tuple[str, str] | Non
     """
     port = server.server_address[1]
     redirect_uri = f"http://127.0.0.1:{port}"
-    print(f"freee アプリの「コールバックURL」欄が {redirect_uri} になっているか確認してください"
-          "（手順どおり設定済みならそのままで大丈夫です。違う値ならこの値に置き換えて"
-          "保存してください）。", flush=True)
-    prompts.text("確認できたら Enter を押してください", default="")
+    print(f"Confirm that the freee app's 'Callback URL' is {redirect_uri}. "
+          "If it differs, replace it with this value and save.", flush=True)
+    prompts.text("Press Enter after confirming", default="")
     state = secrets.token_urlsafe(16)
     _open_browser(_authorize_url(client_id, redirect_uri, state))
     server.timeout = 1
@@ -182,11 +181,11 @@ def _run_authorization_oob(client_id: str) -> tuple[str, str]:
     """loopback が使えない/失敗したときのフォールバック。画面に出る認可コードを貼ってもらう
     （貼り付けプロンプトが出るのはこの経路だけ）。"""
     redirect_uri = OOB_REDIRECT_URI
-    print(f"freee アプリの「コールバックURL」欄をこの値に置き換えて保存してください: "
-          f"{redirect_uri}", flush=True)
+    print(f"Set the freee app's 'Callback URL' to this value and save: {redirect_uri}",
+          flush=True)
     state = secrets.token_urlsafe(16)
     _open_browser(_authorize_url(client_id, redirect_uri, state))
-    code = prompts.text("承認後に画面に表示されたコードを貼り付けてください")
+    code = prompts.text("Paste the code shown after authorization")
     if not code:
         raise ConnectorError(
             "freee: コードが入力されなかったため中止しました。"
@@ -305,7 +304,7 @@ def _resolve_company(access_token_: str) -> tuple[int, str]:
         company = companies[0]
         return company["id"], _company_label(company)
     options = [(_company_label(c), c["id"]) for c in companies]
-    company_id = prompts.select("事業所を選んでください", options, default=0)
+    company_id = prompts.select("Choose a company", options, default=0)
     chosen = next(c for c in companies if c["id"] == company_id)
     return company_id, _company_label(chosen)
 
@@ -319,8 +318,8 @@ def verify() -> tuple[bool, str]:
 
     成功時は (True, "<事業所名>（事業所ID=<id>）")、失敗時は (False, 理由)。
     """
-    client_id = prompts.text("freee アプリの Client ID を貼り付けてください")
-    client_secret = prompts.text("freee アプリの Client Secret を貼り付けてください")
+    client_id = prompts.text("Paste the freee app Client ID")
+    client_secret = prompts.text("Paste the freee app Client Secret")
     if not client_id or not client_secret:
         return False, ("Client ID / Client Secret が入力されなかったため中止しました。"
                        "watari connect freee でやり直せます")

@@ -57,12 +57,15 @@ class _Base(unittest.TestCase):
 
 
 class AuthCommandTest(_Base):
-    def test_first_time_guide_is_short_and_covers_both_paths(self):
-        lines = [line for line in cli._GOOGLE_SETUP_GUIDE.splitlines() if line.strip()]
+    def test_first_time_guide_is_short_english_and_covers_both_paths(self):
+        guide = cli._GOOGLE_SETUP_GUIDE
+        lines = [line for line in guide.splitlines() if line.strip()]
         self.assertLessEqual(len(lines), 4)
-        self.assertIn("別のパソコン", cli._GOOGLE_SETUP_GUIDE)
-        self.assertIn("初めて", cli._GOOGLE_SETUP_GUIDE)
-        self.assertIn("https://github.com/BINGE-japan/watari-cli/", cli._GOOGLE_SETUP_GUIDE)
+        self.assertIn("Already connected on another computer", guide)
+        self.assertIn("First time", guide)
+        self.assertIn("https://github.com/BINGE-japan/watari-cli/", guide)
+        self.assertFalse(any("\u3040" <= char <= "\u30ff" or "\u4e00" <= char <= "\u9fff"
+                             for char in guide))
 
     def test_uses_saved_creds_without_prompting(self):
         config.save_config(google={"client_id": "cid", "client_secret": "csec"})
@@ -109,7 +112,7 @@ class AuthCommandTest(_Base):
 
         self.assertEqual(rc, 0)
         self.assertIn("削除されています", out)
-        self.assertIn("別のパソコン", out)
+        self.assertIn("another computer", out)
         self.assertNotIn("新しいclientへ", out)
         google = config.load_config()["google"]
         self.assertEqual((google["client_id"], google["client_secret"]),

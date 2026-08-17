@@ -158,7 +158,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
         json.loads(slack.SLACK_MANIFEST)
         self.assertIn('"name": "Watari"', out)
         # 実画面の要所（雛形の全選択・置換／インストール／User トークン）が案内に出ている
-        self.assertIn("全選択", out)
+        self.assertIn("select all", out)
         self.assertIn("Install to Workspace", out)
         self.assertIn("xoxp-", out)
 
@@ -479,9 +479,9 @@ class ConnectWizardChatworkTest(_XdgIsolated):
         self.assertEqual(rc, 1)
         self.assertIn(
             "https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php", out)
-        self.assertIn("サービス連携", out)
-        self.assertIn("APIトークン", out)
-        self.assertIn("管理者", out)
+        self.assertIn("Service integration", out)
+        self.assertIn("API Token", out)
+        self.assertIn("administrator", out)
 
 
 class ConnectorReadChatworkTest(_XdgIsolated):

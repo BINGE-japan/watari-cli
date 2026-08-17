@@ -537,10 +537,10 @@ def cmd_install(args) -> int:
 
 # 初回利用者にも読み切れる短い分岐だけを表示し、Google Cloudの詳細操作は公開ドキュメントへ寄せる。
 _GOOGLE_SETUP_GUIDE = """\
-Google連携を設定します。
-・別のパソコンで接続済み：同じclient IDとclient secretを入力
-・初めて使う：Google Cloudで「デスクトップアプリ」の認証情報を作成
-  手順: https://github.com/BINGE-japan/watari-cli/blob/main/docs/google-oauth-setup.md"""
+Set up Google connection.
+- Already connected on another computer: enter the same client ID and client secret
+- First time: create credentials for a 'Desktop app' in Google Cloud
+  Guide: https://github.com/BINGE-japan/watari-cli/blob/main/docs/google-oauth-setup.md"""
 
 
 def _google_auth_flow(prompt_for_creds: bool) -> tuple[bool, str]:
@@ -581,8 +581,7 @@ def _google_auth_flow(prompt_for_creds: bool) -> tuple[bool, str]:
         cloud.save_credentials(cid, csec)
     if sys.stdin.isatty():
         # ブラウザを突然開かない（何が起きるかを言ってから開く）。既定は Yes。
-        if not prompts.confirm("ブラウザで Google の承認画面を開きます。よろしいですか？",
-                               default=True):
+        if not prompts.confirm("Open the Google consent screen in your browser?", default=True):
             return False, "中止しました。もう一度実行するには: watari auth"
     return cloud.authorize()
 
