@@ -102,6 +102,8 @@ class AuthCommandTest(_Base):
 
         self.assertEqual(rc, 0)
         self.assertIn("削除されています", out)
+        self.assertIn("別のパソコン", out)
+        self.assertNotIn("新しいclientへ", out)
         google = config.load_config()["google"]
         self.assertEqual((google["client_id"], google["client_secret"]),
                          ("new-id", "new-secret"))

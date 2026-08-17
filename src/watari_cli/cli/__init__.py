@@ -538,7 +538,10 @@ def cmd_install(args) -> int:
 # creds 未設定時に表示するインライン手順。docs のリポジトリ相対パスへは誘導しない
 # （pip で入れたユーザーの手元に docs/ は無い。要点はこの場で完結させる）。
 _GOOGLE_SETUP_GUIDE = """\
-Google 連携には、あなた自身の Google Cloud プロジェクトの OAuth クライアント（無料）が必要です。
+Google 連携には、有効な Google OAuth クライアント（無料）が必要です。
+別のパソコンでワタリのGoogle連携が動いている場合は、同じclient ID / client secretを使えます。
+その場合、新しいOAuthクライアントを作る必要はありません。
+有効なclient ID / client secretがまだ無い場合だけ、次の手順で作成してください。
   1. https://console.cloud.google.com/ を開き、プロジェクトを作成する（既存のものでも可）
   2. 「API とサービス」→「ライブラリ」で「Google Drive API」を有効にする
   3. 「OAuth 同意画面」を設定し、公開ステータスを「本番環境」（In production）にする
@@ -565,10 +568,10 @@ def _google_auth_flow(prompt_for_creds: bool) -> tuple[bool, str]:
                            "WATARI_GOOGLE_CLIENT_ID / WATARI_GOOGLE_CLIENT_SECRETを"
                            "新しい値へ更新してから、もう一度watari authを実行してください")
         print("保存されているGoogle OAuth clientはGoogle側で削除されています。"
-              "新しいclientへ差し替えます。", flush=True)
+              "有効なclientへ差し替えます。", flush=True)
         print(_GOOGLE_SETUP_GUIDE, flush=True)
-        cid = prompts.text("新しい client_id")
-        csec = prompts.text("新しい client_secret")
+        cid = prompts.text("有効な client_id")
+        csec = prompts.text("有効な client_secret")
     elif not (cid and csec):
         if not prompt_for_creds:
             return False, ("Google 連携は未設定です（任意機能。使う場合は `watari auth` で"
