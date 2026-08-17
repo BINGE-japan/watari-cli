@@ -195,8 +195,8 @@ Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari c
 - `watari chat` で Pi が起動しない → `node --version` が 22.19 以上か確認してください。
   未導入・古い場合は <https://nodejs.org/> の LTS 版を。
   `npx -y @earendil-works/pi-coding-agent` が通るかでも確認できます。
-- 「Googleとの接続が切れたため、ほかのパソコンのワタリへ共有できません」と出る →
-  未送信分はそのパソコンに保存されています。
+- 「ワタリは、ほかのパソコンでも会話を引き継げるようGoogle Driveを使っています」と出る →
+  Google Driveへ送れない会話はそのパソコンに保存されています。
   `watari auth` で接続を直すと、次回の `watari chat` で再送されます。OAuth client自体が削除済みなら、
   有効なclient ID / client secretの入力へ自動で切り替わります。別のパソコンでGoogle連携が動いている
   場合は同じOAuth clientを使えるため、新規作成は不要です。

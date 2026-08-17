@@ -358,7 +358,7 @@ class TranscriptGuideTest(_XdgIsolated):
     def test_guides_open_with_not_needed_note(self):
         for name in ("claude-code", "codex"):
             guide = connectors.get_service(name).guide
-            self.assertIn("使っていなければこの接続は不要です", guide[0], name)
+            self.assertIn("this connection is not needed", guide[0], name)
 
 
 if __name__ == "__main__":

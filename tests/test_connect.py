@@ -502,6 +502,17 @@ class ConnectorReadNotionTest(_XdgIsolated):
         self.assertIn("未接続", err)
 
 
+class BuiltinGuideLanguageTest(unittest.TestCase):
+    def test_connect_operation_guides_are_english(self):
+        for name, service in connectors.list_services():
+            guide = "\n".join(service.guide)
+            has_japanese = any(
+                "\u3040" <= char <= "\u30ff" or "\u4e00" <= char <= "\u9fff"
+                for char in guide
+            )
+            self.assertFalse(has_japanese, f"{name} guide must use English UI instructions")
+
+
 class RegistryExtensibilityTest(_XdgIsolated):
     """新サービスは connectors.REGISTRY に1件足すだけで、connect メニューと connector read の
     両方に現れることを固める（cli/__init__.py・connectors.py にサービス名を書き足さなくてよい）。"""

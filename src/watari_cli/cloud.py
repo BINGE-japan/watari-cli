@@ -361,14 +361,14 @@ def authorize(scopes: list[str] | None = None) -> tuple[bool, str]:
         "code_challenge": code_challenge, "code_challenge_method": "S256",
     })
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print("ブラウザで Google の承認画面を開きます。自動で開かない場合は、"
-          "次の URL をブラウザのアドレス欄に貼り付けて開いてください:", flush=True)
+    print("Opening the Google consent screen. If the browser does not open, "
+          "paste this URL into the address bar:", flush=True)
     print(f"  {auth_url}", flush=True)
     try:
         webbrowser.open(auth_url)
     except Exception:
         pass
-    print("ブラウザでの承認を待っています（最長 5 分）…", flush=True)
+    print("Waiting for browser approval (up to 5 minutes)...", flush=True)
     for _ in range(600):  # 最長 5 分待つ
         if captured:
             break

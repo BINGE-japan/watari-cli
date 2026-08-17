@@ -14,18 +14,18 @@
 ## 登録手順（一度だけ）
 
 1. **Google Cloud Console**（<https://console.cloud.google.com/>）でプロジェクトを作成または選択する。
-2. **APIs & Services → Library → 「Google Drive API」を有効化（Enable）** する。
-3. **OAuth consent screen**（同意画面）を設定する:
+2. **APIs & Services → Library → Google Drive API → Enable** を選ぶ。
+3. **OAuth consent screen** を設定する:
    - User type: **External**（Google Workspace をお使いなら **Internal** を推奨。
      理由は後述「Gmail / Google カレンダー / Google ドライブを接続する場合」を参照）。
    - Scopes: **`.../auth/drive.appdata`** を追加する（アプリ専用領域のみ。あなたの Drive の
      他のファイルには触れません）。`watari connect gmail|calendar|gdrive` を使う予定が
      あれば、後述の表のスコープも同じ画面で追加する（未追加でも会話の同期は動きます。
      使う分だけ足せば十分です）。
-   - **Publishing status: 「本番（In production）」に発行**する。
+   - **Publishing status: In production** にする。
      ⚠ **Testing のままは不可** — テストモードではログイン状態が **7 日で切れます**
      （refresh token の失効）。本番なら切れません。
-   - アプリは「未確認（unverified）」表示になりますが、個人で使う分には承認して進めば
+   - アプリは **unverified** と表示されますが、個人で使う分には承認して進めば
      使えます（Gmail / Google ドライブを使うときだけ後述の制限に注意）。
 4. **Credentials → Create credentials → OAuth client ID**:
    - Application type: **Desktop app**（インストール型）。

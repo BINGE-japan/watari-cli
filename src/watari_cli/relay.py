@@ -116,8 +116,9 @@ class Relay:
     def _warn_sync_failure(self) -> None:
         if self._warned_sync_failure:
             return
-        print("! Googleとの接続が切れたため、このパソコンの会話を"
-              "ほかのパソコンのワタリへ共有できません。\n"
+        print("! ワタリは、ほかのパソコンでも会話を引き継げるようGoogle Driveを使っています。\n"
+              "  現在Google Driveに接続できないため、この会話はほかのパソコンへ"
+              "まだ共有されません。\n"
               "  会話はこのパソコンに保存されるため、内容は失われません。\n"
               "  直すには、ターミナルで `watari auth` を実行してください。", file=sys.stderr)
         self._warned_sync_failure = True

@@ -162,7 +162,7 @@ class ConnectWizardGmailTest(_GoogleIsolated):
             200, json.dumps({"emailAddress": "me@example.com"}).encode()))
         rc, out, _err = _run(["connect", "gmail"])
         self.assertEqual(rc, 0)
-        self.assertIn("ブラウザ", out)  # prompts.text が呼ばれていれば setUp の AssertionError で落ちる
+        self.assertIn("browser", out)  # prompts.text が呼ばれていれば setUp の AssertionError で落ちる
 
     def test_menu_lists_gmail_as_implemented(self):
         from watari_cli import prompts
@@ -403,14 +403,13 @@ class ConnectorReadGdriveTest(_GoogleIsolated):
 
 
 class GoogleGuideTest(_GoogleIsolated):
-    """gmail/calendar/gdrive の guide に「watari auth と同じアカウント」「初回は直近14日分」の
-    2点が必ず入っていること（別アカウント承認の罠と初回窓の仕様を接続前に伝える）。"""
+    """Google connector guides use English UI wording and retain account/window cautions."""
 
     def test_guides_mention_same_account_and_initial_window(self):
         for name in ("gmail", "calendar", "gdrive"):
             guide = "\n".join(connectors.get_service(name).guide)
-            self.assertIn("watari auth と同じ Google アカウント", guide, name)
-            self.assertIn("14 日", guide, name)
+            self.assertIn("same Google account used for `watari auth`", guide, name)
+            self.assertIn("14 days", guide, name)
 
 
 class RegistryGoogleExtensionTest(_GoogleIsolated):

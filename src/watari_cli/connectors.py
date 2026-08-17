@@ -73,9 +73,9 @@ def _linear_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Linear", implemented=True,
         guide=[
-            "1. https://linear.app/settings/account/security を開く",
-            "2. 'Personal API keys' で新しいキーを作る",
-            "3. 発行されたキーをここに貼り付ける",
+            "1. Open https://linear.app/settings/account/security",
+            "2. Under 'Personal API keys', create a new key",
+            "3. Paste the generated key here",
         ],
         verify=linear.verify, read=linear.read, brief=linear.brief,
     )
@@ -87,14 +87,13 @@ def _github_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="GitHub", implemented=True,
         guide=[
-            "1. https://github.com/settings/personal-access-tokens/new を開く"
-            "（GitHub にログインしておいてください）",
-            "2. トークン名と有効期限を決め、『Repository access』で読ませたいリポジトリを選ぶ",
-            "3. 『Permissions』→『Repository permissions』で Issues と Pull requests を"
-            " Read-only にして『Generate token』を押す",
-            "4. 発行されたトークンをここに貼り付ける",
-            "※ トークンには有効期限があります。期限が切れたら watari connect github で"
-            "もう一度発行・登録してください",
+            "1. Sign in to GitHub, then open "
+            "https://github.com/settings/personal-access-tokens/new",
+            "2. Set a token name and expiration, then choose repositories under 'Repository access'",
+            "3. Under 'Permissions' > 'Repository permissions', set Issues and Pull requests to "
+            "Read-only, then click 'Generate token'",
+            "4. Paste the generated token here",
+            "Note: when the token expires, run `watari connect github` to replace it",
         ],
         verify=github.verify, read=github.read,
     )
@@ -106,13 +105,13 @@ def _notion_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Notion", implemented=True,
         guide=[
-            "1. https://www.notion.so/my-integrations を開く",
-            "2. 『New integration』で内部インテグレーションを作成し、表示される"
-            "『内部インテグレーションシークレット』（貼り付け用の文字列）をコピーする",
-            "3. 読ませたいページを開き、右上の『…』メニュー →『接続』（Connections）から、"
-            "今作った integration を追加する"
-            "（※この手順を飛ばすと、接続は成功してもページを一切読めません）",
-            "4. コピーしたシークレットをここに貼り付ける",
+            "1. Open https://www.notion.so/my-integrations",
+            "2. Click 'New integration', create an internal integration, and copy its "
+            "'Internal Integration Secret'",
+            "3. Open each page Watari should read, then use the top-right '...' > 'Connections' "
+            "menu to add the integration",
+            "4. Paste the copied secret here",
+            "Note: without step 3, the connection succeeds but Watari cannot see any pages",
         ],
         verify=notion.verify, read=notion.read,
     )
@@ -124,10 +123,10 @@ def _gmail_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Gmail", implemented=True, auth_kind="oauth", scopes=[g.GMAIL_SCOPE],
         guide=[
-            "ブラウザで Google の承認画面が開きます（Gmail の読み取り専用アクセス）。",
-            "※ watari auth と同じ Google アカウントで承認してください"
-            "（別のアカウントを選ぶと、これまでの同期データが読めなくなります）。",
-            "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
+            "A browser will open the Google consent screen for read-only Gmail access",
+            "Use the same Google account used for `watari auth`; choosing another account "
+            "prevents access to existing synced data",
+            "The first read starts with the most recent 14 days",
         ],
         verify=g.gmail_verify, read=g.gmail_read, brief=g.gmail_brief,
         available=g.gmail_is_connected,
@@ -140,10 +139,10 @@ def _calendar_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Google カレンダー", implemented=True, auth_kind="oauth", scopes=[g.CALENDAR_SCOPE],
         guide=[
-            "ブラウザで Google の承認画面が開きます（カレンダーの読み取り専用アクセス）。",
-            "※ watari auth と同じ Google アカウントで承認してください"
-            "（別のアカウントを選ぶと、これまでの同期データが読めなくなります）。",
-            "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
+            "A browser will open the Google consent screen for read-only Calendar access",
+            "Use the same Google account used for `watari auth`; choosing another account "
+            "prevents access to existing synced data",
+            "The first read starts with the most recent 14 days",
         ],
         verify=g.calendar_verify, read=g.calendar_read, brief=g.calendar_brief,
         available=g.calendar_is_connected,
@@ -156,11 +155,11 @@ def _gdrive_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Google ドライブ", implemented=True, auth_kind="oauth", scopes=[g.GDRIVE_SCOPE],
         guide=[
-            "ブラウザで Google の承認画面が開きます（ドライブのファイル情報の読み取り専用アクセス。"
-            "ファイルの中身は読みません）。",
-            "※ watari auth と同じ Google アカウントで承認してください"
-            "（別のアカウントを選ぶと、これまでの同期データが読めなくなります）。",
-            "※ 初回は直近 14 日分から読み始めます（それより古い分はさかのぼりません）。",
+            "A browser will open the Google consent screen for read-only Drive metadata access; "
+            "file contents are not read",
+            "Use the same Google account used for `watari auth`; choosing another account "
+            "prevents access to existing synced data",
+            "The first read starts with the most recent 14 days",
         ],
         verify=g.gdrive_verify, read=g.gdrive_read, available=g.gdrive_is_connected,
     )
@@ -175,17 +174,17 @@ def _slack_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Slack", implemented=True,
         guide=[
-            "1. https://api.slack.com/apps を開き 'Create New App' → 'From an app manifest'",
-            "2. 使うワークスペースを選んで Next",
-            "3. JSON タブの中身（Demo App の雛形）を全選択（Ctrl+A / Cmd+A）して消し、"
-            "下のマニフェストで置き換えて Next → Create:",
+            "1. Open https://api.slack.com/apps, then choose 'Create New App' > "
+            "'From an app manifest'",
+            "2. Choose the workspace, then click 'Next'",
+            "3. On the 'JSON' tab, select all (Ctrl+A / Cmd+A), replace the demo manifest with "
+            "the manifest below, then click 'Next' > 'Create':",
             *manifest_lines,
-            "4. 作成後の画面で 'Install to Workspace'（左メニュー OAuth & Permissions からでも可）"
-            "を押し、Allow で許可する",
-            "5. OAuth & Permissions の 'User OAuth Token'（xoxp- で始まる方。bot の xoxb- ではない）"
-            "をコピーしてここに貼り付ける",
-            "※ 会社のワークスペースでは、アプリの作成やインストールに管理者の承認が必要な"
-            "場合があります（進めない場合は管理者に依頼してください）",
+            "4. Click 'Install to Workspace' (also available under 'OAuth & Permissions'), "
+            "then click 'Allow'",
+            "5. Under 'OAuth & Permissions', copy the 'User OAuth Token' beginning with xoxp- "
+            "(not the xoxb- bot token), then paste it here",
+            "Note: a workspace administrator may need to approve app creation or installation",
         ],
         verify=slack.verify, read=slack.read,
     )
@@ -197,17 +196,15 @@ def _freee_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="freee（会計）", implemented=True, auth_kind="oauth", connected=freee.is_connected,
         guide=[
-            "1. https://app.secure.freee.co.jp/developers/applications を開く",
-            "2. ログインし、アプリを作成する事業所を選ぶ（顧問先の事業所では作成できません）",
-            "3. 「アプリ管理」→「新規追加」でアプリ名・概要を入力して「作成」を押す",
-            "4. 表示された Client ID と Client Secret を控える（このあとの入力で使います）",
-            "5. コールバックURL欄に http://127.0.0.1:8787 を設定して保存する"
-            "（8787番が使用中の場合は空きポートに切り替わり、実際に使う値を改めて表示します。"
-            "ブラウザを開けない環境では、コールバックURL欄に特別な値 urn:ietf:wg:oauth:2.0:oob を"
-            "設定します——その場合は承認後に画面へ表示されるコードをターミナルに貼り付けます。"
-            "必要になったら改めて案内します）",
-            "6. 続けて Client ID → Client Secret の順に貼り付けてください（ブラウザで承認画面が"
-            "開きます）",
+            "1. Open https://app.secure.freee.co.jp/developers/applications",
+            "2. Sign in and choose the company that will own the app",
+            "3. Open 'App Management', choose 'Add New', enter the app name and description, "
+            "then click 'Create'",
+            "4. Copy the displayed 'Client ID' and 'Client Secret'",
+            "5. Set 'Callback URL' to http://127.0.0.1:8787 and save; if that port is unavailable, "
+            "Watari will show the actual URL to use",
+            "6. Paste the Client ID and Client Secret when prompted; the authorization page "
+            "will then open in your browser",
         ],
         verify=freee.verify, read=freee.read,
     )
@@ -219,14 +216,12 @@ def _chatwork_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Chatwork", implemented=True,
         guide=[
-            "1. 次のページを開く（Chatwork にログインした状態で）:",
+            "1. Sign in to Chatwork, then open:",
             "   https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php",
-            "   ※画面から辿る場合: 右上のアカウント（利用者名）→『サービス連携』→ 左メニューの"
-            "『API』→『APIトークン』",
-            "2. ログインパスワードを入力すると API トークンが表示される",
-            "3. 『コピー』を押して、そのトークンをここに貼り付ける",
-            "※ 法人向けプランでは、組織の管理者が API 利用を有効にしていないとトークンを発行"
-            "できない（表示されない場合は管理者に有効化を依頼する）",
+            "   Menu path: account menu > 'Service integration' > 'API' > 'API Token'",
+            "2. Enter your login password to display the API token",
+            "3. Click 'Copy', then paste the token here",
+            "Note: on organization plans, an administrator may need to enable API access",
         ],
         verify=chatwork.verify, read=chatwork.read,
     )
@@ -239,10 +234,10 @@ def _obsidian_adapter() -> ServiceAdapter:
         label=obsidian.LABEL, implemented=True, auth_kind="local", scope="local",
         connected=obsidian.is_connected,
         guide=[
-            "ObsidianのMarkdownノートを、vault内だけに限定した読み取り専用処理で取り込みます。",
-            "認証は不要です。既存のObsidian設定があれば安全な形式へ自動移行します。",
-            "見つからない場合だけ、vaultフォルダのパスを聞きます。",
-            "※ .obsidian、隠しフォルダ、Journal/Watari、シンボリックリンクは読みません。",
+            "Watari imports Markdown notes using read-only access limited to the selected vault",
+            "No authentication is required; existing Obsidian settings are migrated automatically",
+            "If no vault is found, Watari will ask for the vault folder path",
+            "Watari excludes .obsidian, hidden folders, Journal/Watari, and symbolic links",
         ],
         verify=obsidian.verify, read=obsidian.read,
     )
@@ -255,10 +250,10 @@ def _claude_code_adapter() -> ServiceAdapter:
         label=cc.LABEL, implemented=True, auth_kind="local", scope="local",
         connected=cc.is_connected,
         guide=[
-            "Claude Code（Anthropic の AI コーディングツール）を使っている場合、"
-            "その会話もワタリの記憶の材料になります。使っていなければこの接続は不要です。",
-            "認証は不要です。Claude Code の会話ログ（~/.claude/projects）を探します。",
-            "見つからない場合は、会話ログが入っているフォルダのパスを聞きます。",
+            "Connect Claude Code to let Watari use those conversations as memory context; "
+            "if you do not use Claude Code, this connection is not needed",
+            "No authentication is required; Watari looks for logs in ~/.claude/projects",
+            "If no logs are found, Watari will ask for the log folder path",
         ],
         verify=cc.verify, read=cc.read,
     )
@@ -271,10 +266,10 @@ def _codex_adapter() -> ServiceAdapter:
         label=codex.LABEL, implemented=True, auth_kind="local", scope="local",
         connected=codex.is_connected,
         guide=[
-            "Codex（OpenAI の AI コーディングツール）を使っている場合、"
-            "その会話もワタリの記憶の材料になります。使っていなければこの接続は不要です。",
-            "認証は不要です。Codex の会話ログ（~/.codex/sessions）を探します。",
-            "見つからない場合は、会話ログが入っているフォルダのパスを聞きます。",
+            "Connect Codex to let Watari use those conversations as memory context; "
+            "if you do not use Codex, this connection is not needed",
+            "No authentication is required; Watari looks for logs in ~/.codex/sessions",
+            "If no logs are found, Watari will ask for the log folder path",
         ],
         verify=codex.verify, read=codex.read,
     )
