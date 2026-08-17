@@ -196,7 +196,8 @@ Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari c
   未導入・古い場合は <https://nodejs.org/> の LTS 版を。
   `npx -y @earendil-works/pi-coding-agent` が通るかでも確認できます。
 - 「会話の同期にログインし直しが必要です」と出る → `watari auth` を再実行してください。
-  OAuth client自体が削除済みなら、新しいclient ID / client secretの入力へ自動で切り替わります。
+  OAuth client自体が削除済みなら、有効なclient ID / client secretの入力へ自動で切り替わります。
+  別のパソコンでGoogle連携が動いている場合は同じOAuth clientを使えるため、新規作成は不要です。
 - 接続したサービスの認証が切れた → `watari connect <サービス名>` をもう一度実行してください。
 - 「記憶の同期に失敗しました（オフライン？）」と出る → 変更は保存済みです。
   ネットワーク復帰後の実行時に自動で再試行されます。

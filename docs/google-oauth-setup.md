@@ -42,7 +42,9 @@
 同期しますか？」の質問でも同じ承認が走ります）。承認するとブラウザが開き、
 Google ログイン → 許可 → 完了で、以後は無人で同期されます。ログインが切れたときも
 `watari auth` をもう一度実行するだけです。保存済みのOAuth client自体がGoogle側で削除されている
-場合は、`watari auth` が検出して新しいclient ID / client secretの入力へ切り替えます。
+場合は、`watari auth` が検出して有効なclient ID / client secretの入力へ切り替えます。別のパソコンで
+ワタリのGoogle連携が動いているなら、そこで使っている同じOAuth clientを再利用でき、新規作成は不要です。
+Refresh Tokenはコピーせず、各パソコンのブラウザ認証で個別に発行します。
 
 - 既定の権限は `drive.appdata`（アプリ専用領域）のみです。**あなたの Drive の他のファイルには
   一切アクセスしません**（`watari connect gmail|calendar|gdrive` で個別に増やすまでは、
