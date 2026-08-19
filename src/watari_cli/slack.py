@@ -1,4 +1,4 @@
-"""Slack connector（組み込み）。User OAuth Token（xoxp-）貼り付け型＋検索ベースの決定論リーダー。
+"""Slack connector（組み込み）。読み取り用User token＋Watari bot投稿用token。
 
 Slack Web API（https://slack.com/api）に `Authorization: Bearer <token>` ヘッダで叩く。依存追加
 禁止のため HTTP は urllib のみ（transport 部分は connector_http.py に共通化して linear/github/
@@ -6,8 +6,9 @@ notion/chatwork と同じ形にしている）。
 
 案内（`SLACK_MANIFEST`）: https://api.slack.com/apps →「Create New App」→「From an app manifest」
 → ワークスペース選択 → **既定で JSON タブが開き Demo App の雛形が入っているので全選択して置換**
-→ Create → Install to Workspace → OAuth & Permissions の User OAuth Token（xoxp-）を貼る、という
-実画面どおりの手順を connectors.py 側で guide として組み立てる。マニフェストを **JSON** で持つのは
+→ Create → Install to Workspace → OAuth & Permissions の User OAuth Token（xoxp-）と
+Bot User OAuth Token（xoxb-）を貼る、という実画面どおりの手順を connectors.py 側で guide として
+組み立てる。既存appは App Manifest を更新して再インストールする。マニフェストを **JSON** で持つのは
 その置換画面の既定タブが JSON だから（YAML に切り替えさせる手間を省く）。
 
 - 疎通確認（`verify`）は `POST /auth.test`。Slack API は **HTTP 200 でも body の `ok` が
@@ -40,15 +41,22 @@ AUTH_TEST_URL = "https://slack.com/api/auth.test"
 SEARCH_URL = "https://slack.com/api/search.messages"
 
 # 「Create app from manifest」の JSON タブへ全選択して貼り替えてもらうマニフェスト。
-# Slack の必須項目は display_information.name のみ。ワタリが要るのは検索の読み取り(search:read)を
-# 自分の権限で使う user scope だけで、bot も対話機能も要らない。
+# 読み取りは本人のUser tokenによる search:read、投稿はWatari botのchat:writeへ分離する。
+# chat:write.publicは付けず、利用者が明示的に招待したチャンネルだけへ投稿できるようにする。
 SLACK_MANIFEST = """\
 {
   "display_information": {
     "name": "Watari"
   },
+  "features": {
+    "bot_user": {
+      "display_name": "Watari",
+      "always_online": false
+    }
+  },
   "oauth_config": {
     "scopes": {
+      "bot": ["chat:write"],
       "user": ["search:read"]
     }
   },
@@ -119,6 +127,48 @@ def verify(token: str) -> tuple[bool, str]:
     return True, f"{user}@{team}"
 
 
+def verify_bot(token: str) -> tuple[bool, str]:
+    """Watari bot用 xoxb- tokenを検査する。読み取りtokenとは混ぜない。"""
+    if not token:
+        return False, "Watari bot用トークンが空です"
+    if not token.startswith("xoxb-"):
+        return False, ("これは Watari bot用の Bot User OAuth Token ではないようです。"
+                       "xoxb- で始まるトークンを貼ってください")
+    try:
+        data = _auth_test(token)
+    except ConnectorError as error:
+        return False, f"Watari botの認証に失敗しました: {error}"
+    user = data.get("user") or "Watari"
+    team = data.get("team") or "?"
+    return True, f"{user}@{team}"
+
+
+def verify_credentials(credentials: dict) -> tuple[bool, str]:
+    """読み取り用と投稿用を両方検証し、同じworkspaceの場合だけ保存可能にする。"""
+    user_token = str(credentials.get("api_key") or "")
+    bot_token = str(credentials.get("bot_token") or "")
+    if not user_token.startswith("xoxp-"):
+        return verify(user_token)
+    if not bot_token.startswith("xoxb-"):
+        return verify_bot(bot_token)
+    try:
+        user_data = _auth_test(user_token)
+    except ConnectorError as error:
+        return False, str(error)
+    try:
+        bot_data = _auth_test(bot_token)
+    except ConnectorError as error:
+        return False, f"Watari botの認証に失敗しました: {error}"
+    user_team = user_data.get("team_id")
+    bot_team = bot_data.get("team_id")
+    if user_team and bot_team and user_team != bot_team:
+        return False, "読み取り用とWatari bot用のトークンが別のSlack workspaceです"
+    user = user_data.get("user") or "?"
+    team = user_data.get("team") or "?"
+    bot = bot_data.get("user") or "Watari"
+    return True, f"{user}@{team} / Watari bot（{bot}）"
+
+
 def _ts_to_iso(ts: str) -> str:
     dt = datetime.fromtimestamp(float(ts), tz=timezone.utc)
     return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
@@ -157,6 +207,17 @@ def _search(token: str, query: str) -> list[dict]:
     return matches
 
 
+def _thread_ts(match: dict) -> str | None:
+    direct = match.get("thread_ts")
+    if direct:
+        return str(direct)
+    permalink = match.get("permalink")
+    if not isinstance(permalink, str):
+        return None
+    values = urllib.parse.parse_qs(urllib.parse.urlparse(permalink).query).get("thread_ts")
+    return values[0] if values else None
+
+
 def read(token: str, since: str | None) -> list[dict]:
     """カーソル(since)以降のメッセージ（自分の発言＋自分へのメンション）を統一形式
     [{ts,uuid,text,meta}, ...] で message_ts 昇順に返す。
@@ -192,11 +253,16 @@ def read(token: str, since: str | None) -> list[dict]:
         channel_name = channel.get("name") or channel_id
         speaker = match.get("username") or match.get("user") or "?"
         body = (match.get("text") or "").strip().replace("\n", " ")
+        thread_ts = _thread_ts(match)
         rows_by_uuid[uuid] = {
             "ts": _ts_to_iso(ts),
             "uuid": uuid,
             "text": f"[#{channel_name}] {speaker}: {body[:200]}",
-            "meta": {"channel": channel_id, "ts": ts},
+            "meta": {
+                "channel": channel_id,
+                "ts": ts,
+                **({"thread_ts": thread_ts} if thread_ts else {}),
+            },
         }
     rows = list(rows_by_uuid.values())
     rows.sort(key=lambda r: (r["ts"], r["uuid"]))

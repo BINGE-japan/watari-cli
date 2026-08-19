@@ -43,6 +43,10 @@ user-invocable: true
 - 記憶の中身をそのまま朗読しない。答えを変えるとき・聞かれたときだけ使う。
 - 記憶ファイル（log/state）を手で直接編集しない。追記は必ず `watari ingest` 経由
   （検証・重複除去・読み取り位置の更新・まとめの再生成が一括で走る）。
+- Slack・メール・コメント等、人間相手の外部送信は、相手だけで意味が分かる完全な文面と
+  送信先・送信元を先にユーザーへ提示し、**その提示後に同じ内容への明示承認を得た場合だけ**実行する。
+  能力確認・包括依頼・下書き依頼を許可にせず、文面・宛先・送信元を変えたら再承認を取る。
+  別bot・代理アカウントを黙って使わず、承認までは送信・編集・削除をしない。
 
 ## セッションの開き方
 1. 記憶は各入力前に自動で確認される。全体を改めて読み込まない。渡される `profile`＝毎回効く人物像・好み、
@@ -156,6 +160,8 @@ user-invocable: true
 - `watari connector read <name> [--since TS] [--json]` … 接続済みサービスを続きから読む
 - `watari connector watch slack [<チャンネル名...>] [--clear]` … Slack でメンションなしも全件読む
   監視チャンネルを設定/表示/解除（未設定時は自分の発言とメンションのみ。相談の取りこぼし防止）
+- `watari_slack_send` … Watari botとしてSlackへ送るPi tool。送信元・送信先・宛先・全文をPi画面に表示し、
+  ユーザー本人が最終確認で承認した1回だけ送信する。対話画面以外では実行せず、他の送信経路で迂回しない。
 - `watari ingest --rows FILE [--advance-pi TS] [--advance-cloud MACHINE=TS]
   [--advance-ext NAME=TS] [--allow-new-domain] [--dry-run]` … 判定済みの行を記憶へ書く
 - `watari audit [--coverage]` … 記憶の検査

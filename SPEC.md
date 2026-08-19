@@ -29,6 +29,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **観測を優先して回答**：質問では利用できる実ツールの情報を優先し、成功結果を evidence として登録する。
   未観測または推測表現を含む回答も隠さず、小さな警告行を末尾に添える
   （2026-07-24 にユーザー指示で緩和。回答が隠れると会話が進まないため）。
+- **人間相手の送信は本人承認後だけ**：送信先・送信元・宛先・相手だけで意味が分かる完全な文面を
+  先に提示し、その内容への明示承認後にだけ外部へ送る。SlackはWatari botへidentityを固定し、
+  Piの対話画面で全文を再表示する決定論的な最終確認を通す。非対話実行や別botへの無断切替はfail closed。
 - **性能モード**：`/performance` で fast / balanced（既定）/ butler を選び、このパソコンの config に保存する。
   fast は記憶4KB・関連3件・catalog無し・thinking off・成功toolを自動evidence化、balanced は現行の
   16KB関連検索とPi本来のthinking、butlerは全state一時注入・thinking high。モデル自体はPi側で選ぶ。
@@ -114,7 +117,11 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   Token（`xoxp-`、案内内のマニフェストから作成したアプリをインストールして発行）貼り付け・
   `search.messages` を `from:<@自分>` と自分へのメンションの2クエリで取得し ts で統合＋uuid dedup
   （`auth.test` で疎通確認、HTTP 200 でも body の ok を必ず検査、`after:` は日付粒度のため同日再取得は
-  dedup 任せ）。Chatwork は API トークン貼り付け・`GET /rooms` で since 以降に更新された部屋を最大
+  dedup 任せ）。同じSlack appにbot userを追加し、bot scopeは招待済みチャンネルだけへ送れる
+  `chat:write`のみ（`chat:write.public`なし）。読み取り用xoxp-と投稿用xoxb-を別々に検証・保存し、
+  `watari_slack_send`が送信元・送信先・宛先・全文をPi対話画面へ表示して本人が承認した1回だけ
+  `chat.postMessage`を実行する。検索結果のpermalinkからthread_tsも保持し、既存スレッドへ正しく返信する。
+  Chatwork は API トークン貼り付け・`GET /rooms` で since 以降に更新された部屋を最大
   10件に絞り各部屋のメッセージを取得（`GET /me` で疎通確認）。urllib transport は
   `connector_http.py` に共通化（重複回避）。freee は他と違い貼るのが Client ID/Secret で、
   `verify()` 自身が「入力→ブラウザ認可(loopback 優先、127.0.0.1:8787固定→空きポート→

@@ -121,6 +121,10 @@ Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari c
 - **Claude Code・Codex** はトークン不要です。パソコン上の会話ログを自動で見つけて
   （見つからなければフォルダの場所を聞いて）読みます。これらの CLI を使っていない場合、
   この接続は不要です。
+- **Slack** は、読み取り用の User OAuth Token と、Watari名義で投稿するための Bot User OAuth Tokenを
+  分けて接続します。既存のWatari appがあれば新しく作らず、画面に表示されるmanifestで更新します。
+  Watari botは招待されたチャンネルにしか投稿できません。送信時はPi画面に送信元・送信先・宛先・全文を
+  表示し、本人が最終確認で承認した1回だけ送信します。
 - 一覧にないツール（その他の参照ノートや独自サービスなど）は、上級者向けに
   `watari connector add` で読み方を自由記述で登録できます。`watari connector list` で
   登録済みの一覧を確認できます。
