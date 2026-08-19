@@ -8,7 +8,9 @@
 （選ぶと「未対応です。対応予定」と案内するだけ）。
 
 認証情報は config.json の "connectors_auth" セクションへ {name: {"api_key": ...}} の形で保存する
-（auth_kind="paste" のサービス）。gmail/calendar/gdrive は auth_kind="oauth" で、認証情報を
+（auth_kind="paste" のサービス）。Slackのように読み取り用・投稿用を分ける場合は、ServiceAdapterの
+`auth_fields`で複数項目を宣言し、全項目の検証成功後に同じservice配下へ一括保存する。
+gmail/calendar/gdrive は auth_kind="oauth" で、認証情報を
 ここに置かず cloud.py の "google" セクション（drive.appdata 用に既に確立済みの OAuth を
 incremental scope で拡張したもの）をそのまま使う。
 
@@ -49,7 +51,8 @@ class ServiceAdapter:
 
     def __init__(self, label: str, implemented: bool = True,
                 guide: list[str] | None = None, verify=None, read=None, brief=None,
-                auth_kind: str = "paste", scopes: list[str] | None = None, connected=None,
+                auth_kind: str = "paste", auth_fields: list[tuple[str, str]] | None = None,
+                scopes: list[str] | None = None, connected=None,
                 available=None, scope: str = "cloud"):
         self.label = label
         self.implemented = implemented
@@ -58,6 +61,9 @@ class ServiceAdapter:
         self.read = read
         self.brief = brief  # current actionable state reader; independent of memory cursors
         self.auth_kind = auth_kind
+        # paste型で複数の資格情報が必要なサービス用。未指定なら従来どおりapi_keyを1件だけ聞く。
+        # 各要素は (configへ保存するkey, 利用者へ表示する入力案内)。
+        self.auth_fields = auth_fields
         self.scopes = scopes or []  # auth_kind="oauth" のとき、このサービスに必要な追加スコープ
         # 保存済み設定の存在判定を自前で持つサービス用（例: freee, transcript 系）。
         # 無ければ Google 系の既定（cloud.is_authorized + granted_scopes）を使う（oauth のみ）。
@@ -174,19 +180,26 @@ def _slack_adapter() -> ServiceAdapter:
     return ServiceAdapter(
         label="Slack", implemented=True,
         guide=[
-            "1. Open https://api.slack.com/apps, then choose 'Create New App' > "
-            "'From an app manifest'",
-            "2. Choose the workspace, then click 'Next'",
-            "3. On the 'JSON' tab, select all (Ctrl+A / Cmd+A), replace the demo manifest with "
-            "the manifest below, then click 'Next' > 'Create':",
+            "1. Open https://api.slack.com/apps",
+            "2. If a Watari app already exists, open it, choose 'App Manifest' > 'JSON', "
+            "select all (Ctrl+A / Cmd+A), and replace it with the manifest below",
+            "3. If there is no Watari app, choose 'Create New App' > 'From an app manifest', "
+            "choose the workspace, open the 'JSON' tab, and replace the demo manifest instead",
             *manifest_lines,
-            "4. Click 'Install to Workspace' (also available under 'OAuth & Permissions'), "
-            "then click 'Allow'",
-            "5. Under 'OAuth & Permissions', copy the 'User OAuth Token' beginning with xoxp- "
-            "(not the xoxb- bot token), then paste it here",
-            "Note: a workspace administrator may need to approve app creation or installation",
+            "4. Save the manifest, then open 'OAuth & Permissions' and click "
+            "'Reinstall to Workspace' > 'Allow' (a new app shows 'Install to Workspace')",
+            "5. Under 'OAuth & Permissions', copy both tokens shown below:",
+            "   - 'User OAuth Token' beginning with xoxp- (read-only search)",
+            "   - 'Bot User OAuth Token' beginning with xoxb- (posts as Watari)",
+            "6. Paste each token into the matching prompt in this terminal",
+            "7. In Slack, invite @Watari only to channels where Watari may post",
+            "Note: a workspace administrator may need to approve app changes or installation",
         ],
-        verify=slack.verify, read=slack.read,
+        verify=slack.verify_credentials, read=slack.read,
+        auth_fields=[
+            ("api_key", "User OAuth Token（xoxp-）を貼り付けてください"),
+            ("bot_token", "Bot User OAuth Token（xoxb-）を貼り付けてください"),
+        ],
     )
 
 
@@ -322,16 +335,30 @@ def _auth_section() -> dict:
     return section if isinstance(section, dict) else {}
 
 
+def auth_value(name: str, key: str) -> str | None:
+    """保存済み資格情報の1項目（未接続なら None）。値自体は表示しない。"""
+    entry = _auth_section().get(name)
+    return entry.get(key) if isinstance(entry, dict) else None
+
+
 def auth_key(name: str) -> str | None:
     """保存済み API キー（未接続なら None）。"""
-    return (_auth_section().get(name) or {}).get("api_key")
+    return auth_value(name, "api_key")
+
+
+def save_auth_values(name: str, values: dict[str, str]) -> None:
+    """資格情報を connectors_auth.<name> へまとめて保存する。検証成功後だけ呼ぶ。"""
+    auth = _auth_section()
+    current = auth.get(name)
+    entry = dict(current) if isinstance(current, dict) else {}
+    entry.update(values)
+    auth[name] = entry
+    config.save_config(connectors_auth=auth)
 
 
 def save_auth(name: str, api_key: str) -> None:
-    """API キーを config.json の connectors_auth.<name> に保存する（キー自体は出力しない）。"""
-    auth = _auth_section()
-    auth[name] = {"api_key": api_key}
-    config.save_config(connectors_auth=auth)
+    """単一 API キーを保存する既存サービス向け互換入口。"""
+    save_auth_values(name, {"api_key": api_key})
 
 
 def is_configured(name: str) -> bool:

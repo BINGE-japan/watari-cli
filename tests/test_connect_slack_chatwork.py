@@ -3,7 +3,8 @@
 実 API は叩かず HTTP をモックしてオフライン検証する（slack._http / chatwork._http を差し替える）。
 固めること:
 - verify 成功/失敗（Slack は HTTP 200 でも ok:false を返しうるので、その分岐も別に固める）。
-- Slack は xoxp- で始まらないトークン（特に bot 用の xoxb-）を verify 冒頭で拒否する。
+- Slack は読み取り用 xoxp- と Watari bot投稿用 xoxb- を別々に検証・保存する。
+- 読み取り欄へ bot 用 xoxb- を貼った場合は verify 冒頭で拒否する。
 - read の統一形式 {ts,uuid,text,meta} と ts 昇順。
 - Slack は2クエリ（from:/mention）統合時の重複排除。
 - 認証失敗は非ゼロ終了・出力なし・再接続コマンド（watari connect <name>）の案内付き。
@@ -73,33 +74,48 @@ class ConnectWizardSlackTest(_XdgIsolated):
         slack._http = self._saved_http
         super().tearDown()
 
-    def _auth_ok(self, user="example-user", team="Example Team", token="xoxp-secret-123"):
+    def _auth_ok(self, user="example-user", team="Example Team",
+                 user_token="xoxp-secret-123", bot_token="xoxb-secret-456"):
         def router(method, url, headers, data):
-            self.assertEqual(headers.get("Authorization"), f"Bearer {token}")
-            if url == slack.AUTH_TEST_URL:
-                self.assertEqual(method, "POST")
-                return 200, json.dumps(
-                    {"ok": True, "user": user, "team": team, "user_id": "U123"}).encode()
-            return 404, b"{}"
+            self.assertEqual(method, "POST")
+            if url != slack.AUTH_TEST_URL:
+                return 404, b"{}"
+            token = headers.get("Authorization")
+            if token == f"Bearer {user_token}":
+                return 200, json.dumps({
+                    "ok": True, "user": user, "team": team,
+                    "user_id": "U123", "team_id": "T123",
+                }).encode()
+            if token == f"Bearer {bot_token}":
+                return 200, json.dumps({
+                    "ok": True, "user": "watari", "team": team,
+                    "bot_id": "B123", "team_id": "T123",
+                }).encode()
+            return 200, json.dumps({"ok": False, "error": "invalid_auth"}).encode()
         slack._http = _fake_http(router)
 
-    def test_success_saves_auth_and_declares_connector(self):
+    def test_success_saves_read_and_bot_auth_and_declares_connector(self):
         from watari_cli import prompts
         self._auth_ok()
-        prompts.text = lambda *a, **k: "xoxp-secret-123"
+        answers = iter(["xoxp-secret-123", "xoxb-secret-456"])
+        prompts.text = lambda *a, **k: next(answers)
         rc, out, err = _run(["connect", "slack"])
         self.assertEqual(rc, 0)
         self.assertIn("example-user@Example Team", out)
-        self.assertNotIn("xoxp-secret-123", out)  # 認証情報は print しない
-        self.assertNotIn("xoxp-secret-123", err)
+        self.assertIn("Watari bot", out)
+        for secret in ("xoxp-secret-123", "xoxb-secret-456"):
+            self.assertNotIn(secret, out)
+            self.assertNotIn(secret, err)
         self.assertEqual(connectors.auth_key("slack"), "xoxp-secret-123")
+        self.assertEqual(connectors.auth_value("slack", "bot_token"), "xoxb-secret-456")
         decl = config.load_connectors()
         self.assertEqual(len(decl), 1)
         self.assertEqual((decl[0]["name"], decl[0]["scope"]), ("slack", "cloud"))
 
     def test_verify_ok_false_is_a_failure_despite_http_200(self):
         from watari_cli import prompts
-        prompts.text = lambda *a, **k: "xoxp-bad"
+        answers = iter(["xoxp-bad", "xoxb-valid-shape"])
+        prompts.text = lambda *a, **k: next(answers)
         slack._http = _fake_http(
             lambda m, u, h, d: (200, json.dumps(
                 {"ok": False, "error": "invalid_auth"}).encode()))
@@ -111,7 +127,8 @@ class ConnectWizardSlackTest(_XdgIsolated):
 
     def test_verify_http_error_is_a_failure(self):
         from watari_cli import prompts
-        prompts.text = lambda *a, **k: "xoxp-bad"
+        answers = iter(["xoxp-bad", "xoxb-valid-shape"])
+        prompts.text = lambda *a, **k: next(answers)
         slack._http = _fake_http(lambda m, u, h, d: (401, b'{"error":"invalid_auth"}'))
         rc, out, err = _run(["connect", "slack"])
         self.assertEqual(rc, 1)
@@ -125,6 +142,40 @@ class ConnectWizardSlackTest(_XdgIsolated):
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("slack"))
         self.assertEqual(config.load_connectors(), [])
+
+    def test_invalid_bot_token_saves_neither_token(self):
+        from watari_cli import prompts
+        self._auth_ok()
+        answers = iter(["xoxp-secret-123", "xoxb-invalid"])
+        prompts.text = lambda *a, **k: next(answers)
+        rc, out, err = _run(["connect", "slack"])
+        self.assertEqual(rc, 1)
+        self.assertIn("bot", err.lower())
+        self.assertNotIn("xoxb-invalid", out + err)
+        self.assertIsNone(connectors.auth_key("slack"))
+        self.assertIsNone(connectors.auth_value("slack", "bot_token"))
+        self.assertEqual(config.load_connectors(), [])
+
+    def test_tokens_from_different_workspaces_are_rejected(self):
+        from watari_cli import prompts
+        answers = iter(["xoxp-one", "xoxb-two"])
+        prompts.text = lambda *a, **k: next(answers)
+
+        def router(method, url, headers, data):
+            token = headers.get("Authorization")
+            team_id = "T1" if token == "Bearer xoxp-one" else "T2"
+            return 200, json.dumps({
+                "ok": True, "user": "example", "team": "Example", "team_id": team_id,
+            }).encode()
+        slack._http = _fake_http(router)
+
+        rc, out, err = _run(["connect", "slack"])
+        self.assertEqual(rc, 1)
+        self.assertIn("別のSlack workspace", err)
+        self.assertNotIn("xoxp-one", out + err)
+        self.assertNotIn("xoxb-two", out + err)
+        self.assertIsNone(connectors.auth_key("slack"))
+        self.assertIsNone(connectors.auth_value("slack", "bot_token"))
 
     def test_bot_token_xoxb_is_rejected_before_any_api_call(self):
         """guide が最も警告する貼り間違い（xoxb-）は verify 冒頭で拒否し、正しい方を案内する。"""
@@ -146,6 +197,9 @@ class ConnectWizardSlackTest(_XdgIsolated):
         self.assertTrue(all("\n" not in line for line in service.guide))
         joined = "\n".join(line.strip() for line in service.guide)
         self.assertIn('"search:read"', joined)
+        self.assertIn('"chat:write"', joined)
+        self.assertIn('"bot_user"', joined)
+        self.assertNotIn('"chat:write.public"', joined)
 
     def test_guide_mentions_apps_url_and_manifest(self):
         from watari_cli import prompts
@@ -154,13 +208,19 @@ class ConnectWizardSlackTest(_XdgIsolated):
         self.assertEqual(rc, 1)
         self.assertIn("https://api.slack.com/apps", out)
         self.assertIn("search:read", out)
+        self.assertIn("chat:write", out)
         # マニフェストは貼り替え先(Create app from manifest)の既定タブに合わせて JSON
-        json.loads(slack.SLACK_MANIFEST)
+        manifest = json.loads(slack.SLACK_MANIFEST)
+        self.assertEqual(manifest["features"]["bot_user"]["display_name"], "Watari")
+        self.assertEqual(manifest["oauth_config"]["scopes"]["bot"], ["chat:write"])
+        self.assertNotIn("chat:write.public", out)
         self.assertIn('"name": "Watari"', out)
-        # 実画面の要所（雛形の全選択・置換／インストール／User トークン）が案内に出ている
-        self.assertIn("select all", out)
-        self.assertIn("Install to Workspace", out)
+        # 既存appの更新、新規作成、再インストール、2種類のtokenを区別して案内する
+        self.assertIn("App Manifest", out)
+        self.assertIn("Create New App", out)
+        self.assertIn("Reinstall to Workspace", out)
         self.assertIn("xoxp-", out)
+        self.assertIn("xoxb-", out)
 
 
 class ConnectorReadSlackTest(_XdgIsolated):
@@ -178,16 +238,23 @@ class ConnectorReadSlackTest(_XdgIsolated):
         self._home.cleanup()
         super().tearDown()
 
-    def _match(self, channel_id, ts, channel_name="general", username="example-user", text="hi"):
-        return {
+    def _match(self, channel_id, ts, channel_name="general", username="example-user",
+               text="hi", thread_ts=None):
+        match = {
             "channel": {"id": channel_id, "name": channel_name},
             "ts": ts, "username": username, "user": "U123", "text": text,
         }
+        if thread_ts:
+            match["permalink"] = (
+                f"https://example.slack.com/archives/{channel_id}/p{ts.replace('.', '')}"
+                f"?thread_ts={thread_ts}")
+        return match
 
     def test_json_output_is_unified_ascending_and_dedup_across_queries(self):
         captured = {"queries": []}
         # from: クエリと mention クエリで1件重複させる（同じ channel+ts）。
-        shared = self._match("C1", "1700000200.000100", text="dup")
+        shared = self._match(
+            "C1", "1700000200.000100", text="dup", thread_ts="1700000000.000001")
 
         def router(method, url, headers, data):
             self.assertEqual(headers.get("Authorization"), "Bearer xoxp-secret")
@@ -217,6 +284,7 @@ class ConnectorReadSlackTest(_XdgIsolated):
         self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
         self.assertIn("#general", rows[0]["text"])
         self.assertIn("from-me", rows[0]["text"])
+        self.assertEqual(rows[1]["meta"]["thread_ts"], "1700000000.000001")
         # 両クエリとも after: に since の日付が付く。
         self.assertTrue(all("after:2023-11-14" in q for q in captured["queries"]))
         self.assertTrue(any(q.startswith("from:<@U123>") for q in captured["queries"]))

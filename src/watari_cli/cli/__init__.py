@@ -898,9 +898,11 @@ def cmd_chat(args) -> int:
     verification_guard = _find_pi_runtime_file("verification-guard.ts")
     briefing_extension = _find_pi_runtime_file("briefing.ts")
     file_links_extension = _find_pi_runtime_file("file-links.ts")
+    slack_send_extension = _find_pi_runtime_file("slack-send.ts")
     herdr_plugin = _find_herdr_plugin_dir()
     if not all((quiet_ui, politeness_guard, performance_extension, memory_context,
-                verification_guard, briefing_extension, file_links_extension)):
+                verification_guard, briefing_extension, file_links_extension,
+                slack_send_extension)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -917,6 +919,7 @@ def cmd_chat(args) -> int:
         "--extension", verification_guard,
         "--extension", briefing_extension,
         "--extension", file_links_extension,
+        "--extension", slack_send_extension,
     ] + args.extra
 
     env = dict(os.environ)
@@ -1262,6 +1265,27 @@ def _connect_wizard(name: str) -> int:
             return 1
         return _declare_builtin_connector(name, message, scope=service.scope,
                                           auth_kind=service.auth_kind)
+
+    if service.auth_fields:
+        credentials = {}
+        try:
+            for key, prompt in service.auth_fields:
+                value = prompts.text(prompt)
+                if not value:
+                    sys.stderr.write("トークンが空のため中止しました。"
+                                     f"もう一度やり直すには: watari connect {name}\n")
+                    return 1
+                credentials[key] = value
+        except prompts.Cancelled:
+            sys.stderr.write("\n中止しました。\n")
+            return 130
+        ok, message = service.verify(credentials)
+        if not ok:
+            sys.stderr.write(f"! 接続に失敗しました: {message}\n"
+                             f"  もう一度やり直すには: watari connect {name}\n")
+            return 1
+        connectors_mod.save_auth_values(name, credentials)
+        return _declare_builtin_connector(name, message)
 
     try:
         api_key = prompts.text("トークンを貼り付けてください")
