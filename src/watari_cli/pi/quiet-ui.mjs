@@ -14,19 +14,29 @@ export function compactToolLines(lines, expanded) {
   return action ? [action] : [];
 }
 
+function withoutVisibleThinking(message) {
+  return {
+    ...message,
+    content: message.content.map((block) =>
+      block.type === "thinking" ? { ...block, thinking: "" } : block,
+    ),
+  };
+}
+
 export function prepareAssistantMessage(message, applyPoliteness, applyVerification) {
   if (!message.stopReason) {
-    return {
+    return withoutVisibleThinking({
       ...message,
       content: message.content.map((block) =>
         block.type === "text" ? { ...block, text: "" } : block,
       ),
-    };
+    });
   }
 
   const politeMessage = applyPoliteness(message);
   const hasToolCalls = message.content.some((block) => block.type === "toolCall");
-  return hasToolCalls ? politeMessage : applyVerification(politeMessage);
+  const guardedMessage = hasToolCalls ? politeMessage : applyVerification(politeMessage);
+  return withoutVisibleThinking(guardedMessage);
 }
 
 function findPiRoot(entry) {
@@ -71,8 +81,8 @@ if (piRoot) {
     new URL("./verification.mjs", import.meta.url)
   );
 
-  // Keep reasoning and effort intact while replacing streamed reasoning text
-  // with Pi's static "Thinking..." label.
+  // Keep reasoning and effort intact. Thinking summaries are shown transiently
+  // by thinking-progress.ts instead of being appended to the visible chat log.
   SettingsManager.prototype.getHideThinkingBlock = () => true;
 
   // Keep one action line per tool by default. Pi's Ctrl+O expansion still

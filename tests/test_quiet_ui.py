@@ -98,6 +98,22 @@ class PrepareAssistantMessageTest(unittest.TestCase):
         self.assertEqual(displayed["content"][0]["text"], "確認しました。")
         self.assertEqual(displayed["guards"], ["politeness", "verification"])
 
+    def test_thinking_is_not_left_in_the_visible_chat_log(self):
+        message = {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "thinking": "Inspecting configuration"},
+                {"type": "text", "text": "設定を確認します。"},
+                {"type": "toolCall", "name": "read", "arguments": {}},
+            ],
+            "stopReason": "toolUse",
+        }
+
+        displayed = _prepare_assistant_message(message)
+
+        self.assertEqual(displayed["content"][0]["thinking"], "")
+        self.assertEqual(displayed["content"][1]["text"], "設定を確認します。")
+
 
 if __name__ == "__main__":
     unittest.main()

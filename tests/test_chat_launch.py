@@ -64,6 +64,7 @@ class ChatLaunchTest(unittest.TestCase):
         self.assertIn("--extension", out)
         self.assertIn("politeness-guard.ts", out)
         self.assertIn("performance.ts", out)
+        self.assertIn("thinking-progress.ts", out)
         self.assertIn("memory-context.ts", out)
         self.assertIn("verification-guard.ts", out)
         self.assertIn("briefing.ts", out)
