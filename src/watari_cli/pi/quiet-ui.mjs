@@ -14,6 +14,21 @@ export function compactToolLines(lines, expanded) {
   return action ? [action] : [];
 }
 
+export function prepareAssistantMessage(message, applyPoliteness, applyVerification) {
+  if (!message.stopReason) {
+    return {
+      ...message,
+      content: message.content.map((block) =>
+        block.type === "text" ? { ...block, text: "" } : block,
+      ),
+    };
+  }
+
+  const politeMessage = applyPoliteness(message);
+  const hasToolCalls = message.content.some((block) => block.type === "toolCall");
+  return hasToolCalls ? politeMessage : applyVerification(politeMessage);
+}
+
 function findPiRoot(entry) {
   if (!entry) return undefined;
 
@@ -68,21 +83,16 @@ if (piRoot) {
     return compactToolLines(lines, this.expanded);
   };
 
-  // Buffer assistant prose until the message is final. This prevents a casual
-  // partial token from appearing before the deterministic message_end guard can
-  // rewrite or reject it. Intermediate prose attached to tool calls stays hidden.
+  // Hide partial tokens until a message is complete so the politeness guard can
+  // run first. Once complete, keep prose attached to tool calls visible; Ctrl+O
+  // controls tool details only. Verification warnings remain final-answer only.
   const updateAssistantContent = AssistantMessageComponent.prototype.updateContent;
   AssistantMessageComponent.prototype.updateContent = function (message) {
-    const hasToolCalls = message.content.some((block) => block.type === "toolCall");
-    const isFinalAnswer = Boolean(message.stopReason) && !hasToolCalls;
-    const displayMessage = isFinalAnswer
-      ? guardVerifiedAssistantMessage(guardAssistantMessage(message))
-      : {
-          ...message,
-          content: message.content.map((block) =>
-            block.type === "text" ? { ...block, text: "" } : block,
-          ),
-        };
+    const displayMessage = prepareAssistantMessage(
+      message,
+      guardAssistantMessage,
+      guardVerifiedAssistantMessage,
+    );
     return updateAssistantContent.call(this, displayMessage);
   };
 }
