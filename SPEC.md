@@ -96,8 +96,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     `watari chat`起動時にWindowsの現在ユーザーへURL起動設定を登録し、固定の`wsl.exe`→内部コマンド
     （shell不使用）で再検証してExplorerに表示する。
   - `watari chat` は同梱 preload `pi/quiet-ui.mjs` を Pi プロセスの起動時だけ読み込み、reasoning と
-    effort、会話ログを変えずに途中の思考文を隠す。tool 実行は通常1操作1行、Ctrl+OでPi本来の詳細へ
-    展開する。最終回答は完了までバッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
+    effort、会話ログを変えずに途中の思考文を隠す。tool 実行前には何を確認・変更するかを敬語1行で表示し、
+    この途中文は折りたたまない。tool 実行は通常1操作1行、Ctrl+OでPi本来の詳細へ展開する。
+    最終回答は完了までバッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
     決定論で書き換え、未知の違反は安全な敬語文へ fail closed する。モデルとPiのグローバル設定は
     ユーザー側のまま。thinkingだけは明示選択した性能モード中に限り fast=off / butler=high へ切り替える。
   - 焼き込みの Google OAuth クライアント（`_BUNDLED_CLIENT_ID` / `_BUNDLED_CLIENT_SECRET`）は
