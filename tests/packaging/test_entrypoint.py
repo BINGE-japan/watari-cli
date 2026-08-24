@@ -152,8 +152,9 @@ class EntrypointContractTests(unittest.TestCase):
               for name in ("remember", "organize", "profile", "forget", "goal", "watari-help")),
             "watari_cli/pi/quiet-ui.mjs", "watari_cli/pi/politeness.mjs",
             "watari_cli/pi/verification.mjs", "watari_cli/pi/memory-context.mjs",
-            "watari_cli/pi/performance.mjs", "watari_cli/pi/slack-send.mjs",
-            "watari_cli/pi/politeness-guard.ts", "watari_cli/pi/performance.ts",
+            "watari_cli/pi/performance.mjs", "watari_cli/pi/thinking-progress.mjs",
+            "watari_cli/pi/slack-send.mjs", "watari_cli/pi/politeness-guard.ts",
+            "watari_cli/pi/performance.ts", "watari_cli/pi/thinking-progress.ts",
             "watari_cli/pi/memory-context.ts", "watari_cli/pi/verification-guard.ts",
             "watari_cli/pi/briefing.ts", "watari_cli/pi/slack-send.ts",
             *(f"{dist_info}/{name}" for name in ("METADATA", "WHEEL", "entry_points.txt", "top_level.txt", "RECORD"))}

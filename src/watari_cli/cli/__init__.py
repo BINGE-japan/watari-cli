@@ -894,15 +894,16 @@ def cmd_chat(args) -> int:
     quiet_ui = _find_pi_runtime_file("quiet-ui.mjs")
     politeness_guard = _find_pi_runtime_file("politeness-guard.ts")
     performance_extension = _find_pi_runtime_file("performance.ts")
+    thinking_progress = _find_pi_runtime_file("thinking-progress.ts")
     memory_context = _find_pi_runtime_file("memory-context.ts")
     verification_guard = _find_pi_runtime_file("verification-guard.ts")
     briefing_extension = _find_pi_runtime_file("briefing.ts")
     file_links_extension = _find_pi_runtime_file("file-links.ts")
     slack_send_extension = _find_pi_runtime_file("slack-send.ts")
     herdr_plugin = _find_herdr_plugin_dir()
-    if not all((quiet_ui, politeness_guard, performance_extension, memory_context,
-                verification_guard, briefing_extension, file_links_extension,
-                slack_send_extension)):
+    if not all((quiet_ui, politeness_guard, performance_extension, thinking_progress,
+                memory_context, verification_guard, briefing_extension,
+                file_links_extension, slack_send_extension)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -915,6 +916,7 @@ def cmd_chat(args) -> int:
         "--append-system-prompt", skill_md,
         "--extension", politeness_guard,
         "--extension", performance_extension,
+        "--extension", thinking_progress,
         "--extension", memory_context,
         "--extension", verification_guard,
         "--extension", briefing_extension,
@@ -936,7 +938,7 @@ def cmd_chat(args) -> int:
             sys.stderr.write("! Windowsへファイルリンクの起動設定を登録できませんでした。\n")
     env["WATARI_FILE_LINK_KEY_PATH"] = str(file_link_key_path())
     # Pi が TUI を組み立てる前に process-local の表示設定を当てる。reasoning/effort と会話ログは
-    # 変えず、途中の思考文を隠し、tool 実行は通常1行・Ctrl+Oで詳細表示にする。
+    # 変えず、思考要約は差し替わる作業中1行にし、tool 実行は通常1行・Ctrl+Oで詳細表示にする。
     # Pi のグローバル settings.json は触らない。
     from pathlib import Path
     preload = f"--import={Path(quiet_ui).resolve().as_uri()}"
