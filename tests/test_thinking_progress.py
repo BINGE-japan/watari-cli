@@ -53,6 +53,12 @@ class ThinkingProgressTest(unittest.TestCase):
         self.assertIn('pi.on("agent_end"', text)
         self.assertIn("ctx.ui.setWorkingMessage()", text)
 
+    def test_thinking_is_hidden_from_chat_with_the_public_transformer_api(self):
+        text = EXTENSION.read_text(encoding="utf-8")
+        self.assertIn("pi.registerMarkdownTransformer", text)
+        self.assertIn('messageType === "assistant-thinking"', text)
+        self.assertIn('ctx.ui.setHiddenThinkingLabel("")', text)
+
 
 if __name__ == "__main__":
     unittest.main()
