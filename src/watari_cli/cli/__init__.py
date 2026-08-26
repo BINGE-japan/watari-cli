@@ -891,19 +891,19 @@ def cmd_chat(args) -> int:
     # 素の助手のまま応答する（実測）。SKILL.md をシステムプロンプトに常時注入して人格を起動する。
     # --no-skills で他スキルの自動探索（~/.agents/skills 等の同名 "watari" 衝突含む）も切る。
     skill_md = os.path.join(skill, "SKILL.md")
-    quiet_ui = _find_pi_runtime_file("quiet-ui.mjs")
     politeness_guard = _find_pi_runtime_file("politeness-guard.ts")
     performance_extension = _find_pi_runtime_file("performance.ts")
     thinking_progress = _find_pi_runtime_file("thinking-progress.ts")
+    compact_tools = _find_pi_runtime_file("compact-tools.ts")
     memory_context = _find_pi_runtime_file("memory-context.ts")
     verification_guard = _find_pi_runtime_file("verification-guard.ts")
     briefing_extension = _find_pi_runtime_file("briefing.ts")
     file_links_extension = _find_pi_runtime_file("file-links.ts")
     slack_send_extension = _find_pi_runtime_file("slack-send.ts")
     herdr_plugin = _find_herdr_plugin_dir()
-    if not all((quiet_ui, politeness_guard, performance_extension, thinking_progress,
-                memory_context, verification_guard, briefing_extension,
-                file_links_extension, slack_send_extension)):
+    if not all((politeness_guard, performance_extension, thinking_progress,
+                compact_tools, memory_context, verification_guard,
+                briefing_extension, file_links_extension, slack_send_extension)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -917,6 +917,7 @@ def cmd_chat(args) -> int:
         "--extension", politeness_guard,
         "--extension", performance_extension,
         "--extension", thinking_progress,
+        "--extension", compact_tools,
         "--extension", memory_context,
         "--extension", verification_guard,
         "--extension", briefing_extension,
@@ -925,6 +926,15 @@ def cmd_chat(args) -> int:
     ] + args.extra
 
     env = dict(os.environ)
+    # 旧版が設定した内部表示patchを親のPiから継承しても、同梱版Piには効かないため除去する。
+    inherited_node_options = shlex.split(env.get("NODE_OPTIONS", ""))
+    inherited_node_options = [
+        option for option in inherited_node_options if "watari_cli/pi/quiet-ui.mjs" not in option
+    ]
+    if inherited_node_options:
+        env["NODE_OPTIONS"] = shlex.join(inherited_node_options)
+    else:
+        env.pop("NODE_OPTIONS", None)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
     env["WATARI_PERFORMANCE_MODE"] = config.load_performance_mode()
     from watari_cli.file_links import (
@@ -937,20 +947,16 @@ def cmd_chat(args) -> int:
         if os.environ.get("WSL_DISTRO_NAME") and not ensure_windows_file_link_protocol():
             sys.stderr.write("! Windowsへファイルリンクの起動設定を登録できませんでした。\n")
     env["WATARI_FILE_LINK_KEY_PATH"] = str(file_link_key_path())
-    # Pi が TUI を組み立てる前に process-local の表示設定を当てる。reasoning/effort と会話ログは
-    # 変えず、思考要約は差し替わる作業中1行にし、tool 実行は通常1行・Ctrl+Oで詳細表示にする。
-    # Pi のグローバル settings.json は触らない。
-    from pathlib import Path
-    preload = f"--import={Path(quiet_ui).resolve().as_uri()}"
-    env["NODE_OPTIONS"] = " ".join(x for x in (env.get("NODE_OPTIONS", "").strip(), preload) if x)
-
+    # Pi公式の拡張APIだけで、思考要約は差し替わる作業中1行、tool実行は通常1行・
+    # Ctrl+Oで詳細表示にする。Piのグローバル設定は触らない。
     if args.show:
         print(f"chat が実行するコマンド（実行環境: {runtime}。"
               "未導入でも初回に npx が自動で取得します）:")
         print(f"WATARI_HOME={home}")
         print(f"WATARI_PERFORMANCE_MODE={env['WATARI_PERFORMANCE_MODE']}")
         print(f"WATARI_FILE_LINK_KEY_PATH={env['WATARI_FILE_LINK_KEY_PATH']}")
-        print(f"NODE_OPTIONS={shlex.quote(env['NODE_OPTIONS'])}")
+        if env.get("NODE_OPTIONS"):
+            print(f"NODE_OPTIONS={shlex.quote(env['NODE_OPTIONS'])}")
         print(" ".join(shlex.quote(c) for c in cmd))
         return 0
 

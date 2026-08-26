@@ -4,6 +4,16 @@ import { latestThinkingProgress } from "./thinking-progress.mjs";
 export default function (pi: ExtensionAPI) {
   let currentProgress: string | undefined;
 
+  pi.registerMarkdownTransformer((markdown, { messageType, isStreaming }) => {
+    if (messageType === "assistant-thinking") return "";
+    if (messageType === "assistant" && isStreaming) return "";
+    return markdown;
+  });
+
+  pi.on("session_start", (_event, ctx) => {
+    if (ctx.hasUI) ctx.ui.setHiddenThinkingLabel("");
+  });
+
   pi.on("agent_start", (_event, ctx) => {
     currentProgress = undefined;
     if (ctx.hasUI) ctx.ui.setWorkingMessage();
