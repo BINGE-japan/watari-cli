@@ -101,11 +101,11 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     （shell不使用）で再検証してExplorerに表示する。
   - `watari chat` はPi公式APIだけを使う同梱拡張 `pi/thinking-progress.ts` と `pi/compact-tools.ts` により、
     reasoning、effort、AI処理に必要な会話データを変えず、Thinking要約をチャット欄最下部の作業中1行へ
-    順次差し替える。この要約は会話欄へ残さない。AIが作業前・途中に自然言語の本文を返した場合は通常の
-    会話として表示・保存するが、定型の進捗メッセージは強制しない。tool実行の呼び出し行と結果は通常表示から
-    完全に隠し、Ctrl+OでPi本来の完全な呼び出しと結果へ展開する。
-    最終回答は完了までバッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
-    決定論で書き換え、未知の違反は安全な敬語文へ fail closed する。モデルとPiのグローバル設定は
+    順次差し替える。この要約は会話欄へ残さない。AIが作業前・途中に自然言語の本文を返した場合は
+    ストリーミング中から通常の会話として表示し、確定後も保存するが、定型の進捗メッセージは強制しない。
+    tool実行の呼び出し行と結果は通常表示から完全に隠し、Ctrl+OでPi本来の完全な呼び出しと結果へ展開する。
+    同梱 `politeness-guard.ts` / `politeness.mjs` は保存前に明白なタメ口を決定論で書き換え、未知の違反は
+    安全な敬語文へ fail closed する。モデルとPiのグローバル設定は
     ユーザー側のまま。thinkingだけは明示選択した性能モード中に限り fast=off / butler=high へ切り替える。
   - 焼き込みの Google OAuth クライアント（`_BUNDLED_CLIENT_ID` / `_BUNDLED_CLIENT_SECRET`）は
     削除。同期を使う利用者は自分の OAuth アプリを登録する（`docs/google-oauth-setup.md`）。
