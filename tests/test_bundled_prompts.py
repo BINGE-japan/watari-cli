@@ -45,11 +45,12 @@ class BundledPromptsTest(unittest.TestCase):
                 body = text.split("---", 2)[-1].strip()
                 self.assertTrue(body, f"本文が空: {name}.md")
 
-    def test_tool_work_requires_a_visible_one_line_progress_update(self):
+    def test_tool_work_does_not_force_a_template_progress_message(self):
         text = SKILL_MD.read_text(encoding="utf-8")
-        self.assertIn("実行前", text)
-        self.assertIn("ユーザー向けの敬語1行", text)
+        self.assertIn("必要がある場合", text)
+        self.assertIn("定型の進捗報告を毎回強制しない", text)
         self.assertIn("内部推論やコマンド内容は書かない", text)
+        self.assertNotIn("実行前に「今から何を確認・変更するか」", text)
 
     def test_skill_has_no_insider_jargon(self):
         text = SKILL_MD.read_text(encoding="utf-8")
