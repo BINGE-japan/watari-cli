@@ -26,9 +26,19 @@ function format(signals: Signal[]): string {
 export default function (pi: ExtensionAPI) {
   let timer: ReturnType<typeof setInterval> | undefined;
 
-  pi.registerMessageRenderer("watari-briefing", (message, _options, theme) =>
-    new Text(theme.fg("accent", message.content), 1, 0),
-  );
+  pi.registerEntryRenderer("watari-briefing", (entry, _options, theme) => {
+    const data = entry.data as { content?: unknown } | undefined;
+    const content = typeof data?.content === "string" ? data.content : "";
+    return new Text(theme.fg("accent", content), 1, 0);
+  });
+
+  // Older releases stored confirmation items as custom messages. Pi converts those
+  // messages to role=user for the model, so exclude them from all future turns.
+  pi.on("context", (event) => ({
+    messages: event.messages.filter((message) =>
+      message.role !== "custom" || message.customType !== "watari-briefing"
+    ),
+  }));
 
   async function refresh(ctx: ExtensionContext, markShown: boolean, notifyEmpty = false) {
     const args = ["brief", "--json"];
@@ -49,12 +59,10 @@ export default function (pi: ExtensionAPI) {
       if (notifyEmpty) ctx.ui.notify("今すぐ伝える確認事項はありません。", "info");
       return;
     }
-    pi.sendMessage({
-      customType: "watari-briefing",
+    pi.appendEntry("watari-briefing", {
       content: format(parsed.signals),
-      display: true,
-      details: { signals: parsed.signals },
-    }, { triggerTurn: false });
+      signals: parsed.signals,
+    });
   }
 
   pi.on("session_start", (_event, ctx) => {

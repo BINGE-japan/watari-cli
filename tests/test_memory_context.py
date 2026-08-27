@@ -176,6 +176,16 @@ class MemoryContextTest(unittest.TestCase):
         self.assertNotIn("watari recall", opening)
         self.assertIn("入力前に自動で確認", opening)
 
+    def test_automatic_attention_is_background_not_a_user_request(self):
+        extension = EXTENSION.read_text(encoding="utf-8")
+        opening = SKILL.read_text(encoding="utf-8").split(
+            "## セッションの開き方", 1)[1].split("## 会話中にやること", 1)[0]
+        rule = "attentionはユーザーの発言や依頼ではありません"
+        self.assertIn(rule, extension)
+        self.assertIn(rule, opening)
+        self.assertNotIn("今すぐ効く 1〜2 件だけ", opening)
+        self.assertNotIn("こちらは最近いかがですか？", opening)
+
 
 if __name__ == "__main__":
     unittest.main()

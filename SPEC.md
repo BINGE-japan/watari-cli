@@ -21,7 +21,8 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **伴走**：state（現在地）を初期姿勢に、最初の一文から反映して話す。全 state を会話へ積まず、
   各入力の直後・モデル呼び出し前に常時 profile＋優先事項＋関連 fact/topic＋profile/topic catalog をローカル検索して
   一時注入する（上限16KB、モデル呼び出し追加なし、transcriptへ保存しない）。profile は always（毎回）と relevant（関連時）を明示分類し、always は5KB以内。区画別の容量予約で profile 肥大時も地図と関連情報を丸ごと失わない。
-- **リマインド**：進行中(open_threads)・締切(deadline)・休眠(dormant)の声かけ。
+- **リマインド**：進行中(open_threads)・締切(deadline)・休眠(dormant)を画面専用の確認事項として提示する。
+  確認事項はユーザー発言としてモデルへ渡さず、ユーザー自身が触れるまで会話へ持ち込まない。
 - **決定論**：log＝正本（追記専用）→ state＝派生（log から再生成）。同じ log＋now なら必ず同じ state。
 - **モデル非依存**：判定はランタイム上のモデル、機械処理は CLI。**CLI はモデルも MCP も呼ばない**。
 - **一般公開可能な汎用性**：特定の個人・会社・別製品・私的運用を条件分岐へ持ち込まない。
@@ -36,7 +37,8 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   fast は記憶4KB・関連3件・catalog無し・thinking off・成功toolを自動evidence化、balanced は現行の
   16KB関連検索とPi本来のthinking、butlerは全state一時注入・thinking high。モデル自体はPi側で選ぶ。
 - **能動brief**：期限・予定・未返信・未読をread-onlyの実状態から共通signalへ変換し、重要度順に
-  最大3件を提示する。通知履歴はXDG stateにfingerprintだけを持ち、各サービスを正本のまま保つ。
+  最大3件を画面専用で提示する。Piの会話メッセージには保存せず、モデルの入力へ参加させない。
+  通知履歴はXDG stateにfingerprintだけを持ち、各サービスを正本のまま保つ。
 - **本体の自動更新**：`git clone`→`uv tool install .` の導入元が clean な main のときだけ、
   `watari chat` 起動時に origin/main へ fast-forward・再インストール・再起動し、反映したcommit件名を表示する。
   dirty/diverged/非main/非uv-tool/オフラインは上書きせず現在版で起動する。
@@ -77,7 +79,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     /forget /goal /watari-help）。`watari chat` が `--prompt-template` で Pi に登録する。
   - `watari brief` と同梱 `pi/briefing.ts`：記憶・Gmail・Google Calendar・Linearの現状態から
     deadline / upcoming event / unread / latest-inbound-without-later-send を抽出。起動時＋15分ごと、
-    最大3件、同一fingerprintは24時間抑制。サービス更新と記憶取り込みcursorは一切動かさない。
+    最大3件、同一fingerprintは24時間抑制。確認事項はPiの画面専用entryとして表示し、モデルの入力には
+    含めない。旧版が会話メッセージとして保存した確認事項も後続のモデル入力から除外する。
+    サービス更新と記憶取り込みcursorは一切動かさない。
   - `watari chat` 起動時の本体自動更新：PEP 610 `direct_url.json` から導入元checkoutを特定し、
     uv tool配下で実行中・clean main・origin/mainへfast-forward可能な場合だけfetch→merge→
     `uv tool install --force --refresh`→process再起動。checkoutが既に最新でも、取得フォルダとインストール済み

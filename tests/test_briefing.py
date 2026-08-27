@@ -6,10 +6,13 @@ import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 
 from watari_cli import briefing
 
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=timezone.utc)
+ROOT = Path(__file__).resolve().parents[1]
+PI_EXTENSION = ROOT / "src" / "watari_cli" / "pi" / "briefing.ts"
 
 
 class MemoryBriefingTest(unittest.TestCase):
@@ -96,6 +99,16 @@ class RankingTest(unittest.TestCase):
             {"id": "a", "urgency": 2, "due_at": "2026-07-24T00:00:00Z"},
         ]
         self.assertEqual([x["id"] for x in briefing.rank_signals(rows)], ["c", "a", "b"])
+
+
+class PiBriefingBoundaryTest(unittest.TestCase):
+    def test_confirmation_items_are_tui_only_and_legacy_messages_are_filtered(self):
+        text = PI_EXTENSION.read_text(encoding="utf-8")
+        self.assertIn('pi.registerEntryRenderer("watari-briefing"', text)
+        self.assertIn('pi.appendEntry("watari-briefing"', text)
+        self.assertIn('pi.on("context"', text)
+        self.assertNotIn("pi.registerMessageRenderer", text)
+        self.assertNotIn("pi.sendMessage", text)
 
 
 if __name__ == "__main__":
