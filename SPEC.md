@@ -100,9 +100,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     `watari chat`起動時にWindowsの現在ユーザーへURL起動設定を登録し、固定の`wsl.exe`→内部コマンド
     （shell不使用）で再検証してExplorerに表示する。
   - `watari chat` はPi公式APIだけを使う同梱拡張 `pi/thinking-progress.ts` と `pi/compact-tools.ts` により、
-    reasoning、effort、AI処理に必要な会話データを変えず、Thinking要約を作業中の同じ1行へ順次差し替える。
-    Thinking要約は会話欄へ残さない。tool 実行前には何を確認・変更するかを敬語1行で表示し、
-    このAIの自然言語による途中文は折りたたまず会話欄に残す。tool実行の呼び出し行と結果は通常表示から
+    reasoning、effort、AI処理に必要な会話データを変えず、Thinking要約をチャット欄最下部の作業中1行へ
+    順次差し替える。この要約は会話欄へ残さない。AIが作業前・途中に自然言語の本文を返した場合は通常の
+    会話として表示・保存するが、定型の進捗メッセージは強制しない。tool実行の呼び出し行と結果は通常表示から
     完全に隠し、Ctrl+OでPi本来の完全な呼び出しと結果へ展開する。
     最終回答は完了までバッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
     決定論で書き換え、未知の違反は安全な敬語文へ fail closed する。モデルとPiのグローバル設定は
