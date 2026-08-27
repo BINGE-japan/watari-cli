@@ -53,9 +53,9 @@ class ThinkingProgressTest(unittest.TestCase):
         self.assertIn('pi.on("agent_end"', text)
         self.assertIn("ctx.ui.setWorkingMessage()", text)
 
-    def test_natural_assistant_text_remains_in_chat_after_streaming(self):
+    def test_natural_assistant_text_is_never_hidden_with_thinking(self):
         text = EXTENSION.read_text(encoding="utf-8")
-        self.assertIn('messageType === "assistant" && isStreaming', text)
+        self.assertNotIn('messageType === "assistant" && isStreaming', text)
         self.assertIn("return markdown;", text)
 
     def test_thinking_is_hidden_from_chat_with_the_public_transformer_api(self):

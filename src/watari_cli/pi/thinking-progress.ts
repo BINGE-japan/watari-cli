@@ -4,9 +4,8 @@ import { latestThinkingProgress } from "./thinking-progress.mjs";
 export default function (pi: ExtensionAPI) {
   let currentProgress: string | undefined;
 
-  pi.registerMarkdownTransformer((markdown, { messageType, isStreaming }) => {
+  pi.registerMarkdownTransformer((markdown, { messageType }) => {
     if (messageType === "assistant-thinking") return "";
-    if (messageType === "assistant" && isStreaming) return "";
     return markdown;
   });
 
