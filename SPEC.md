@@ -102,8 +102,8 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   - `watari chat` はPi公式APIだけを使う同梱拡張 `pi/thinking-progress.ts` と `pi/compact-tools.ts` により、
     reasoning、effort、AI処理に必要な会話データを変えず、Thinking要約を作業中の同じ1行へ順次差し替える。
     Thinking要約は会話欄へ残さない。tool 実行前には何を確認・変更するかを敬語1行で表示し、
-    このユーザー向け途中文は折りたたまない。tool実行は通常、コマンド本文と結果を出さず操作名だけ1行、
-    Ctrl+OでPi本来の完全な呼び出しと結果へ展開する。
+    このAIの自然言語による途中文は折りたたまず会話欄に残す。tool実行の呼び出し行と結果は通常表示から
+    完全に隠し、Ctrl+OでPi本来の完全な呼び出しと結果へ展開する。
     最終回答は完了までバッファし、同梱 `politeness-guard.ts` / `politeness.mjs` が保存・表示前に明白なタメ口を
     決定論で書き換え、未知の違反は安全な敬語文へ fail closed する。モデルとPiのグローバル設定は
     ユーザー側のまま。thinkingだけは明示選択した性能モード中に限り fast=off / butler=high へ切り替える。

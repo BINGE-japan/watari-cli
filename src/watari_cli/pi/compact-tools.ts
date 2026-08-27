@@ -9,8 +9,7 @@ import {
   createWriteToolDefinition,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
-import { singleLine, summarizeCommand } from "./compact-tools.mjs";
+import { Container } from "@earendil-works/pi-tui";
 
 export default function (pi: ExtensionAPI) {
   const originalBash = createBashTool(process.cwd());
@@ -20,12 +19,8 @@ export default function (pi: ExtensionAPI) {
     name: "bash",
     renderShell: "self",
     renderCall(args, theme, context) {
-      if (context.expanded) return bashDefinition.renderCall!(args, theme, context);
-      return new Text(
-        theme.fg("toolTitle", `${theme.bold("$ ")}${summarizeCommand(args.command)}`),
-        0,
-        0,
-      );
+      if (!context.expanded) return new Container();
+      return bashDefinition.renderCall!(args, theme, context);
     },
     renderResult(result, options, theme, context) {
       if (!options.expanded) return new Container();
@@ -40,8 +35,8 @@ export default function (pi: ExtensionAPI) {
     name: "read",
     renderShell: "self",
     renderCall(args, theme, context) {
-      if (context.expanded) return readDefinition.renderCall!(args, theme, context);
-      return new Text(theme.fg("toolTitle", `${theme.bold("read ")}${singleLine(args.path)}`), 0, 0);
+      if (!context.expanded) return new Container();
+      return readDefinition.renderCall!(args, theme, context);
     },
     renderResult(result, options, theme, context) {
       if (!options.expanded) return new Container();
@@ -56,8 +51,8 @@ export default function (pi: ExtensionAPI) {
     name: "edit",
     renderShell: "self",
     renderCall(args, theme, context) {
-      if (context.expanded) return editDefinition.renderCall!(args, theme, context);
-      return new Text(theme.fg("toolTitle", `${theme.bold("edit ")}${singleLine(args.path)}`), 0, 0);
+      if (!context.expanded) return new Container();
+      return editDefinition.renderCall!(args, theme, context);
     },
     renderResult(result, options, theme, context) {
       if (!options.expanded) return new Container();
@@ -72,8 +67,8 @@ export default function (pi: ExtensionAPI) {
     name: "write",
     renderShell: "self",
     renderCall(args, theme, context) {
-      if (context.expanded) return writeDefinition.renderCall!(args, theme, context);
-      return new Text(theme.fg("toolTitle", `${theme.bold("write ")}${singleLine(args.path)}`), 0, 0);
+      if (!context.expanded) return new Container();
+      return writeDefinition.renderCall!(args, theme, context);
     },
     renderResult(result, options, theme, context) {
       if (!options.expanded) return new Container();

@@ -1,4 +1,4 @@
-"""組み込みtoolは通常1行だけを表示し、詳細はCtrl+Oへ分離する。"""
+"""組み込みtoolは通常表示から隠し、詳細はCtrl+Oへ分離する。"""
 from __future__ import annotations
 
 import json
@@ -44,6 +44,12 @@ class CompactToolsTest(unittest.TestCase):
         self.assertIn("createBashToolDefinition(process.cwd())", text)
         self.assertIn("if (!options.expanded) return new Container()", text)
         self.assertIn("ctx.ui.setToolsExpanded(false)", text)
+
+    def test_collapsed_tool_calls_leave_only_the_assistant_progress_line_visible(self):
+        text = EXTENSION.read_text(encoding="utf-8")
+        self.assertEqual(text.count("if (!context.expanded) return new Container()"), 4)
+        self.assertNotIn("summarizeCommand(args.command)", text)
+        self.assertNotIn("singleLine(args.path)", text)
 
 
 if __name__ == "__main__":
