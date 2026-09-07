@@ -16,6 +16,21 @@ function hasControl(value) {
   return [...value].some((character) => character.codePointAt(0) < 32);
 }
 
+function canonicalSystemAlias(filePath) {
+  if (process.platform === "darwin") {
+    for (const name of ["var", "tmp"]) {
+      const alias = `/${name}`;
+      if (filePath === alias || filePath.startsWith(`${alias}/`)) {
+        const info = lstatSync(alias);
+        if (info.uid === 0 && info.isSymbolicLink() && realpathSync.native(alias) === `/private/${name}`) {
+          return `/private${filePath}`;
+        }
+      }
+    }
+  }
+  return filePath;
+}
+
 function hasSymlinkComponent(filePath) {
   const parsed = path.parse(filePath);
   let current = parsed.root;
@@ -49,7 +64,7 @@ export function validateLocalFile(rawPath, cwd = process.cwd()) {
   if (typeof rawPath !== "string" || rawPath.length === 0 || hasControl(rawPath)) {
     throw new Error("invalid file path");
   }
-  const absolute = path.resolve(cwd, rawPath);
+  const absolute = canonicalSystemAlias(path.resolve(cwd, rawPath));
   const resolved = realpathSync.native(absolute);
   if (absolute !== resolved || hasSymlinkComponent(absolute)) {
     throw new Error("symlinked paths are not linkable");

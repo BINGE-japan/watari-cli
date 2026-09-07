@@ -254,9 +254,9 @@ function fitToBudget(context, maxBytes) {
   while (byteLength(context) > maxBytes && removeLastCatalogTopic(context.catalog)) {
     context.catalog_truncated = true;
   }
-  while (byteLength(context) > maxBytes && context.matches.length > 1) context.matches.pop();
-  while (byteLength(context) > maxBytes && context.attention.length > 1) context.attention.pop();
-  while (byteLength(context) > maxBytes && Object.keys(context.profile).length > 1) {
+  while (byteLength(context) > maxBytes && context.matches.length > 0) context.matches.pop();
+  while (byteLength(context) > maxBytes && context.attention.length > 0) context.attention.pop();
+  while (byteLength(context) > maxBytes && Object.keys(context.profile).length > 0) {
     delete context.profile[Object.keys(context.profile).at(-1)];
     context.profile_truncated = true;
   }
@@ -269,10 +269,17 @@ function fitToBudget(context, maxBytes) {
       ...(item.note ? { note: clipped(item.note, 120) } : {}),
     }));
   }
+  if (byteLength(context) > maxBytes) throw new Error("記憶の容量上限が小さすぎます。");
   return context;
 }
 
 export function buildMemoryContext(life, learning, query, options = {}) {
+  for (const value of [life, learning]) {
+    if (value && (typeof value !== "object" || Array.isArray(value) ||
+        (value.schema_version !== undefined && value.schema_version !== 1))) {
+      throw new Error("対応していない記憶形式のため、読み込みを停止しました。");
+    }
+  }
   if (options.full) {
     return {
       memory_checked: true,
@@ -335,6 +342,12 @@ async function readJson(path, fallback) {
 
 export async function loadMemoryContext(home, query, options = {}) {
   if (!home) throw new Error("WATARI_HOME is not set");
+  try {
+    await readFile(join(home, ".watari-pending.json"));
+    throw new Error("記憶の保存処理が完了していません。記憶の整理を再実行してください。");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
   const [life, learning] = await Promise.all([
     readJson(join(home, "life", "state.json"), {}),
     readJson(join(home, "learning", "state.json"), {}),

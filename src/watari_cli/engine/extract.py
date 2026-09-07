@@ -24,7 +24,7 @@ from .watari_lib import (
 )
 
 
-def scan_pi_store(root, cursor_iso):
+def scan_pi_store(root, cursor_iso, *, include_assistant=False):
     """Pi のセッション（<root>/**/<session>.jsonl、cwd ごとに保存）を走査。(readable, messages) を返す。
     先頭行がヘッダ（type:"session"）で session id と cwd を持つ。以降の type:"message" のうち
     message.role=="user" が本物の発話。dedup 用 uuid は pi:<session>:<entry id>（各行の安定 id を使う。
@@ -53,11 +53,23 @@ def scan_pi_store(root, cursor_iso):
                     except json.JSONDecodeError:
                         continue
                     if d.get("type") == "session":  # 先頭ヘッダ行：session id と cwd を確定
+                        if type(d.get("version", 1)) is not int or d.get("version", 1) not in (1, 2, 3):
+                            ok = False
+                            break
                         session_id = d.get("id") or session_id
                         cwd = d.get("cwd") or cwd
                         continue
-                    if not is_genuine_pi_user_message(d):
+                    message = d.get("message") or {}
+                    is_context = (include_assistant and d.get("type") == "message" and
+                                  isinstance(message, dict) and message.get("role") == "assistant")
+                    if not is_genuine_pi_user_message(d) and not is_context:
                         continue
+                    content = message.get("content")
+                    if is_context:
+                        from watari_cli.relay import _message_text
+                        content = _message_text(message)
+                        if not content.strip():
+                            continue
                     try:
                         ts = parse_ts(d["timestamp"])
                     except (ValueError, KeyError):
@@ -70,8 +82,8 @@ def scan_pi_store(root, cursor_iso):
                         "uuid": f"pi:{session_id}:{d.get('id') or d['timestamp']}",
                         "cwd": cwd,
                         "file": path,
-                        "text": d["message"]["content"],
-                        "role": "user",
+                        "text": content,
+                        "role": "assistant" if is_context else "user",
                     })
         except (OSError, UnicodeDecodeError):
             # ライブ追記中のファイルが多バイト文字の途中で切れていると for line in f が
@@ -157,14 +169,14 @@ def run():
     result = {"generated": fmt_ts(now_utc()), "stores": {}, "messages": []}
     # ソース = (store_key, cursor_key, readable, msgs)。組み込みは Pi（自マシンのローカル）＋
     # クラウドの他マシン分。cursor 規律は共通（読めた分だけ前進・読めなければ据え置き）。
-    pi_readable, pi_msgs = scan_pi_store(PI_STORE, cursors.get("transcripts_pi"))
+    pi_readable, pi_msgs = scan_pi_store(PI_STORE, cursors.get("transcripts_pi"), include_assistant=True)
     sources = [("pi", "transcripts_pi", pi_readable, pi_msgs)]
     from watari_cli import host
     sources.extend(scan_cloud_stream(cursors, host.machine_id()))
 
     for store, cursor_key, readable, msgs in sources:
         cursor_iso = cursors.get(cursor_key)
-        msgs.sort(key=lambda m: (m["ts"], m["uuid"] or ""))
+        msgs.sort(key=lambda m: (parse_ts(m["ts"]), m["uuid"] or ""))
         truncated = False
         if msgs:
             # 窓の起点は必ず「最古の未処理メッセージ」。カーソル固定にすると、カーソル以降30日超の
@@ -172,6 +184,9 @@ def run():
             # 永久停滞し、90日で消える発話を取りこぼす。起点を msgs[0] にすれば必ず1件は残る。
             window_end = parse_ts(msgs[0]["ts"]) + timedelta(days=INGEST_MAX_WINDOW_DAYS)
             kept = [m for m in msgs if parse_ts(m["ts"]) <= window_end][:INGEST_MAX_MESSAGES]
+            if kept:
+                boundary = parse_ts(kept[-1]["ts"])
+                kept = [m for m in msgs if parse_ts(m["ts"]) <= boundary]
             truncated = len(kept) < len(msgs)
             msgs = kept
         for m in msgs:
@@ -184,7 +199,7 @@ def run():
             "truncated": truncated,
         }
         result["messages"].extend(msgs)
-    result["messages"].sort(key=lambda m: (m["ts"], m["uuid"] or ""))
+    result["messages"].sort(key=lambda m: (parse_ts(m["ts"]), m["uuid"] or ""))
     return result
 
 

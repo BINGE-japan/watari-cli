@@ -67,6 +67,16 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   スケジューラも同梱しない（cron 等の外部に任せる。`docs/scheduled-organize.md`）。
 
 ## 現在地（status — 変わったら更新する）
+- **0.1.1 信頼性修正**：親Gitリポジトリへの誤コミットを拒否。記憶の検査・更新・再生成・Git操作を
+  メモリフォルダ単位のプロセス間ロックで直列化し、全出力を保存前に検証。中断した保存はversion 1の
+  redo journalから再開する（journal・一時ファイルはGitに含めない）。通常のstatus/helpは副作用なし。
+  同日更新の識別、ページ取得完了の確認、時刻のinstant比較、境界同時刻の保持、未知形式の拒否を追加。
+  詳細な契約・互換性・残る実地検証は `docs/design/reliability-0.1.1.md` に記載。
+  Slackは接続時にteam/bot/user IDを固定し、投稿前にauth.testで照合。旧設定での投稿は再接続まで拒否。
+  Piのfastモードは成功toolを実際に自動evidence化し、巨大な識別子があっても容量上限を守る。
+  開発用Gitガードは読み取り専用に変更し、未検証の変更を自動commit/pushしない。
+  CIはLinux/macOSとPython 3.11/3.13、Pi 0.84.2の実hookを検査する。CI準備時のみ公開のPython/npm依存を
+  ダウンロードする（製品の外部サービス・認証・ユーザー記憶には接続せず、テストは合成データのみ）。
 - **実装済み・検証済み**：CLI 一式（status/host/scan(旧 dream。dream は隠し alias)/recall/ingest/
   audit/regen/init/install/auth/chat/performance/connect/connector）、記憶エンジン、人格スキル同梱（wheel）。
   クリーンルーム(Docker)で「素の環境に導入→カセット
@@ -117,10 +127,10 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   昇順で返す（HTTP は urllib のみ）。Linear は「自分が担当/作成した issue の updatedAt>since」
   （viewer クエリで疎通確認）。GitHub は Fine-grained PAT 認証・「自分が関与する issue/PR の
   updated>since」（`GET /user` で疎通確認、GitHubの必須条件に合わせ `is:issue` / `is:pull-request` を
-  別々に検索し、各1ページ(per_page=100)で打ち切り）。Notion は
+  別々に検索し、各100件ずつ全ページを取得。不完全結果や検索上限超過はエラーとして前進しない）。Notion は
   Internal Integration Token 認証・「since 以降に編集されたページ」（`GET /users/me` で疎通確認、
-  Search API に時刻フィルタが無いため `last_edited_time` 昇順取得＋クライアント側フィルタ、
-  1リクエスト(page_size=100)打ち切り、本文は書き写さずタイトル＋ポインタのみ）。Slack は User OAuth
+  Search API に時刻フィルタが無いため `last_edited_time` 降順取得＋クライアント側フィルタ、
+  next_cursorを辿って全ページを取得、本文は書き写さずタイトル＋ポインタのみ）。Slack は User OAuth
   Token（`xoxp-`、案内内のマニフェストから作成したアプリをインストールして発行）貼り付け・
   `search.messages` を `from:<@自分>` と自分へのメンションの2クエリで取得し ts で統合＋uuid dedup
   （`auth.test` で疎通確認、HTTP 200 でも body の ok を必ず検査、`after:` は日付粒度のため同日再取得は
@@ -147,7 +157,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   **incremental scope**（`cloud.authorize(scopes)`、`include_granted_scopes=true`）で
   サービスごとに1スコープずつ拡張する方式（`cloud.granted_scopes()` が付与済み一覧を保持）。
   Gmail は `gmail.readonly`・`GET /users/me/messages`（`q=after:<since の epoch秒>`）→ 各
-  メッセージを `format=metadata`（From/Subject/Date）+snippet で取得（50件/回打ち切り、本文は
+  メッセージを `format=metadata`（From/Subject/Date）+snippet で取得（続きのページをすべて取得し、本文は
   書き写さない）。カレンダーは `calendar.readonly`・primary カレンダーの `events.list
   (updatedMin=since, showDeleted=true)`。ドライブは `drive.metadata.readonly`・`files.list
   (q=modifiedTime>since, orderBy=modifiedTime)` でメタデータのみ。3つとも `watari connect` は
@@ -206,7 +216,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   疎通確認→config 保存→connector 宣言」を一本化する（生コマンドをユーザーに打たせない原則の延長）。
   第一弾は Linear（Personal API key）。読み取りは `watari connector read <name>` が決定論で行い、
   夢のエージェントはツール固有の API を知らなくてよい。カスタム connector（`connector add` の自由記述
-  read 指示）は上級者向けの逃げ道としてそのまま残す。slack/gmail/calendar は今回やらない（枠だけ）。
+  read 指示）は上級者向けの逃げ道としてそのまま残す。Slack/Gmail/Calendarを含む現在の対応範囲は上記の実装一覧を参照。
 - **daily_report / knowledge は engine 非移植**（カセット or 別途）。
 - **忘却は3層**：active(<45日) / dormant(45–90日・声かけ待ちの印) / sunk(≥90日・沈むが log に残る)。
   実時計ベース。取り込みカーソルは **per-machine の host record**（git 共有で衝突しない）。
@@ -214,7 +224,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   （消せる・機械可読）と使い分ける。中継所は **Google Drive appDataFolder**（ユーザーの Drive に出ない・
   API で削除可）。中身は **user＋assistant の発話だけ**（tool 出力・thinking は入れない）。書き込みは
   **chat のラッパー（会話中に逐次）**で、LLM にはやらせない。夢は **chat 起動時に裏で自動実行**（夜間 cron は
-  前提にしない）。消化済み＋90日超の中継発話は削除。確定設計は `docs/design/plan-transcript-sync.md`。
+  前提にしない）。消化済み＋90日超の中継発話は削除対象とし、条件付き更新ができない場合は保持して次回再試行する。確定設計は `docs/design/plan-transcript-sync.md`。
 - 経緯：先行プロトタイプは撤去し、本リポジトリ（watari-cli）に一本化した。
 
 ## ユーザー向け語彙（用語マップ）

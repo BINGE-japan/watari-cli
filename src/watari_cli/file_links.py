@@ -67,6 +67,18 @@ def _load_key(path: Path | None = None) -> bytes:
     return key
 
 
+def _canonical_system_alias(path: Path) -> Path:
+    # macOS ships these root-owned aliases. Do not relax user-created symlinks.
+    if sys.platform == "darwin":
+        for name in ("var", "tmp"):
+            alias = Path("/") / name
+            if path == alias or alias in path.parents:
+                info = alias.lstat()
+                if info.st_uid == 0 and alias.is_symlink() and alias.resolve() == Path("/private") / name:
+                    return Path("/private") / name / path.relative_to(alias)
+    return path
+
+
 def _has_symlink_component(path: Path) -> bool:
     current = Path(path.anchor)
     for part in path.parts[1:]:
@@ -103,7 +115,7 @@ def validate_local_file(raw_path: str, *, cwd: str | None = None) -> Path:
     candidate = Path(raw_path)
     if not candidate.is_absolute():
         candidate = Path(cwd or os.getcwd()) / candidate
-    absolute = Path(os.path.abspath(candidate))
+    absolute = _canonical_system_alias(Path(os.path.abspath(candidate)))
     resolved = absolute.resolve(strict=True)
     if absolute != resolved or _has_symlink_component(absolute):
         raise ValueError("symlinked paths are not linkable")

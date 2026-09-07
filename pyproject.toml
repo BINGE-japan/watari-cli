@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "watari-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "Watari — a personal AI companion that learns about you from conversation, running on the Pi runtime"
 readme = "README.md"
 requires-python = ">=3.11"

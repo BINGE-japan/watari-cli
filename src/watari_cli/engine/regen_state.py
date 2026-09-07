@@ -143,10 +143,11 @@ def fold_life(rows, now):
     return profile, facts, out_interests, out_threads
 
 
-def regen(now):
+def regen(now, rows=None):
+    rows = rows if rows is not None else {g: load_log(g) for g in GENRES}
     aliases = load_aliases()
-    learning = {"updated": fmt_ts(now), "domains": fold_learning(load_log("learning"), aliases)}
-    profile, facts, interests, threads = fold_life(load_log("life"), now)
+    learning = {"updated": fmt_ts(now), "domains": fold_learning(rows["learning"], aliases)}
+    profile, facts, interests, threads = fold_life(rows["life"], now)
     life = {
         "updated": fmt_ts(now),
         "profile": profile,

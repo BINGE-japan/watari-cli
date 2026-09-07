@@ -45,3 +45,19 @@ def body_text(body: bytes | str, limit: int = 200) -> str:
 def reconnect_hint(service: str) -> str:
     """失敗時に必ず添える「次の一歩」の定型文（全サービス共通の言い回し）。"""
     return f"もう一度接続するには: watari connect {service}"
+
+
+def paged_items(fetch_page, items_key, *, next_key="nextPageToken", max_pages=100):
+    """Read all pages or fail without returning a partial batch."""
+    items, seen, token = [], set(), None
+    for _ in range(max_pages):
+        page = fetch_page(token)
+        items.extend(page.get(items_key) or [])
+        next_token = page.get(next_key)
+        if not next_token:
+            return items
+        if not isinstance(next_token, str) or next_token in seen:
+            raise ConnectorError("続きの取得位置を確認できないため、読み取り位置は更新しません。")
+        seen.add(next_token)
+        token = next_token
+    raise ConnectorError("取得上限に達しました。読み取り位置は更新していません。対象期間を絞って再実行してください。")

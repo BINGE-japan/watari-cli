@@ -147,7 +147,7 @@ def _iso_from_epoch_millis(ms: str | int | None) -> str:
         dt = datetime.fromtimestamp(int(ms or 0) / 1000, tz=timezone.utc)
     except (TypeError, ValueError, OSError):
         dt = datetime.fromtimestamp(0, tz=timezone.utc)
-    return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _headers(message: dict) -> dict[str, str]:
@@ -230,16 +230,17 @@ def gmail_brief(now: datetime) -> list[dict]:
 def gmail_read(since: str | None) -> list[dict]:
     """since 以降のメール一覧を統一形式 [{ts,uuid,text,meta}, ...] で internalDate 昇順に返す。
 
-    messages.list は `q=after:<epoch秒>` で絞り込み、maxResults=100 まで一覧を取ってから、
-    本文は取らずヘッダ(From/Subject/Date)+snippet だけを1リクエストずつ(format=metadata)取得する
-    （50件/回で打ち切り、超過分は次回の呼び出しに回る＝linear/github と同じ「1回で取り切らない」
-    設計）。since 省略時（初回接続）は直近 INITIAL_LOOKBACK_DAYS 日だけ見る。
+    messages.listの全ページからIDを集め、本文は取らずFrom/Subject/Dateとsnippetを取得する。
+    取得途中の失敗は部分結果を返さない。since省略時は直近14日を見る。
     """
+    from watari_cli.engine.watari_lib import parse_ts
+
     token = cloud.access_token()
-    q = urllib.parse.urlencode(
-        {"q": f"after:{_epoch_seconds(since or _default_since())}", "maxResults": "100"})
-    listing = _get_json("gmail", f"{GMAIL_API}/users/me/messages?{q}", token)
-    ids = [m["id"] for m in (listing.get("messages") or [])][:50]
+    params = {"q": f"after:{_epoch_seconds(since or _default_since())}", "maxResults": "100"}
+    def page(after):
+        q = urllib.parse.urlencode(params | ({"pageToken": after} if after else {}))
+        return _get_json("gmail", f"{GMAIL_API}/users/me/messages?{q}", token)
+    ids = list(dict.fromkeys(m["id"] for m in connector_http.paged_items(page, "messages")))
 
     header_params = urllib.parse.urlencode(
         [("format", "metadata"), ("metadataHeaders", "From"),
@@ -261,7 +262,7 @@ def gmail_read(since: str | None) -> list[dict]:
             "text": f"From: {frm} / Subject: {subject} / {snippet}",
             "meta": {"id": message_id, "threadId": msg.get("threadId")},
         })
-    rows.sort(key=lambda r: (r["ts"], r["uuid"]))
+    rows.sort(key=lambda r: (parse_ts(r["ts"]), r["uuid"]))
     return rows
 
 
@@ -342,29 +343,31 @@ def calendar_brief(now: datetime) -> list[dict]:
 def calendar_read(since: str | None) -> list[dict]:
     """primary カレンダーの since 以降の更新イベントを統一形式で updated 昇順に返す。
 
-    events.list(updatedMin=since, maxResults=100, showDeleted=true) の単発取得（ページングなし。
-    since 以降の更新がこれを超える規模は運用スコープ外＝他アダプタと同じ前提）。
+    events.list(updatedMin=since, maxResults=100, showDeleted=true) の全ページを取得する。
     since 省略時（初回接続）は直近 INITIAL_LOOKBACK_DAYS 日だけ見る。
     """
+    from watari_cli.engine.watari_lib import parse_ts
+
     token = cloud.access_token()
     params = {"maxResults": "100", "showDeleted": "true",
               "updatedMin": since or _default_since()}
-    q = urllib.parse.urlencode(params)
-    data = _get_json("calendar", f"{CALENDAR_API}/calendars/primary/events?{q}", token)
+    def page(after):
+        q = urllib.parse.urlencode(params | ({"pageToken": after} if after else {}))
+        return _get_json("calendar", f"{CALENDAR_API}/calendars/primary/events?{q}", token)
+    items = connector_http.paged_items(page, "items")
     rows = []
-    for event in data.get("items") or []:
+    for event in items:
         updated = event.get("updated") or _EPOCH
-        day = updated[:10]
         start = (event.get("start") or {}).get("dateTime") or (event.get("start") or {}).get("date")
         summary = event.get("summary") or "(無題)"
         status = event.get("status") or "?"
         rows.append({
             "ts": updated,
-            "uuid": f"calendar:{event['id']}@{day}",
+            "uuid": f"calendar:{event['id']}@{updated}",
             "text": f"{summary} / start={start or '?'} / status={status}",
             "meta": {"id": event["id"], "htmlLink": event.get("htmlLink")},
         })
-    rows.sort(key=lambda r: (r["ts"], r["uuid"]))
+    rows.sort(key=lambda r: (parse_ts(r["ts"]), r["uuid"]))
     return rows
 
 
@@ -389,27 +392,30 @@ def gdrive_read(since: str | None) -> list[dict]:
     """since 以降に更新されたファイルのメタデータを統一形式で modifiedTime 昇順に返す。
 
     files.list(q=modifiedTime > '<since>' and trashed=false, orderBy=modifiedTime, pageSize=100)
-    の単発取得（ページングなし＝他アダプタと同じ前提）。中身は取らずメタデータだけ（正本は
-    Drive のまま）。
+    の全ページを取得する。中身は取らずメタデータだけ（正本はDriveのまま）。
     """
+    from watari_cli.engine.watari_lib import parse_ts
+
     token = cloud.access_token()
     since_q = (since or _default_since()).replace("Z", "")
-    params = urllib.parse.urlencode({
+    params = {
         "q": f"modifiedTime > '{since_q}' and trashed = false",
         "orderBy": "modifiedTime",
         "pageSize": "100",
-        "fields": "files(id,name,mimeType,modifiedTime,webViewLink)",
-    })
-    data = _get_json("gdrive", f"{DRIVE_API}/files?{params}", token)
+        "fields": "nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)",
+    }
+    def page(after):
+        q = urllib.parse.urlencode(params | ({"pageToken": after} if after else {}))
+        return _get_json("gdrive", f"{DRIVE_API}/files?{q}", token)
+    items = connector_http.paged_items(page, "files")
     rows = []
-    for f in data.get("files") or []:
+    for f in items:
         updated = f.get("modifiedTime") or _EPOCH
-        day = updated[:10]
         rows.append({
             "ts": updated,
-            "uuid": f"gdrive:{f['id']}@{day}",
+            "uuid": f"gdrive:{f['id']}@{updated}",
             "text": f"{f.get('name')} / {f.get('mimeType')} / updated={updated}",
             "meta": {"id": f["id"], "webViewLink": f.get("webViewLink")},
         })
-    rows.sort(key=lambda r: (r["ts"], r["uuid"]))
+    rows.sort(key=lambda r: (parse_ts(r["ts"]), r["uuid"]))
     return rows

@@ -31,6 +31,7 @@ class _Base(unittest.TestCase):
         self._saved_bundled = (cloud._BUNDLED_CLIENT_ID, cloud._BUNDLED_CLIENT_SECRET)
         cloud._BUNDLED_CLIENT_ID = cloud._BUNDLED_CLIENT_SECRET = ""
         self._saved_http = cloud._http
+        self._saved_http_headers = cloud._http_with_headers
         config.save_config(google={"client_id": "cid", "client_secret": "csec",
                                    "refresh_token": "RT"})
         self.calls: list = []
@@ -38,6 +39,7 @@ class _Base(unittest.TestCase):
     def tearDown(self):
         cloud._BUNDLED_CLIENT_ID, cloud._BUNDLED_CLIENT_SECRET = self._saved_bundled
         cloud._http = self._saved_http
+        cloud._http_with_headers = self._saved_http_headers
         for k, v in self._saved_env.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -50,6 +52,7 @@ class _Base(unittest.TestCase):
             self.calls.append((method, url, data))
             return router(method, url, data)
         cloud._http = f
+        cloud._http_with_headers = lambda *a, **kw: (*f(*a, **kw), {"ETag": '"fixture-v1"'})
 
     @staticmethod
     def _tok(url):

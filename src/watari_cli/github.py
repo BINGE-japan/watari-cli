@@ -10,10 +10,9 @@ REST API（https://api.github.com）に `Authorization: Bearer <token>` ヘッ�
   取得し、統一形式 {ts, uuid, text, meta} の行に整形して updated_at 昇順で返す（API 応答の順序に
   依存せずクライアント側で昇順に揃える）。GitHub Search API がどちらかの `is:` 修飾子を必須に
   しているため、両方を得るには2回の検索が必要。
-- ページングは issue・PR それぞれ 1 ページ（`per_page=100`）で打ち切り。これを超える件数が同一
-  since 区間に集中する運用はスコープ外（個人が since 以降に関与する issue/PR がこれを超える
-  規模なら since を詰めて呼び直す）。
-- uuid は `github:<owner/repo>#<number>@<更新日YYYY-MM-DD>`（SCHEMA.md の dedup 規約と同一）。
+- issue/PRそれぞれを100件ずつ取得する。不完全な検索や1000件の検索上限を超える回は、
+  部分結果を返さずエラーにする。
+- uuid は `github:<owner/repo>#<number>@<完全な更新時刻UTC>`（SCHEMA.md の dedup 規約と同一）。
 - issue/PR の中身は書き写さず、記憶に効く要点（repo#number/title/state/updated/comments 件数）
   だけを text に畳む（正本は GitHub のまま）。
 """
@@ -101,6 +100,8 @@ def read(token: str, since: str | None) -> list[dict]:
 
     since 省略時は全件（呼び出し側＝connectors.read が host カーソルを既定として渡す）。
     """
+    from watari_cli.engine.watari_lib import parse_ts
+
     user = _get(token, f"{API_BASE}/user")
     login = user.get("login")
     if not login:
@@ -113,20 +114,25 @@ def read(token: str, since: str | None) -> list[dict]:
     items = []
     for kind in ("issue", "pull-request"):
         query = f"involves:{login} is:{kind} updated:>{since_q}"
-        params = urllib.parse.urlencode(
-            {"q": query, "sort": "updated", "order": "asc", "per_page": "100"})
-        data = _get(token, f"{SEARCH_URL}?{params}")
-        items.extend(data.get("items") or [])
+        def page(after):
+            number = int(after or 1)
+            params = urllib.parse.urlencode({"q": query, "sort": "updated", "order": "asc", "per_page": "100", "page": number})
+            data = _get(token, f"{SEARCH_URL}?{params}")
+            if data.get("incomplete_results") or data.get("total_count", 0) > 1000:
+                raise ConnectorError("github: 検索を完了できません。対象期間を絞って再実行してください。")
+            if number * 100 < data.get("total_count", 0):
+                data["next"] = str(number + 1)
+            return data
+        items.extend(connector_http.paged_items(page, "items", next_key="next"))
     rows = []
     for item in items:
         updated = item["updated_at"]
-        day = updated[:10]
         repo = _repo_full_name(item)
         rows.append({
             "ts": updated,
-            "uuid": f"github:{repo}#{item['number']}@{day}",
+            "uuid": f"github:{repo}#{item['number']}@{updated}",
             "text": _format_text(item),
             "meta": {"repo": repo, "number": item["number"], "url": item.get("html_url")},
         })
-    rows.sort(key=lambda r: (r["ts"], r["uuid"]))
+    rows.sort(key=lambda r: (parse_ts(r["ts"]), r["uuid"]))
     return rows

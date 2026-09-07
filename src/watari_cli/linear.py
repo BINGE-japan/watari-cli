@@ -8,7 +8,7 @@ POST する（Linear の Personal API key は Bearer 接頭辞を付けない）
 - 読み取り（`read`）は「自分が担当 or 作成した issue のうち updatedAt > since」を取得し、
   issue の現在値を統一形式 {ts, uuid, text, meta} の行に整形して updatedAt 昇順で返す
   （API 応答の順序に依存せずクライアント側で昇順に揃える）。
-- uuid は `linear:<identifier>@<更新日YYYY-MM-DD>`（SCHEMA.md の dedup 規約と同一）。
+- uuid は `linear:<identifier>@<完全な更新時刻UTC>`（SCHEMA.md の dedup 規約と同一）。
 - issue の中身は書き写さず、記憶に効く要点（identifier/title/state/dueDate/updatedAt/直近コメント
   要約）だけを text に畳む（正本は Linear のまま）。
 """
@@ -24,17 +24,18 @@ API_URL = "https://api.linear.app/graphql"
 VIEWER_QUERY = "{ viewer { name email } }"
 
 # updatedAt は Linear の DateTimeOrDuration 比較（ISO ts を渡す）。assignee/creator どちらかが
-# 自分の issue を対象にする。ページングは行わない（first 250 の単発取得。個人の担当/作成件数の
-# 規模では十分。超える運用が出たら拡張）。
+# 自分の issue を対象にする。first 250ずつpageInfoを辿り、全取得できない回は前進しない。
 ISSUES_QUERY = """
-query Issues($since: DateTimeOrDuration!) {
+query Issues($since: DateTimeOrDuration!, $after: String) {
   issues(
     filter: {
       updatedAt: { gt: $since }
       or: [{ assignee: { isMe: { eq: true } } }, { creator: { isMe: { eq: true } } }]
     }
     first: 250
+    after: $after
   ) {
+    pageInfo { hasNextPage endCursor }
     nodes {
       identifier
       title
@@ -168,18 +169,29 @@ def read(api_key: str, since: str | None) -> list[dict]:
 
     since 省略時は全件（呼び出し側＝connectors.read が host カーソルを既定として渡す）。
     """
+    from watari_cli.engine.watari_lib import parse_ts
+
     variables = {"since": since or "1970-01-01T00:00:00.000Z"}
-    data = _post(api_key, ISSUES_QUERY, variables)
-    nodes = (data.get("issues") or {}).get("nodes") or []
+    def page(after):
+        args = dict(variables)
+        if after:
+            args["after"] = after
+        result = (_post(api_key, ISSUES_QUERY, args).get("issues") or {})
+        info = result.get("pageInfo") or {}
+        if info.get("hasNextPage"):
+            if not info.get("endCursor"):
+                raise ConnectorError("linear: 続きの取得位置がありません")
+            result["next"] = info["endCursor"]
+        return result
+    nodes = connector_http.paged_items(page, "nodes", next_key="next")
     rows = []
     for issue in nodes:
         updated = issue["updatedAt"]
-        day = updated[:10]
         rows.append({
             "ts": updated,
-            "uuid": f"linear:{issue['identifier']}@{day}",
+            "uuid": f"linear:{issue['identifier']}@{updated}",
             "text": _format_text(issue),
             "meta": {"identifier": issue["identifier"], "url": issue.get("url")},
         })
-    rows.sort(key=lambda r: (r["ts"], r["uuid"]))
+    rows.sort(key=lambda r: (parse_ts(r["ts"]), r["uuid"]))
     return rows

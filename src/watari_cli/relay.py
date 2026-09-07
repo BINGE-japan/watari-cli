@@ -20,7 +20,7 @@ import os
 import sys
 import threading
 
-from watari_cli import cloud
+from watari_cli import cloud, storage
 
 # 送信キューがこの大きさを超えたら「同期が滞っている」として1行警告する
 QUEUE_WARN_BYTES = 10 * 1024 * 1024
@@ -50,10 +50,7 @@ def _load_offsets() -> dict:
 
 
 def _save_offsets(offsets: dict) -> None:
-    tmp = _offsets_path() + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(offsets, f)
-    os.replace(tmp, _offsets_path())
+    storage.atomic_write_text(_offsets_path(), storage.json_text(offsets))
 
 
 def _message_text(message: dict) -> str:
@@ -155,11 +152,34 @@ class Relay:
 
     # --- 1 tick: 抽出 → キュー → 送信 ---
     def _tick(self) -> None:
-        new = self._extract_new()
-        if new:
-            with open(_queue_path(), "a", encoding="utf-8") as f:
-                f.write("".join(new))
-        self._flush()
+        # All chat processes share the durable queue; reload offsets under the lock.
+        with storage.file_lock(_queue_path()):
+            self._offsets = _load_offsets()
+            before = dict(self._offsets)
+            # A crash during append can leave one incomplete row. Offsets are not
+            # durable until the queue is fsynced, so that row will be extracted again.
+            try:
+                with open(_queue_path(), "r+b") as f:
+                    content = f.read()
+                    if content and not content.endswith(b"\n"):
+                        f.truncate(content.rfind(b"\n") + 1)
+                        f.flush()
+                        os.fsync(f.fileno())
+            except FileNotFoundError:
+                pass
+            try:
+                new = self._extract_new()
+                if new:
+                    with open(_queue_path(), "a", encoding="utf-8") as f:
+                        f.write("".join(new))
+                        f.flush()
+                        os.fsync(f.fileno())
+                    storage.sync_directory(_state_dir())
+                _save_offsets(self._offsets)
+            except Exception:
+                self._offsets = before
+                raise
+            self._flush()
 
     def _header_meta(self, path: str) -> dict:
         if path in self._meta:
@@ -170,6 +190,8 @@ class Relay:
                 first = f.readline()
             d = json.loads(first)
             if d.get("type") == "session":
+                if type(d.get("version", 1)) is not int or d.get("version", 1) not in (1, 2, 3):
+                    raise cloud.CloudError("未対応のPi会話形式のため、同期を停止しました。")
                 meta["cwd"] = d.get("cwd")
                 meta["session"] = d.get("id")  # dream の dedup uuid をローカル(scan_pi_store)と揃える
         except (OSError, json.JSONDecodeError):
@@ -230,10 +252,13 @@ class Relay:
                 line = self._to_line(raw, meta)
                 if line:
                     out.append(line)
-        _save_offsets(self._offsets)
         return out
 
     def _flush(self) -> None:
+        with storage.file_lock(_queue_path()):
+            self._flush_locked()
+
+    def _flush_locked(self) -> None:
         try:
             with open(_queue_path(), encoding="utf-8") as f:
                 content = f.read()
@@ -246,7 +271,7 @@ class Relay:
         except cloud.CloudError:
             self._warn_sync_failure()
             return  # 繰り越し（キューはそのまま・次回再送）
-        open(_queue_path(), "w", encoding="utf-8").close()  # 送信成功 → キューを空に
+        storage.atomic_write_text(_queue_path(), "")  # 送信成功 → キューを空に
 
 
 def prune_cloud(home: str, days: int = 90) -> None:
@@ -293,7 +318,7 @@ def prune_cloud(home: str, days: int = 90) -> None:
             except (ValueError, TypeError):
                 min_dreamed = None
         try:
-            content = store.read(name)
+            content, revision = store.snapshot(name)
         except cloud.CloudError:
             continue
         kept = []
@@ -312,9 +337,6 @@ def prune_cloud(home: str, days: int = 90) -> None:
         if new_content == content:
             continue
         try:
-            if kept:
-                store.write(name, new_content)
-            else:
-                store.delete(name)
+            store.replace_if_unchanged(name, revision, new_content)
         except cloud.CloudError:
             pass

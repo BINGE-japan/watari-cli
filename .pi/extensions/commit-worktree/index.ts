@@ -14,8 +14,8 @@ type TurnState = {
 };
 
 type GuardResult = {
-  status: "not-git" | "clean" | "published" | "pushed" | "committed-and-pushed" |
-    "preexisting-dirty" | "no-upstream" | "diverged" | "not-synchronized" | "failed";
+  status: "not-git" | "clean" | "published" |
+    "dirty" | "preexisting-dirty" | "no-upstream" | "diverged" | "not-synchronized" | "failed";
   detail?: string;
   message?: string;
 };
@@ -58,27 +58,28 @@ export default function (pi: ExtensionAPI) {
     const result = await ensurePublishedWorktree(
       exec, turn.baselineStatus, turn.baselineHead, turn.prompt,
     ) as GuardResult;
-    const success = ["not-git", "clean", "published", "pushed", "committed-and-pushed"]
+    const success = ["not-git", "clean", "published"]
       .includes(result.status);
     turn.finalized = success;
-    if (result.status === "committed-and-pushed" && ctx.hasUI) {
-      ctx.ui.notify(`Piのコミット・push漏れを自動修復しました: ${result.message}`, "warning");
-    } else if (result.status === "pushed" && ctx.hasUI) {
-      ctx.ui.notify("Piのpush漏れを自動修復しました。", "warning");
-    } else if (!success && ctx.hasUI) {
+    if (!success && ctx.hasUI) {
       ctx.ui.notify("コミットとpushが完了していないため、作業は未完了です。", "error");
     }
     return result;
   }
 
-  // Run before the final answer is persisted or displayed. Normally the model
-  // has already made a semantic commit; this is a deterministic fallback.
+  // message_end also fires for progress. Only inspect here when already idle;
+  // agent_settled covers actual completion. No event commits or publishes files.
   pi.on("message_end", async (event, ctx) => {
+    if (!ctx.isIdle()) return;
     if (event.message.role !== "assistant") return;
     if (event.message.content.some((block: any) => block.type === "toolCall")) return;
     const result = await finalize(ctx);
-    if (["not-git", "clean", "published", "pushed", "committed-and-pushed"].includes(result.status)) return;
+    if (["not-git", "clean", "published"].includes(result.status)) return;
     return { message: appendFailure(event.message, result) };
+  });
+
+  pi.on("agent_settled", async (_event, ctx) => {
+    await finalize(ctx);
   });
 
   // Also cover /quit, session replacement, and an aborted turn that reaches a

@@ -346,7 +346,8 @@ def auth_key(name: str) -> str | None:
     return auth_value(name, "api_key")
 
 
-def save_auth_values(name: str, values: dict[str, str]) -> None:
+@config.locked
+def save_auth_values(name: str, values: dict) -> None:
     """資格情報を connectors_auth.<name> へまとめて保存する。検証成功後だけ呼ぶ。"""
     auth = _auth_section()
     current = auth.get(name)

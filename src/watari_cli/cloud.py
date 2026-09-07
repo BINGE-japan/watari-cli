@@ -54,6 +54,7 @@ def credentials() -> tuple[str, str]:
     return _client_id(), _client_secret()
 
 
+@config.locked
 def save_credentials(client_id: str, client_secret: str) -> None:
     """client_id/secret を config.json の google セクションへ保存（refresh_token は保持）。"""
     google = _google_cfg()
@@ -62,6 +63,7 @@ def save_credentials(client_id: str, client_secret: str) -> None:
     config.save_config(google=google)
 
 
+@config.locked
 def replace_credentials(client_id: str, client_secret: str) -> None:
     """削除・交換したOAuth clientを差し替え、旧clientに属する認証状態を破棄する。"""
     google = _google_cfg()
@@ -84,18 +86,23 @@ class OAuthTokenError(CloudError):
         self.code = code
 
 
-def _http(method: str, url: str, headers: dict | None = None, data: bytes | None = None):
-    """(status, body_bytes) を返す。HTTP エラーは (code, body)、ネットワーク断は CloudError。"""
+def _http_with_headers(method: str, url: str, headers: dict | None = None, data: bytes | None = None):
+    """Return status, bytes and headers; network failures become CloudError."""
     req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
-            return r.status, r.read()
+            return r.status, r.read(), dict(r.headers)
     except urllib.error.HTTPError as e:
-        return e.code, e.read()
+        return e.code, e.read(), dict(e.headers or {})
     except (urllib.error.URLError, OSError) as e:
         raise CloudError(
             f"ネットワークに接続できませんでした。通信環境を確認して、"
             f"もう一度実行してください（詳細: {e}）")
+
+
+def _http(method, url, headers=None, data=None):
+    status, body, _headers = _http_with_headers(method, url, headers, data)
+    return status, body
 
 
 def is_configured() -> bool:
@@ -199,6 +206,12 @@ class CloudStore:
     def delete(self, name: str) -> None:
         raise NotImplementedError
 
+    def snapshot(self, name):
+        raise CloudError("この接続先は安全な同時更新に対応していないため、整理を見送りました。")
+
+    def replace_if_unchanged(self, name, revision, text):
+        raise CloudError("この接続先は安全な同時更新に対応していません。")
+
 
 class DriveAppDataStore(CloudStore):
     """Google Drive appDataFolder 実装（Drive REST v3・urllib）。"""
@@ -221,16 +234,23 @@ class DriveAppDataStore(CloudStore):
             raise CloudError(
                 f"同期データの検索に失敗しました({status}): {connector_http.body_text(body)}")
         files = json.loads(body).get("files", [])
+        if len(files) > 1:
+            raise CloudError("同名の同期データが複数あるため、変更を見送りました。")
         return files[0] if files else None
 
     def list(self) -> list[dict]:
-        url = (f"{self.API}/files?spaces=appDataFolder"
-               "&fields=files(id,name,size,modifiedTime)&pageSize=1000")
-        status, body = _http("GET", url, self._headers())
-        if status != 200:
-            raise CloudError(
-                f"同期データの一覧取得に失敗しました({status}): {connector_http.body_text(body)}")
-        return json.loads(body).get("files", [])
+        def page(after):
+            params = {"spaces": "appDataFolder", "fields": "nextPageToken,files(id,name,size,modifiedTime)", "pageSize": 1000}
+            if after:
+                params["pageToken"] = after
+            status, body = _http("GET", f"{self.API}/files?{urllib.parse.urlencode(params)}", self._headers())
+            if status != 200:
+                raise CloudError(f"同期データの一覧取得に失敗しました({status})")
+            return json.loads(body)
+        try:
+            return connector_http.paged_items(page, "files")
+        except connector_http.ConnectorError as error:
+            raise CloudError(str(error)) from error
 
     def read(self, name: str) -> str:
         f = self._find(name)
@@ -242,8 +262,10 @@ class DriveAppDataStore(CloudStore):
                 f"同期データの読み取りに失敗しました({status}): {connector_http.body_text(body)}")
         return body.decode("utf-8")
 
-    def write(self, name: str, text: str) -> None:
+    def write(self, name: str, text: str, *, create_only=False) -> None:
         f = self._find(name)
+        if f and create_only:
+            raise CloudError("別の更新と重なったため、次回に再送します。")
         data = text.encode("utf-8")
         if f:
             url = f"{self.UPLOAD}/files/{f['id']}?uploadType=media"
@@ -263,10 +285,37 @@ class DriveAppDataStore(CloudStore):
             raise CloudError(
                 f"同期データの書き込みに失敗しました({status}): {connector_http.body_text(body)}")
 
+    def snapshot(self, name):
+        f = self._find(name)
+        if not f:
+            return "", None
+        status, body, headers = _http_with_headers(
+            "GET", f"{self.API}/files/{f['id']}?alt=media", self._headers())
+        etag = next((v for k, v in headers.items() if k.lower() == "etag"), None)
+        if status != 200 or not etag or etag.startswith("W/"):
+            raise CloudError("同期データの更新番号を確認できないため、変更を見送りました。")
+        return body.decode("utf-8"), (f["id"], etag)
+
+    def replace_if_unchanged(self, name, revision, text):
+        if not revision:
+            return False
+        file_id, etag = revision
+        headers = self._headers({"Content-Type": "text/plain"}) | {"If-Match": etag}
+        status, body = _http("PATCH", f"{self.UPLOAD}/files/{file_id}?uploadType=media",
+                             headers, text.encode("utf-8"))
+        if status in (404, 412):
+            return False
+        if status not in (200, 201):
+            raise CloudError(f"同期データの条件付き更新に失敗しました({status})")
+        return True
+
     def append(self, name: str, text: str) -> None:
-        # appDataFolder は真の追記が無いので read-modify-write。ファイルは machine ごと単一書き手
-        # ＋消化済みは削除されて小さいまま保たれるので、全文往復でも実用上問題ない。
-        self.write(name, self.read(name) + text)
+        content, revision = self.snapshot(name)
+        if revision is None:
+            self.write(name, text, create_only=True)
+            return
+        if not self.replace_if_unchanged(name, revision, content + text):
+            raise CloudError("別の更新と重なったため、次回に再送します。")
 
     def delete(self, name: str) -> None:
         f = self._find(name)

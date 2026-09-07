@@ -1,0 +1,45 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.11', '3.13']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+      - name: Install public test dependencies
+        run: |
+          uv sync --locked
+          uv run --with setuptools==80.9.0 python -c "pass"
+          npm install --ignore-scripts --no-audit --no-fund --prefix "$RUNNER_TEMP/pi" @earendil-works/pi-coding-agent@0.84.2
+          echo "UV_CACHE_DIR=$(uv cache dir)" >> "$GITHUB_ENV"
+          echo "WATARI_PI_PACKAGE=$RUNNER_TEMP/pi/node_modules/@earendil-works/pi-coding-agent" >> "$GITHUB_ENV"
+      - name: Test with synthetic data only
+        run: |
+          mkdir -p "$RUNNER_TEMP/watari-test/home"
+          export HOME="$RUNNER_TEMP/watari-test/home"
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/watari-test/config"
+          export XDG_STATE_HOME="$RUNNER_TEMP/watari-test/state"
+          export XDG_DATA_HOME="$RUNNER_TEMP/watari-test/data"
+          export WATARI_HOME="$RUNNER_TEMP/watari-test/memory"
+          export WATARI_STORE_PI="$RUNNER_TEMP/watari-test/pi"
+          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null PYTHONDONTWRITEBYTECODE=1
+          uv run --offline --no-sync pytest -q -p no:cacheprovider
+          node --test tests/pi_runtime.test.mjs
+          git diff --check
+          test -z "$(git status --porcelain)"

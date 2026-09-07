@@ -16,6 +16,8 @@ import os
 import subprocess
 import sys
 
+from watari_cli import storage
+
 
 def _git(home: str, *args: str) -> subprocess.CompletedProcess:
     """記憶リポで git を実行（失敗しても例外を投げない＝呼び出し側がベストエフォートで扱う）。"""
@@ -31,7 +33,8 @@ def _warn(message: str) -> None:
 
 
 def is_repo(home: str) -> bool:
-    return _git(home, "rev-parse", "--is-inside-work-tree").stdout.strip() == "true"
+    result = _git(home, "rev-parse", "--show-toplevel")
+    return result.returncode == 0 and os.path.realpath(result.stdout.strip()) == os.path.realpath(home)
 
 
 def has_remote(home: str) -> bool:
@@ -48,11 +51,17 @@ def _ensure_identity(home: str) -> None:
 
 def _commit_if_changed(home: str, message: str) -> bool:
     """追跡下の変更（log 追記・host record 等）があれば commit。派生 state は gitignore 済み。"""
-    _git(home, "add", "-A")
+    if not is_repo(home):
+        raise RuntimeError("記憶フォルダとGitの最上位が一致しません。")
+    added = _git(home, "add", "-A", "--", ".", ":(exclude)**/.watari-*", ":(exclude).watari-*")
+    if added.returncode != 0:
+        raise RuntimeError("記憶の変更をGitへ保存できませんでした。")
     if not _git(home, "status", "--porcelain").stdout.strip():
         return False
     _ensure_identity(home)
-    _git(home, "commit", "-m", message)
+    committed = _git(home, "commit", "-m", message)
+    if committed.returncode != 0:
+        raise RuntimeError("記憶のコミットに失敗したため、同期を見送りました。")
     return True
 
 
@@ -82,22 +91,32 @@ def _pull(home: str) -> bool:
     return False
 
 
+@storage.locked_home
 def sync_before_read(home: str) -> None:
     """読む前：未追記を commit し、remote があれば pull（union-merge で自動マージ）。
     repo でない／remote が無い場合は静かに継続。pull 失敗は1行警告して継続する。"""
     if not is_repo(home):
         return
-    _commit_if_changed(home, "memory: sync before read")
+    try:
+        _commit_if_changed(home, "memory: sync before read")
+    except RuntimeError as error:
+        _warn(str(error))
+        return
     if has_remote(home):
         _pull(home)
 
 
+@storage.locked_home
 def sync_after_write(home: str) -> None:
     """書いた後：commit → pull → push。offline は commit だけ済ませ次回に繰り越す。
     pull/push の失敗は stderr へ1行警告する（警告は1回の呼び出しにつき最大1行）。"""
     if not is_repo(home):
         return
-    _commit_if_changed(home, "memory: update")
+    try:
+        _commit_if_changed(home, "memory: update")
+    except RuntimeError as error:
+        _warn(str(error))
+        return
     if not has_remote(home):
         return
     if not _pull(home):
@@ -107,10 +126,14 @@ def sync_after_write(home: str) -> None:
         _warn("記憶の同期に失敗しました（オフライン？）。変更は保存済みで、次回に自動で再試行します。")
 
 
+@storage.locked_home
 def setup_remote(home: str, url: str) -> tuple[bool, str]:
     """install 時：記憶を git repo 化し origin を設定して初回 push する。(ok, メッセージ)。
     既に repo/remote でも冪等。push 失敗（offline 等）は remote 設定だけ残し False を返す
     （install は止めない——次回の sync で追いつく）。"""
+    parent = _git(home, "rev-parse", "--show-toplevel")
+    if parent.returncode == 0 and not is_repo(home):
+        return False, "別のGitリポジトリの外に記憶フォルダを置いてください。"
     if not is_repo(home):
         init = _git(home, "init")
         if init.returncode != 0:

@@ -3,7 +3,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
   approvalPreview,
-  loadSlackBotToken,
+  loadSlackCredentials,
+  verifySlackSender,
   postSlackMessage,
 } from "./slack-send.mjs";
 
@@ -47,8 +48,10 @@ export default function (pi: ExtensionAPI) {
 
       inFlight = true;
       try {
-        const token = loadSlackBotToken();
-        const preview = approvalPreview(params);
+        const credentials = loadSlackCredentials();
+        const identity = await verifySlackSender(credentials);
+        const token = credentials.token;
+        const preview = approvalPreview(params, identity);
         const approved = await ctx.ui.confirm(
           "Slack送信の最終確認",
           preview,
@@ -63,6 +66,7 @@ export default function (pi: ExtensionAPI) {
 
         const response = await postSlackMessage({
           token,
+          identity,
           channel: params.channel,
           threadTs: params.thread_ts,
           text: params.text,

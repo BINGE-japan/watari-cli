@@ -23,7 +23,7 @@ PYPROJECT = ROOT / "pyproject.toml"
 README = ROOT / "README.md"
 PACKAGE = ROOT / "src" / "watari_cli"
 CLI_INIT = PACKAGE / "cli" / "__init__.py"
-VERSION = "watari 0.1.0\n"
+VERSION = "watari 0.1.1\n"
 
 
 def _snapshot(root: Path, *, exclude_git: bool = False) -> tuple[tuple[str, str, int, str], ...]:
@@ -54,7 +54,7 @@ def _environment(home: Path) -> dict[str, str]:
         "HOME": str(home), "PATH": os.environ.get("PATH", os.defpath),
         "PYTHONDONTWRITEBYTECODE": "1", "UV_OFFLINE": "1", "UV_PYTHON_DOWNLOADS": "never",
     }
-    for name in ("LANG", "LC_ALL", "LC_CTYPE"):
+    for name in ("LANG", "LC_ALL", "LC_CTYPE", "UV_CACHE_DIR"):
         if name in os.environ:
             environment[name] = os.environ[name]
     return environment
@@ -79,7 +79,7 @@ class EntrypointContractTests(unittest.TestCase):
         cli_source = CLI_INIT.read_text(encoding="utf-8")
         ast.parse(cli_source, filename=str(CLI_INIT), feature_version=(3, 11))
         self.assertNotIn("__version__", cli_source)
-        self.assertNotIn("0.1.0", cli_source)
+        self.assertNotIn("0.1.1", cli_source)
         with PYPROJECT.open("rb") as stream:
             project = tomllib.load(stream)
         # pyproject はパッケージング契約に効くキーだけを固定する（description /
@@ -90,7 +90,7 @@ class EntrypointContractTests(unittest.TestCase):
         )
         metadata = project["project"]
         self.assertEqual(metadata["name"], "watari-cli")
-        self.assertEqual(metadata["version"], "0.1.0")
+        self.assertEqual(metadata["version"], "0.1.1")
         self.assertEqual(metadata["readme"], "README.md")
         self.assertEqual(metadata["requires-python"], ">=3.11")
         self.assertEqual(metadata["dependencies"], [])  # 実行時依存ゼロ（オフライン契約）
@@ -143,9 +143,9 @@ class EntrypointContractTests(unittest.TestCase):
         )
         self.assertEqual(build.returncode, 0, build.stderr)
         wheels, sdists = tuple(output.glob("*.whl")), tuple(output.glob("*.tar.gz"))
-        self.assertEqual(tuple(path.name for path in wheels), ("watari_cli-0.1.0-py3-none-any.whl",))
-        self.assertEqual(tuple(path.name for path in sdists), ("watari_cli-0.1.0.tar.gz",))
-        wheel, dist_info = wheels[0], "watari_cli-0.1.0.dist-info"
+        self.assertEqual(tuple(path.name for path in wheels), ("watari_cli-0.1.1-py3-none-any.whl",))
+        self.assertEqual(tuple(path.name for path in sdists), ("watari_cli-0.1.1.tar.gz",))
+        wheel, dist_info = wheels[0], "watari_cli-0.1.1.dist-info"
         expected_members = {"watari_cli/__init__.py", "watari_cli/cli/__init__.py",
             "watari_cli/skill/SKILL.md", "watari_cli/skill/SCHEMA.md",
             *(f"watari_cli/skill/prompts/{name}.md"
@@ -175,7 +175,7 @@ class EntrypointContractTests(unittest.TestCase):
             self.assertEqual(archive.read(f"{dist_info}/entry_points.txt"), b"[console_scripts]\nwatari = watari_cli.cli:main\n")
         self.assertEqual(
             (package_metadata["Name"], package_metadata["Version"], package_metadata["Requires-Python"], package_metadata.get_all("Requires-Dist")),
-            ("watari-cli", "0.1.0", ">=3.11", None),
+            ("watari-cli", "0.1.1", ">=3.11", None),
         )
         self.assertEqual(
             (wheel_metadata["Generator"], wheel_metadata["Root-Is-Purelib"], wheel_metadata["Tag"]),

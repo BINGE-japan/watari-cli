@@ -191,7 +191,7 @@ class ConnectorReadLinearTest(_XdgIsolated):
         self.assertEqual(rc, 0, err)
         rows = json.loads(out)
         self.assertEqual([r["uuid"] for r in rows],
-                         ["linear:ABC-1@2026-07-10", "linear:ABC-2@2026-07-15"])
+                         ["linear:ABC-1@2026-07-10T00:00:00.000Z", "linear:ABC-2@2026-07-15T00:00:00.000Z"])
         self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
         self.assertIn("ABC-1", rows[0]["text"])
         self.assertEqual(captured["variables"]["since"], "2026-07-01T00:00:00.000Z")
@@ -341,8 +341,8 @@ class ConnectorReadGithubTest(_XdgIsolated):
         self.assertEqual(rc, 0, err)
         rows = json.loads(out)
         self.assertEqual([r["uuid"] for r in rows],
-                         ["github:example/watari-cli#10@2026-07-10",
-                          "github:example/watari-cli#20@2026-07-15"])
+                         ["github:example/watari-cli#10@2026-07-10T00:00:00Z",
+                          "github:example/watari-cli#20@2026-07-15T00:00:00Z"])
         self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
         self.assertIn("example/watari-cli#10", rows[0]["text"])
         self.assertEqual(
@@ -467,7 +467,7 @@ class ConnectorReadNotionTest(_XdgIsolated):
         self.assertEqual(rc, 0, err)
         rows = json.loads(out)
         self.assertEqual([r["uuid"] for r in rows],
-                         ["notion:page-1@2026-07-10", "notion:page-2@2026-07-15"])
+                         ["notion:page-1@2026-07-10T00:00:00.000Z", "notion:page-2@2026-07-15T00:00:00.000Z"])
         self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
         self.assertIn("A", rows[0]["text"])
         self.assertEqual(captured["payload"]["sort"],
@@ -484,7 +484,7 @@ class ConnectorReadNotionTest(_XdgIsolated):
             ["connector", "read", "notion", "--since", "2026-07-01T00:00:00.000Z", "--json"])
         self.assertEqual(rc, 0, err)
         rows = json.loads(out)
-        self.assertEqual([r["uuid"] for r in rows], ["notion:page-new@2026-07-15"])
+        self.assertEqual([r["uuid"] for r in rows], ["notion:page-new@2026-07-15T00:00:00.000Z"])
 
     def test_auth_error_is_nonzero_with_no_partial_output(self):
         notion._http = _fake_http(lambda m, u, h, d: (401, b'{"message":"unauthorized"}'))

@@ -136,6 +136,21 @@ def _cursor_label(key: str) -> str:
     return key  # connector 宣言名はユーザーが付けた名前なのでそのまま
 
 
+def _memory_command(function):
+    """Serialize the full CLI operation, including Git and state generation."""
+    from functools import wraps
+    @wraps(function)
+    def run(*args, **kwargs):
+        from watari_cli import storage
+        if args and hasattr(args[0], "home"):
+            config.apply(args[0].home)
+        from watari_cli.engine import watari_lib as wl
+        with storage.file_lock(wl.MEM):
+            storage.recover(wl.MEM)
+            return function(*args, **kwargs)
+    return run
+
+
 def cmd_status(args) -> int:
     config.apply(args.home)
     from watari_cli import host
@@ -162,6 +177,12 @@ def cmd_status(args) -> int:
         print("  どこまで読んだかの記録:")
         for key, value in cursors.items():
             print(f"    {_cursor_label(key)}: {value}")
+    result = _load_json(os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "watari", "dream-result.json"))
+    if result and result.get("home") == home:
+        if result.get("status") == "failed":
+            print("  自動の記憶整理: 前回は失敗しました。会話で『記憶を整理して』と依頼して再実行できます。")
+        else:
+            print("  自動の記憶整理: 前回の処理は正常終了しました（内容の検査結果ではありません）。")
     _next_steps("話す: watari chat", "サービスを繋ぐ: watari connect")
     return 0
 
@@ -199,6 +220,7 @@ def cmd_host(args) -> int:
     return 0
 
 
+@_memory_command
 def cmd_scan(args) -> int:
     config.apply(args.home)
     from watari_cli import git_sync
@@ -222,6 +244,7 @@ def cmd_scan(args) -> int:
     return 0
 
 
+@_memory_command
 def _ensure_state() -> None:
     """state.json（自動生成のまとめ）が無い/古い場合に log から作り直す。
 
@@ -246,6 +269,7 @@ def _ensure_state() -> None:
             return
 
 
+@_memory_command
 def cmd_recall(args) -> int:
     config.apply(args.home)
     from watari_cli import git_sync
@@ -302,6 +326,7 @@ def _scaffold_empty_memory() -> str:
     return home
 
 
+@_memory_command
 def _rebuild_state() -> None:
     """log から state.json を再生成する（config.apply 済みで呼ぶ）。"""
     from watari_cli.engine import regen_state, watari_lib as wl
@@ -734,8 +759,7 @@ def _runtime_base(runtime: str) -> list[str]:
         if npx:
             return [npx, "-y", "@earendil-works/pi-coding-agent"]
         return ["pi"]  # 見つからなければ実行時に分かりやすく失敗させる
-    # 他ランタイムは runtime 文字列をそのままコマンドとして扱う（拡張余地）
-    return runtime.split()
+    raise ValueError("対応していない実行環境です。Piを指定してください。")
 
 
 def _state_dir() -> str:
@@ -768,6 +792,20 @@ def _dream_recently(lock_path: str, window: float = 300.0) -> bool:
     return (time.time() - lock.get("ts", 0)) < window
 
 
+def _record_dream_result(proc, result_path, home):
+    """Do not retain model output or personal transcript contents."""
+    from watari_cli import storage
+    import time
+    code = proc.wait()
+    try:
+        storage.atomic_write_text(result_path, storage.json_text({
+            "status": "succeeded" if code == 0 else "failed", "exit_code": code,
+            "home": home, "finished_at": time.time(),
+        }))
+    except OSError:
+        sys.stderr.write("! 自動の記憶整理の終了結果を保存できませんでした。\n")
+
+
 def _spawn_background_dream(home: str, runtime: str, skill: str) -> None:
     """chat 起動時に裏で記憶の整理（プロンプト「記憶を整理して」）を回す。起動をブロックしない。
     二重起動は lock でガードし、自分が整理 worker（WATARI_SKIP_AUTO_DREAM）なら回さない
@@ -792,6 +830,10 @@ def _spawn_background_dream(home: str, runtime: str, skill: str) -> None:
             stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
         return
+    import threading
+    threading.Thread(target=_record_dream_result,
+                     args=(proc, os.path.join(_state_dir(), "dream-result.json"), home),
+                     daemon=True).start()
     try:
         with open(lock_path, "w", encoding="utf-8") as f:
             json.dump({"pid": proc.pid, "ts": time.time()}, f)
@@ -993,6 +1035,7 @@ def cmd_chat(args) -> int:
         relayer.stop_and_flush()  # 正常/SIGINT/例外いずれも最終 flush
 
 
+@_memory_command
 def cmd_brief(args) -> int:
     """期限・予定・未返信・未読を実状態から read-only でまとめる。"""
     from datetime import datetime, timezone
@@ -1032,6 +1075,7 @@ def cmd_brief(args) -> int:
     return 0
 
 
+@_memory_command
 def cmd_regen(args) -> int:
     config.apply(args.home)
     from watari_cli.engine import regen_state, watari_lib as wl
@@ -1078,6 +1122,7 @@ def _write_validation_errors(error: ValueError) -> int:
     return 2
 
 
+@_memory_command
 def cmd_ingest(args) -> int:
     config.apply(args.home)
     from watari_cli.engine import ingest, watari_lib as wl
@@ -1449,7 +1494,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pinst.add_argument("--home", help="記憶の保存先（既定: ~/.local/share/watari/memory）")
     pinst.add_argument("--from", dest="from_url", metavar="GIT_URL",
                        help="バックアップ（git リポジトリ）から記憶を復元する")
-    pinst.add_argument("--runtime", help="ワタリを動かす AI 実行環境（既定: pi）。通常は変更不要")
+    pinst.add_argument("--runtime", choices=["pi"], help="ワタリを動かす AI 実行環境（既定: pi）。通常は変更不要")
     pinst.add_argument("--remote", metavar="GIT_URL",
                        help="記憶を同期する git リポジトリの URL。省略時は対話中に選択できます")
     pinst.add_argument("--yes", "-y", action="store_true", help="質問せず既定のまま進める")
@@ -1476,7 +1521,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="ワタリと話します（記憶を読み込んで会話を始めます）。"
                     "会話の内容は、あとで役に立つものだけが記憶に取り込まれます。")
     pc.add_argument("--home", help=_HOME_HELP)
-    pc.add_argument("--runtime",
+    pc.add_argument("--runtime", choices=["pi"],
                     help="ワタリを動かす AI 実行環境（既定: 保存値か pi）。通常は変更不要")
     pc.add_argument("--show", action="store_true", help="起動せず、実行するコマンドだけ表示する")
     pc.add_argument("--no-update", action="store_true", help="今回だけ本体の自動更新を確認しない")

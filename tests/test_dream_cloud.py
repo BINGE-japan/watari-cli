@@ -41,6 +41,16 @@ class FakeStore(cloud.CloudStore):
     def append(self, name, text):
         self.files_data[name] = self.files_data.get(name, "") + text
 
+    def snapshot(self, name):
+        value = self.read(name)
+        return value, value
+
+    def replace_if_unchanged(self, name, revision, text):
+        if self.read(name) != revision:
+            return False
+        self.write(name, text)
+        return True
+
     def delete(self, name):
         self.files_data.pop(name, None)
 

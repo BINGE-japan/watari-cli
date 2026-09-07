@@ -9,7 +9,7 @@ function configPath(env = process.env, home = homedir()) {
   return join(base, "watari", "config.json");
 }
 
-export function loadSlackBotToken(env = process.env, home = homedir(), read = readFileSync) {
+export function loadSlackCredentials(env = process.env, home = homedir(), read = readFileSync) {
   let parsed;
   try {
     parsed = JSON.parse(read(configPath(env, home), "utf8"));
@@ -20,7 +20,33 @@ export function loadSlackBotToken(env = process.env, home = homedir(), read = re
   if (typeof token !== "string" || !token.startsWith("xoxb-")) {
     throw new Error("Watari botが未接続です。ターミナルで `watari connect slack` を実行してください。");
   }
-  return token;
+  return { token, identity: parsed?.connectors_auth?.slack?.identity };
+}
+
+export function loadSlackBotToken(env = process.env, home = homedir(), read = readFileSync) {
+  return loadSlackCredentials(env, home, read).token;
+}
+
+export async function verifySlackSender(credentials, request = fetch) {
+  const { token, identity } = credentials;
+  const keys = ["team_id", "bot_id", "user_id"];
+  if (!identity || keys.some(key => typeof identity[key] !== "string" || !identity[key])
+      || String(identity.name).toLowerCase() !== "watari") {
+    throw new Error("Slackの送信者が未確認です。ターミナルで `watari connect slack` を実行してください。");
+  }
+  const response = await request("https://slack.com/api/auth.test", {
+    method: "POST", headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  const actual = await response.json();
+  if (!actual?.ok || keys.some(key => actual[key] !== identity[key]) || actual.user !== identity.name) {
+    throw new Error("Slackの送信者が接続時と一致しないため、送信しません。接続し直してください。");
+  }
+  return identity;
+}
+
+function normalizedSlackText(text) {
+  return String(text).replace(/<(https?:\/\/[^<>|]+)>/g, "$1");
 }
 
 function required(value, label) {
@@ -33,14 +59,14 @@ function exactText(value) {
   return value;
 }
 
-export function approvalPreview(params) {
+export function approvalPreview(params, identity) {
   const destination = required(params.destination, "送信先の表示名");
   const recipient = required(params.recipient, "宛先");
   const channel = required(params.channel, "Slack channel ID");
   const text = exactText(params.text);
   const thread = params.thread_ts ? ` / thread ${params.thread_ts}` : " / 新規投稿";
   return [
-    "送信元: Watari (Slack app)",
+    "送信元: Watari (Slack app)" + (identity ? ` / ${identity.team || identity.team_id} / bot ${identity.bot_id} / user ${identity.user_id}` : ""),
     `送信先: ${destination}`,
     `宛先: ${recipient}`,
     `実際の場所: ${channel}${thread}`,
@@ -88,8 +114,11 @@ export async function postSlackMessage(params, request = fetch) {
   });
   const payload = await response.json();
   if (!payload?.ok) throw new Error(slackErrorMessage(payload?.error));
-  if (payload.channel !== channel || payload.message?.text !== text) {
+  if (payload.channel !== channel || normalizedSlackText(payload.message?.text) !== normalizedSlackText(text)) {
     throw new Error("Slackの送信結果が承認した宛先または文面と一致しません。Slack画面を確認してください。");
+  }
+  if (params.identity && (payload.message?.bot_id !== params.identity.bot_id || payload.message?.user !== params.identity.user_id)) {
+    throw new Error("Slackの投稿者を確認できません。再送せずSlack画面を確認してください。");
   }
   if (threadTs && payload.message?.thread_ts !== threadTs) {
     throw new Error("Slackの送信結果が承認したスレッドと一致しません。Slack画面を確認してください。");

@@ -35,7 +35,7 @@ class SourceDiscoveryTest(unittest.TestCase):
             root = Path(tmp)
             (root / ".git").mkdir()
             direct = {"url": root.as_uri(), "dir_info": {}}
-            self.assertEqual(updater.source_checkout_from_direct_url(direct), root)
+            self.assertEqual(updater.source_checkout_from_direct_url(direct), root.resolve())
 
     def test_non_local_install_is_not_modified(self):
         self.assertIsNone(updater.source_checkout_from_direct_url({

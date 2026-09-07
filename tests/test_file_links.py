@@ -28,7 +28,7 @@ class FileLinksTest(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"XDG_STATE_HOME": self.state.name}, clear=False)
         self.env.start()
         self.key = file_links.ensure_file_link_key()
-        self.sample = Path(self.files.name) / "report.md"
+        self.sample = Path(self.files.name).resolve() / "report.md"
         self.sample.write_text("safe", encoding="utf-8")
 
     def tearDown(self):
@@ -121,6 +121,7 @@ class FileLinksTest(unittest.TestCase):
     def test_windows_protocol_registration_is_per_user_and_idempotent(self):
         completed = subprocess.CompletedProcess([], 0, "", "")
         with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu"}, clear=False), \
+             mock.patch.object(file_links, "_windows_powershell_executable", return_value="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"), \
              mock.patch("shutil.which", return_value="/home/example/.local/bin/watari"), \
              mock.patch.object(subprocess, "run", return_value=completed) as run:
             self.assertTrue(file_links.ensure_windows_file_link_protocol())
@@ -151,6 +152,7 @@ class FileLinksTest(unittest.TestCase):
         opened = subprocess.CompletedProcess([], 0, "", "")
         with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu", "PATH": "/usr/bin"},
                              clear=True), \
+             mock.patch.object(file_links, "_windows_powershell_executable", return_value="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"), \
              mock.patch.object(subprocess, "run", side_effect=[converted, opened]) as run:
             file_links.reveal_file(self.sample)
         self.assertEqual(

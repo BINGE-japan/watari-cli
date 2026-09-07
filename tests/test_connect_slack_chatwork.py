@@ -89,7 +89,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
             if token == f"Bearer {bot_token}":
                 return 200, json.dumps({
                     "ok": True, "user": "watari", "team": team,
-                    "bot_id": "B123", "team_id": "T123",
+                    "bot_id": "B123", "user_id": "UB123", "team_id": "T123",
                 }).encode()
             return 200, json.dumps({"ok": False, "error": "invalid_auth"}).encode()
         slack._http = _fake_http(router)

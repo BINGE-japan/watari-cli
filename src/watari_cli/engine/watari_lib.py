@@ -12,7 +12,10 @@ transcript は Pi。他の AI CLI・ツールは connector（ユーザー宣言�
 import json
 import os
 import re
+
 from datetime import datetime, timezone
+
+from watari_cli import storage
 
 # 環境変数で上書き可。既定は標準の場所に一元化（通常は config 経由の WATARI_HOME が上書きする）。
 MEM = os.environ.get("WATARI_HOME", os.path.join(
@@ -60,7 +63,7 @@ def state_path(genre):
     return os.path.join(MEM, genre, "state.json")
 
 
-def load_log(genre):
+def _load_log(genre):
     rows = []
     with open(log_path(genre), encoding="utf-8") as f:
         for n, line in enumerate(f, 1):
@@ -68,14 +71,23 @@ def load_log(genre):
             if not line:
                 continue
             d = json.loads(line)
+            if not isinstance(d, dict) or ("schema_version" in d and
+                    (type(d["schema_version"]) is not int or d["schema_version"] != 1)):
+                raise ValueError("対応していない記憶形式です。読み取り位置は更新しません。")
             d["_line"] = n
             rows.append(d)
     return rows
 
 
+def load_log(genre):
+    with storage.file_lock(MEM, create=False):
+        storage.recover(MEM)
+        return _load_log(genre)
+
+
 def sorted_rows(rows):
     """ts 昇順・同時刻は uuid で安定順（決定論の要）。"""
-    return sorted(rows, key=lambda d: (d["ts"], d.get("refs", {}).get("uuid") or ""))
+    return sorted(rows, key=lambda d: (parse_ts(d["ts"]), d.get("refs", {}).get("uuid") or ""))
 
 
 def load_aliases():
@@ -93,11 +105,7 @@ def load_cursors():
 
 
 def atomic_write_json(path, obj):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=1)
-        f.write("\n")
-    os.replace(tmp, path)
+    storage.atomic_write_text(path, storage.json_text(obj))
 
 
 def append_log(genre, rows):

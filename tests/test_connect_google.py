@@ -326,7 +326,7 @@ class ConnectorReadCalendarTest(_GoogleIsolated):
         self.assertEqual(rc, 0, err)
         rows = json.loads(out)
         self.assertEqual([r["uuid"] for r in rows],
-                         ["calendar:e1@2026-07-10", "calendar:e2@2026-07-15"])
+                         ["calendar:e1@2026-07-10T00:00:00.000Z", "calendar:e2@2026-07-15T00:00:00.000Z"])
         self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
         self.assertIn("Meeting", rows[0]["text"])
         self.assertIn("status=confirmed", rows[0]["text"])
@@ -387,7 +387,7 @@ class ConnectorReadGdriveTest(_GoogleIsolated):
         self.assertEqual(rc, 0, err)
         rows = json.loads(out)
         self.assertEqual([r["uuid"] for r in rows],
-                         ["gdrive:f1@2026-07-10", "gdrive:f2@2026-07-15"])
+                         ["gdrive:f1@2026-07-10T00:00:00.000Z", "gdrive:f2@2026-07-15T00:00:00.000Z"])
         self.assertEqual(set(rows[0].keys()), {"ts", "uuid", "text", "meta"})
         self.assertIn("A", rows[0]["text"])
         self.assertIn("text/plain", rows[0]["text"])

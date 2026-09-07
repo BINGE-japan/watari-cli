@@ -6,14 +6,9 @@ connector_http.py に共通化して linear/github と三重複しない形に�
 
 - 疎通確認（`verify`）は `GET /users/me`。integration（bot）の名前と所属ワークスペースを返す。
   watari connect のその場確認に使う。
-- 読み取り（`read`）は `POST /search`（`sort.timestamp=last_edited_time` を `descending`、
-  `filter.value=page`）で「編集日時が古い順のページ」を取得し、`last_edited_time > since` を
-  クライアント側で絞って統一形式 {ts, uuid, text, meta} に整形する（Notion の Search API は
-  時刻レンジでの絞り込みクエリを持たないため、取得後にクライアント側で切る）。
-- ページングは 1 リクエスト（`page_size=100`）で打ち切り。ワークスペース全体で編集済みページが
-  これを超える規模だと、最初の1ページ（最も古い編集群から昇順）に since 以降の分がすべて
-  現れない場合がある（スコープ制限。運用上問題になったら next_cursor を辿るよう拡張する）。
-- uuid は `notion:<page_id>@<更新日YYYY-MM-DD>`（SCHEMA.md の dedup 規約と同一）。
+- 読み取りは Search APIをlast_edited_time降順に取得し、next_cursorで全ページを辿る。
+  時刻で絞った結果を昇順に返す。全取得できない回は部分結果を返さずエラーにする。
+- uuidはnotion:<page_id>@<完全な更新時刻UTC>。同日中の変更も区別する。
 - ページの中身は書き写さない（正本は Notion のまま）。text はタイトルと last_edited_time の
   ポインタだけに畳む。
 """
@@ -114,31 +109,37 @@ def read(token: str, since: str | None) -> list[dict]:
     """カーソル(since)以降に編集されたページを統一形式 [{ts,uuid,text,meta}, ...] で
     last_edited_time 昇順に返す。
 
-    Notion Search API に時刻フィルタがないため、**降順**で新しい方から 1 ページ（`page_size=100`）
-    取得し、`last_edited_time > since` の分だけ拾って昇順に並べ直す（昇順取得だと「ワークスペースで
-    最も古い 100 ページ」が返り、総数が 100 を超えると新しい編集が永遠に窓へ入らない）。
-    since 以降の新規編集が 100 件を超える回はその回で取り切れない（カーソルが進めば次回続きが入る）。
+    Notion Search APIを降順で全ページ取得し、時刻比較で絞って昇順へ並べ直す。
+    取得の途中で失敗した場合や上限に達した場合は、部分結果を返さない。
     since 省略時は全件（呼び出し側＝connectors.read が host カーソルを既定として渡す）。
     """
+    from watari_cli.engine.watari_lib import parse_ts
+
     payload = {
         "sort": {"direction": "descending", "timestamp": "last_edited_time"},
         "filter": {"value": "page", "property": "object"},
         "page_size": 100,
     }
-    data = _request(token, "POST", f"{API_BASE}/search", payload)
-    results = data.get("results") or []
+    def page(after):
+        args = dict(payload)
+        if after:
+            args["start_cursor"] = after
+        result = _request(token, "POST", f"{API_BASE}/search", args)
+        if result.get("has_more") and not result.get("next_cursor"):
+            raise ConnectorError("notion: 続きの取得位置がありません")
+        return result
+    results = connector_http.paged_items(page, "results", next_key="next_cursor")
     since_q = since or "1970-01-01T00:00:00.000Z"
     rows = []
     for page in results:
         updated = page["last_edited_time"]
-        if updated <= since_q:
-            break  # 降順なのでこれ以降はすべて since 以前
-        day = updated[:10]
+        if parse_ts(updated) <= parse_ts(since_q):
+            continue  # 降順なのでこれ以降はすべて since 以前
         rows.append({
             "ts": updated,
-            "uuid": f"notion:{page['id']}@{day}",
+            "uuid": f"notion:{page['id']}@{updated}",
             "text": _format_text(page),
             "meta": {"id": page["id"], "url": page.get("url")},
         })
-    rows.sort(key=lambda r: (r["ts"], r["uuid"]))
+    rows.sort(key=lambda r: (parse_ts(r["ts"]), r["uuid"]))
     return rows

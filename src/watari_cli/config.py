@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import os
 import re
+from functools import wraps
+from watari_cli import storage
 
 # connector 名は小文字スラッグ（domain と同じ形）。engine を import すると watari_lib が
 # env から MEM を確定してしまい config.apply の上書き機会を奪うため、ここは engine に依存せず
@@ -35,8 +37,12 @@ def _config_file() -> str:
 def load_config() -> dict:
     try:
         with open(_config_file(), encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+            cfg = json.load(f)
+        if not isinstance(cfg, dict) or ("schema_version" in cfg and
+                (type(cfg["schema_version"]) is not int or cfg["schema_version"] != 1)):
+            raise ValueError("対応していない設定形式です。設定は変更していません。")
+        return cfg
+    except FileNotFoundError:
         return {}
 
 
@@ -49,36 +55,22 @@ def _secure_config_dir() -> str:
     return directory
 
 
+def locked(function):
+    @wraps(function)
+    def run(*args, **kwargs):
+        with storage.file_lock(_config_file()):
+            return function(*args, **kwargs)
+    return run
+
+
 def save_config(**kwargs) -> dict:
-    """None でない値だけを既存設定にマージし、秘密を含む前提の権限で保存する。"""
-    cfg = load_config()
-    cfg.update({k: v for k, v in kwargs.items() if v is not None})
-    _secure_config_dir()
-    target = _config_file()
-    tmp = target + ".tmp"
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(tmp, flags, 0o600)
-    try:
-        if os.name == "posix":
-            os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            fd = -1  # fdopen が所有権を引き継ぐ
-            json.dump(cfg, f, ensure_ascii=False, indent=1)
-            f.write("\n")
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, target)
-        if os.name == "posix":
-            os.chmod(target, 0o600)
-    finally:
-        if fd >= 0:
-            os.close(fd)
-        try:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-        except OSError:
-            pass
-    return cfg
+    """Serialize top-level read/merge/write and preserve owner-only permissions."""
+    with storage.file_lock(_config_file()):
+        cfg = load_config()
+        cfg.update({k: v for k, v in kwargs.items() if v is not None})
+        _secure_config_dir()
+        storage.atomic_write_text(_config_file(), storage.json_text(cfg))
+        return cfg
 
 
 def apply(home: str | None = None) -> None:
@@ -154,6 +146,7 @@ def load_connectors() -> list:
     return connectors if isinstance(connectors, list) else []
 
 
+@locked
 def save_connector(entry: dict) -> list:
     """connector 宣言を1件、name をキーに追加/更新して保存し、更新後の一覧を返す。
 

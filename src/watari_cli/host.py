@@ -15,6 +15,7 @@ import shutil
 import socket
 
 from watari_cli.engine import watari_lib as wl
+from watari_cli import storage
 
 # 存在すれば ai_clis に載せる AI CLI（自動検出のみ・これ以上は増やさない）
 AI_CLIS = ("claude", "codex", "pi")
@@ -51,8 +52,8 @@ def _read(path: str) -> dict | None:
         return None
 
 
-def refresh(home: str) -> dict:
-    """このマシンの host ファイルを最新化して返す。
+def build_record(home: str) -> dict:
+    """最新のhost記録をメモリ上で組み立てる（まだ保存しない）。
 
     自動検出の基本情報だけを更新し、自由記述の facts と取り込みカーソル(cursors)は
     消さずに引き継ぐ（cmd_host のような読み取り専用ビューがこれを呼ぶだけで
@@ -75,12 +76,19 @@ def refresh(home: str) -> dict:
     cursors = existing.get("cursors")
     if isinstance(cursors, dict):
         record["cursors"] = cursors
+    return record
+
+
+@storage.locked_home
+def refresh(home: str) -> dict:
+    record = build_record(home)
     path = host_path(home)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     wl.atomic_write_json(path, record)
     return record
 
 
+@storage.locked_home
 def set_fact(home: str, key: str, value) -> dict:
     """自由記述の事実を1つ記録する（自動情報も最新化して書き戻す）。"""
     record = refresh(home)
@@ -89,6 +97,7 @@ def set_fact(home: str, key: str, value) -> dict:
     return record
 
 
+@storage.locked_home
 def save_cursors(home: str, cursors: dict) -> dict:
     """このマシンの host 記録に取り込みカーソルを書き込む（自動情報を最新化し facts は保つ）。"""
     record = refresh(home)
@@ -97,6 +106,7 @@ def save_cursors(home: str, cursors: dict) -> dict:
     return record
 
 
+@storage.read_home
 def load_cursors(home: str) -> dict:
     """このマシンの取り込みカーソルを返す（host 記録の "cursors"）。読むだけで書かない。
 

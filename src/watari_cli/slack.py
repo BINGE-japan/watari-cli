@@ -161,8 +161,17 @@ def verify_credentials(credentials: dict) -> tuple[bool, str]:
         return False, f"Watari botの認証に失敗しました: {error}"
     user_team = user_data.get("team_id")
     bot_team = bot_data.get("team_id")
-    if user_team and bot_team and user_team != bot_team:
+    if user_team != bot_team:
         return False, "読み取り用とWatari bot用のトークンが別のSlack workspaceです"
+    if not user_team or not all(isinstance(bot_data.get(k), str) and bot_data[k]
+                                for k in ("bot_id", "user_id", "user")):
+        return False, "Watari botの送信者情報を確認できません。接続し直してください。"
+    if bot_data["user"].casefold() != "watari":
+        return False, "別のbotです。案内のWatari appから発行したトークンを指定してください。"
+    credentials["identity"] = {
+        "team_id": bot_team, "bot_id": bot_data["bot_id"], "user_id": bot_data["user_id"],
+        "name": bot_data["user"], "team": bot_data.get("team") or bot_team,
+    }
     user = user_data.get("user") or "?"
     team = user_data.get("team") or "?"
     bot = bot_data.get("user") or "Watari"
@@ -203,8 +212,8 @@ def _search(token: str, query: str) -> list[dict]:
         matches.extend(messages.get("matches") or [])
         page_count = (messages.get("pagination") or {}).get("page_count") or 1
         if page >= page_count:
-            break
-    return matches
+            return matches
+    raise ConnectorError("slack: 取得上限に達しました。対象期間を絞って再実行してください。読み取り位置は更新していません。")
 
 
 def _thread_ts(match: dict) -> str | None:
@@ -224,6 +233,8 @@ def read(token: str, since: str | None) -> list[dict]:
 
     since 省略時は全件（呼び出し側＝connectors.read が host カーソルを既定として渡す）。
     """
+    from watari_cli.engine.watari_lib import parse_ts
+
     auth = _auth_test(token)
     user_id = auth.get("user_id")
     if not user_id:
@@ -248,7 +259,7 @@ def read(token: str, since: str | None) -> list[dict]:
         uuid = f"slack:{channel_id}:{ts}"
         if uuid in rows_by_uuid:
             continue
-        if since and _ts_to_iso(ts) <= since:
+        if since and parse_ts(_ts_to_iso(ts)) <= parse_ts(since):
             continue  # after: は日付粒度のため、since 当日のカーソル以前をここで絞る
         channel_name = channel.get("name") or channel_id
         speaker = match.get("username") or match.get("user") or "?"

@@ -77,15 +77,15 @@ class ProjectPiCommitGuardTest(unittest.TestCase):
         self.assertIn('pi.on("message_end"', text)
         self.assertIn('pi.on("session_shutdown"', text)
 
-    def test_fallback_commits_and_pushes_changes_created_from_a_clean_baseline(self):
+    def test_unvalidated_changes_are_not_committed_or_pushed_even_from_clean_baseline(self):
         tmp, repo, remote = self._repo()
         try:
             baseline_head = _git(repo, "rev-parse", "HEAD").stdout.strip()
             (repo / "tracked.txt").write_text("changed\n", encoding="utf-8")
             result = _run_guard(repo, "", baseline_head, "Fix duplicate warnings")
-            self.assertEqual(result["status"], "committed-and-pushed")
-            self.assertEqual(_git(repo, "status", "--porcelain").stdout, "")
-            self.assertIn("Fix duplicate warnings", _git(repo, "log", "-1", "--pretty=%s").stdout)
+            self.assertEqual(result["status"], "dirty")
+            self.assertNotEqual(_git(repo, "status", "--porcelain").stdout, "")
+            self.assertEqual(_git(repo, "log", "-1", "--pretty=%s").stdout.strip(), "base")
             self.assertEqual(
                 _git(repo, "rev-parse", "HEAD").stdout,
                 _git(remote, "rev-parse", "HEAD").stdout,
@@ -93,14 +93,18 @@ class ProjectPiCommitGuardTest(unittest.TestCase):
         finally:
             tmp.cleanup()
 
-    def test_fallback_pushes_a_semantic_commit_made_by_the_agent(self):
+    def test_guard_requires_agent_to_publish_a_semantic_commit(self):
         tmp, repo, remote = self._repo()
         try:
             baseline_head = _git(repo, "rev-parse", "HEAD").stdout.strip()
             (repo / "tracked.txt").write_text("changed\n", encoding="utf-8")
             self.assertEqual(_git(repo, "commit", "-am", "fix: semantic commit").returncode, 0)
             result = _run_guard(repo, "", baseline_head, "Fix it")
-            self.assertEqual(result["status"], "pushed")
+            self.assertEqual(result["status"], "not-synchronized")
+            self.assertNotEqual(_git(repo, "rev-parse", "HEAD").stdout, _git(remote, "rev-parse", "HEAD").stdout)
+            self.assertEqual(_git(repo, "push").returncode, 0)
+            result = _run_guard(repo, "", baseline_head, "Fix it")
+            self.assertEqual(result["status"], "published")
             self.assertEqual(
                 _git(repo, "rev-parse", "HEAD").stdout,
                 _git(remote, "rev-parse", "HEAD").stdout,
@@ -124,7 +128,7 @@ class ProjectPiCommitGuardTest(unittest.TestCase):
             (repo / "tracked.txt").write_text("changed\n", encoding="utf-8")
             result = _run_guard(repo, "", baseline_head, "Fix it")
             self.assertEqual(result["status"], "no-upstream")
-            self.assertEqual(_git(repo, "status", "--porcelain").stdout, "")
+            self.assertNotEqual(_git(repo, "status", "--porcelain").stdout, "")
         finally:
             tmp.cleanup()
 

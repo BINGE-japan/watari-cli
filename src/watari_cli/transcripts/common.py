@@ -28,6 +28,7 @@ def auth_section(name: str) -> dict:
     return dict(sub) if isinstance(sub, dict) else {}
 
 
+@config.locked
 def save_path(name: str, path: str) -> None:
     """検出/入力されたログ置き場パスを connectors_auth.<name>.path へ保存する。"""
     root = _auth_root()
@@ -83,7 +84,13 @@ def unify(rows: list[dict], since: str | None, max_rows: int = MAX_ROWS) -> list
 
     row は {ts, uuid, text, meta, role} の統一形式（role は "user"|"assistant"）。
     """
+    from watari_cli.engine.watari_lib import parse_ts
     if since:
-        rows = [r for r in rows if r["ts"] > since]
-    rows = sorted(rows, key=lambda r: (r["ts"], r["uuid"]))
-    return rows[:max_rows]
+        rows = [r for r in rows if parse_ts(r["ts"]) > parse_ts(since)]
+    rows = sorted(rows, key=lambda r: (parse_ts(r["ts"]), r["uuid"]))
+    if max_rows <= 0:
+        return []
+    if len(rows) <= max_rows:
+        return rows
+    boundary = parse_ts(rows[max_rows - 1]["ts"])
+    return [r for r in rows if parse_ts(r["ts"]) <= boundary]

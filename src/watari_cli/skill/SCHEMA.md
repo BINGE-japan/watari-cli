@@ -8,7 +8,7 @@
 
 ## 原則
 - 書き込みは log.jsonl だけ（追記、消さない）。state.json は「log ＋ 再生成時刻 now」から再生成する純粋な派生物。
-  → 書き手が複数（定期的な記憶の整理／その場のワタリ）いても全員 log に足すだけ。state は決定的に再生成され競合しない。
+  → 書き手が複数でもメモリフォルダ単位のロックで直列化する。全出力を事前生成し、保存中断時はversion 1のredo journalを再実行する。論理的に既存logを改変せず追記し、ファイル単位で原子的に置換する。
 - 決定性・冪等性：同じ log ＋ 同じ now を入力すれば、必ず同じ state が出る。state は「事実（log）」と「いつ再生成したか（now）」だけの関数。
 - 取り込みは「前回処理した時刻（カーソル）以降の差分」だけ。冪等。
 - 痕跡は log に混ぜない：log は事実の正本。対象0件など「走ったが事実は無い」記録は log に書かず、カーソルの `last_run`（host 記録内）に残す。
@@ -24,7 +24,8 @@
  "tags":["..."],"refs":{"cwd":"...","session":"...","uuid":"..."}}
 ```
 - **判定は行を書く時点で行い、行に記録する**：state はこれらの値を機械的に畳むだけで、内容の判断を後段でやり直さない。
-- `source` は**開集合**（接続サービス名等の小文字スラッグ）。組み込みは `transcript`（Pi の会話由来）と `watari`（ワタリがその場で足す行）。接続サービス由来の行は、宣言した connector の name をそのまま source に使う（例: transcript, slack, gmail, obsidian, linear, claude-code, watari, ...）。
+- 形式番号は省略時を旧互換のversion 1として扱う。明示した `schema_version` は整数1のみ対応し、不明な番号は拒否する。Piの会話ヘッダはversion 1/2/3（省略時1）に対応する。
+- `source` は**開集合**（接続サービス名等の小文字スラッグ）。組み込みは `transcript`（Pi の会話由来）と `watari`（ワタリがその場で足す行）。新規入力の出所はtranscript/watariまたは宣言済みconnector名に限定する（source省略の旧互換入力は受理）。接続サービス由来の行は、宣言した connector の name をそのまま source に使う（例: transcript, slack, gmail, obsidian, linear, claude-code, watari, ...）。
 - `domain`（learning 行のみ・必須）：小文字 ASCII ケバブケース・最も広い安定名。フレームワーク名や流行語は domain にしない（vue は domain ではなく web 内の topic）。追記前に learning/state.json の既存 domains キーを読み、収まるものには必ず寄せる。新設は既存のどれにも収まらない時のみ（その回の `watari ingest` にだけ `--allow-new-domain` を付けて通す）。
 - `ts` は UTC（…Z）で保存。比較は必ず instant（時刻）として行い、JST と混ぜない。
 - `profile.mode`：`always`＝どの話題でも毎回効く人物像・応答の好み、`relevant`＝職歴・事業・ツール・個別運用など話題に応じて検索すればよい事実。新しい profile 行は必ずどちらかを明示する。mode が無い旧行だけは互換性のため `always` とみなす。
@@ -46,6 +47,8 @@ tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExec
 ヘッダ行から取り、各行の安定 `id`（8桁hex）を使って dedup 鍵は合成 uuid `pi:<session_id>:<id>`（id が無い版では
 `pi:<session_id>:<timestamp>`）。この選別は同梱エンジンが実装する（`watari scan` が適用済みの結果を返す）。
 
+実際の整理用抽出にはassistantの本文テキストもrole付きで含める（thinking/toolCallを除外）。これは文脈専用で、根拠はuserまたは実サービスの状態だけとする。
+
 ## 学習の根拠はユーザーの発話痕跡（説明された≠学習した）
 - topic・mastery として記録してよいのは、その話題が **ユーザー自身の発話に現れた**ものだけ。ワタリが説明しただけでユーザーの反応（質問・言い換え・続きの計算・相づち）が無い内容は、mastery を問わず記録しない。
 - transcript には「ワタリが喋った全文」が残るが、それは「ユーザーが読んで身につけた範囲」ではない。両者を取り違えない。
@@ -57,7 +60,7 @@ tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExec
 - 追記は必ず `watari ingest` 経由（検証・dedup・カーソル前進・state 再生成が一括で走る。同 (uuid, kind) は黙ってスキップされる）。
 - 補填行（state からの還元・移行時の topic アンカー等）は合成 uuid `reconcile:<domain>/<slug>` を正当な dedup 鍵として使ってよい（元発話が特定できない場合は refs.session 省略可）。
 - Obsidian vault 由来の行（`source:"obsidian"`）は、読み取り結果の uuid `obsidian:<vault相対パス>@<更新時刻UTC>` を dedup 鍵として `refs.uuid` に使う（後日加筆されたノートは新しい更新時刻で再び処理でき、同一更新分は dedup される）。`refs.cwd` にノートの vault 相対パスを残す。
-- Linear 由来の行（`source:"linear"`）は合成 uuid `linear:<issue識別子（例 ABC-123）>@<処理対象更新日YYYY-MM-DD>` を dedup 鍵とする（考え方は obsidian と同じ：issue が後日動いたら新しい行を書け、同一更新分の再処理は dedup される）。issue の中身は log に写さず、ユーザーの活動・予定として効く要点だけを書く（中身の正本は Linear）。
+- Linear 由来の行（`source:"linear"`）は合成 uuid `linear:<issue識別子（例 ABC-123）>@<完全な更新時刻UTC>` を dedup 鍵とする（考え方は obsidian と同じ：issue が同日中でも動いたら新しい行を書け、同一更新分の再処理は dedup される）。issue の中身は log に写さず、ユーザーの活動・予定として効く要点だけを書く（中身の正本は Linear）。
 - 同一発話が複数ソース（Pi transcript と connector 等）に二重に現れることがある。**近接 ts ＋ 同一 `refs.cwd` の同義行は1件に畳む**（先に拾った方を残す）。
 
 ## state.json（現在地・派生物。ジャンルの性質で形が違う）
@@ -204,7 +207,7 @@ transcript 以外のソース（メール・タスク・チャット等）は、
 1回で処理する件数は次の**小さい方**で固定（`watari scan` が自動で適用する。あなたが数える必要はない）：
 - メッセージ **N = 300000 件**、または
 - **最古の未処理メッセージ**から最大 **30 日ぶん**（1回の処理量の上限。整理が定期的に走る前提で、超過分は truncated として次回に回す。窓の起点をカーソルでなく最古の未処理にするのは、カーソル以降に30日超の空白があっても取りこぼさない＝カーソルを永久停滞させないため）。
-処理した最後の timestamp までカーソルを進め、残りは次回に回す。
+処理した最後の timestamp までカーソルを進め、残りは次回に回す。同じ時刻の行は境界で分断せず、件数上限を超えても一緒に返す。
 
 ## state 再生成と監査
 `watari regen` が log から state を作り直す（`--now` 指定で決定的・冪等。`--check` は書き込まず現 state と比較）。

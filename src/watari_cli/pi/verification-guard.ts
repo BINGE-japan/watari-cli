@@ -12,7 +12,6 @@ const toolStarts = new Map<string, { name: string; args: unknown }>();
 export default function (pi: ExtensionAPI) {
   pi.on("input", (event) => {
     if (event.source === "extension") return;
-    if (getPerformanceMode() === "fast") return;
     const state = verificationState();
     state.requiresObservation = requiresObservation(event.text);
     state.evidenceAccepted = false;
@@ -22,7 +21,6 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", (event) => {
-    if (getPerformanceMode() === "fast") return;
     if (!verificationState().requiresObservation) return;
     const evidenceInstruction = automaticallyAcceptEvidence()
       ? "成功したツール確認は自動登録されるため、watari_evidence は呼ばないでください。"
@@ -38,12 +36,10 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_execution_start", (event) => {
-    if (getPerformanceMode() === "fast") return;
     toolStarts.set(event.toolCallId, { name: event.toolName, args: event.args });
   });
 
   pi.on("tool_execution_end", (event) => {
-    if (getPerformanceMode() === "fast") return;
     if (event.isError || event.toolName === "watari_evidence") return;
     const started = toolStarts.get(event.toolCallId);
     if (!started) return;
@@ -90,7 +86,6 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("message_end", (event) => {
-    if (getPerformanceMode() === "fast") return;
     if (event.message.role !== "assistant") return;
     if (event.message.content.some((block) => block.type === "toolCall")) return;
     const guarded = guardVerifiedAssistantMessage(event.message);

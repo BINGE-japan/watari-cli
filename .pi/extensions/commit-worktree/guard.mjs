@@ -30,22 +30,10 @@ export async function readUpstreamState(exec) {
   return { status: "ok", upstream, behind: Number(match[1]), ahead: Number(match[2]) };
 }
 
-export function fallbackCommitMessage(prompt) {
-  const summary = String(prompt || "")
-    .replace(/[\u0000-\u001f\u007f]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^\/+/, "")
-    .slice(0, 68);
-  return `chore(pi): ${summary || "complete requested changes"}`;
-}
-
 /**
- * Last-resort guard for a model that forgot to commit or push. It only stages
- * files when the turn began clean, and it never creates an upstream, merges,
- * rebases, or force-pushes.
+ * Read-only completion check. Never commit or publish unvalidated changes.
  */
-export async function ensurePublishedWorktree(exec, baselineStatus, baselineHead, prompt) {
+export async function ensurePublishedWorktree(exec, baselineStatus, baselineHead, _prompt) {
   const current = await readGitStatus(exec);
   if (!current.inRepo) return { status: "not-git" };
   if (String(baselineStatus || "").trim()) {
@@ -57,27 +45,6 @@ export async function ensurePublishedWorktree(exec, baselineStatus, baselineHead
   const hasNewCommit = Boolean(currentHead && currentHead !== String(baselineHead || "").trim());
   if (!hasWorktreeChanges && !hasNewCommit) return { status: "clean" };
 
-  let committed = false;
-  let message;
-  if (hasWorktreeChanges) {
-    const add = await exec("git", ["add", "-A"]);
-    if (add.code !== 0) {
-      return { status: "failed", detail: add.stderr || add.stdout || "git add failed" };
-    }
-
-    message = fallbackCommitMessage(prompt);
-    const commit = await exec("git", ["commit", "-m", message]);
-    if (commit.code !== 0) {
-      return { status: "failed", detail: commit.stderr || commit.stdout || "git commit failed" };
-    }
-    committed = true;
-  }
-
-  const afterCommit = await readGitStatus(exec);
-  if (!afterCommit.inRepo || afterCommit.status.trim()) {
-    return { status: "failed", detail: afterCommit.status || "worktree is still dirty after commit" };
-  }
-
   const upstream = await readUpstreamState(exec);
   if (upstream.status !== "ok") return upstream;
   if (upstream.behind > 0 && upstream.ahead > 0) {
@@ -86,21 +53,9 @@ export async function ensurePublishedWorktree(exec, baselineStatus, baselineHead
   if (upstream.behind > 0) {
     return { status: "not-synchronized", detail: `HEAD is behind ${upstream.upstream}` };
   }
-  if (upstream.ahead === 0) {
-    return { status: "published", message };
+  if (hasWorktreeChanges) {
+    return { status: "dirty", detail: "検証と差分レビューの後、対象の変更だけをコミットしてください。自動コミットは行いません。" };
   }
-
-  const push = await exec("git", ["push"]);
-  if (push.code !== 0) {
-    return { status: "failed", detail: push.stderr || push.stdout || "git push failed" };
-  }
-  const verified = await readUpstreamState(exec);
-  if (verified.status !== "ok") return verified;
-  if (verified.behind !== 0 || verified.ahead !== 0) {
-    return {
-      status: "not-synchronized",
-      detail: `${verified.upstream}: behind ${verified.behind}, ahead ${verified.ahead}`,
-    };
-  }
-  return { status: committed ? "committed-and-pushed" : "pushed", message };
+  if (upstream.ahead === 0) return { status: "published" };
+  return { status: "not-synchronized", detail: "コミットが未公開です。検証後にgit pushを実行してください。" };
 }

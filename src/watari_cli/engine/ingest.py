@@ -24,9 +24,11 @@ import json
 import os
 import sys
 
+from watari_cli import storage
+
 from .watari_lib import (
     DOMAIN_RE, KIND_TO_GENRE, MEM, MSG_SETUP_REQUIRED,
-    append_log, atomic_write_json, existing_dedup_keys, fmt_ts,
+    existing_dedup_keys, fmt_ts,
     load_log, now_utc, parse_ts,
 )
 from . import regen_state
@@ -46,8 +48,43 @@ def known_domains():
 def validate(rows, allow_new_domain):
     errors = []
     doms = known_domains()
+    if not isinstance(rows, list):
+        return ["rows は JSON 配列で指定してください"]
+    from watari_cli import config
+    sources = {"watari", "transcript"} | {c.get("name") for c in config.load_connectors()}
     for i, d in enumerate(rows, 1):
         where = f"rows[{i}]"
+        if not isinstance(d, dict):
+            errors.append(f"{where}: 行は JSON オブジェクトで指定してください")
+            continue
+        invalid = []
+        for key in ("kind", "ts", "source", "domain", "topic", "summary", "note", "status"):
+            if key == "note" and d.get(key) is None:
+                continue
+            if key in d and (not isinstance(d[key], str) or not d[key].strip()):
+                invalid.append(key)
+        refs = d.get("refs")
+        if not isinstance(refs, dict) or not isinstance(refs.get("uuid"), str) or not refs["uuid"].strip():
+            invalid.append("refs.uuid")
+        p = d.get("profile")
+        if p is not None and (not isinstance(p, dict) or any(
+                not isinstance(p.get(k), str) or not p[k].strip() for k in ("key", "value"))):
+            invalid.append("profile")
+        if "tags" in d and (not isinstance(d["tags"], list) or
+                            not all(isinstance(t, str) for t in d["tags"])):
+            invalid.append("tags")
+        for key in ("mastery", "heat"):
+            if key in d and d[key] is not None and type(d[key]) is not int:
+                invalid.append(key)
+        if "schema_version" in d and (type(d["schema_version"]) is not int or d["schema_version"] != 1):
+            invalid.append("schema_version")
+        if "source" in d and (not isinstance(d["source"], str) or d["source"] not in sources):
+            invalid.append("source（未宣言）")
+        if "status" in d and d["status"] not in ("open", "closed"):
+            invalid.append("status")
+        if invalid:
+            errors.append(f"{where}: 項目の形式が不正です: {', '.join(invalid)}")
+            continue
         kind = d.get("kind")
         if kind not in KIND_TO_GENRE:
             valid = " / ".join(KIND_TO_GENRE)
@@ -127,7 +164,7 @@ def load_rows(path):
     return rows
 
 
-def apply(rows, *, advance_pi=None, advance_cloud=(), advance_ext=(),
+def _apply(rows, *, advance_pi=None, advance_cloud=(), advance_ext=(),
           allow_new_domain=False, dry_run=False):
     """検証→dedup→追記→カーソル前進→state 再生成。サマリ文字列を返す。
 
@@ -178,6 +215,8 @@ def apply(rows, *, advance_pi=None, advance_cloud=(), advance_ext=(),
         if adv:
             try:
                 adv_ts = parse_ts(adv)
+                if adv_ts.tzinfo is None:
+                    raise ValueError("timezone required")
             except Exception:
                 errors.append(f"{disp}: 時刻が ISO 形式ではありません（例: {example}）")
                 continue
@@ -204,19 +243,39 @@ def apply(rows, *, advance_pi=None, advance_cloud=(), advance_ext=(),
     if dry_run:
         return f"追記の予定: {counts}（お試し実行: 何も書き込んでいません）"
 
-    for genre, rs in to_write.items():
-        if rs:
-            append_log(genre, rs)
     now = now_utc()
-    for key, adv, _disp, _example in advances:
-        if adv:
-            cursors[key] = adv
-    cursors["last_run"] = fmt_ts(now)
-    host.save_cursors(MEM, cursors)
-    for g, out in regen_state.regen(now).items():
-        atomic_write_json(os.path.join(MEM, g, "state.json"), out)
+    # Build the entire output before persisting anything (including both genres).
+    combined = {g: load_log(g) + to_write[g] for g in to_write}
+    try:
+        generated = regen_state.regen(now, rows=combined)
+        updates = {}
+        for g, added in to_write.items():
+            if added:
+                with open(os.path.join(MEM, g, "log.jsonl"), encoding="utf-8") as f:
+                    original = f.read()
+                suffix = "".join(json.dumps({k: v for k, v in d.items() if not k.startswith("_")},
+                                           ensure_ascii=False, allow_nan=False) + "\n" for d in added)
+                updates[f"{g}/log.jsonl"] = original + ("\n" if original and not original.endswith("\n") else "") + suffix
+        for g, out in generated.items():
+            updates[f"{g}/state.json"] = storage.json_text(out)
+        for key, adv, _disp, _example in advances:
+            if adv:
+                cursors[key] = adv
+        cursors["last_run"] = fmt_ts(now)
+        record = host.build_record(MEM)
+        record["cursors"] = cursors
+        updates[f"hosts/{host.machine_id()}.json"] = storage.json_text(record)
+    except (TypeError, ValueError, KeyError) as error:
+        raise ValueError([f"記憶のまとめを作成できません: {error}"]) from error
+    storage.commit_files(MEM, updates)
     advanced = " ".join(f"{key}={adv}" for key, adv, _d, _e in advances if adv) or "なし"
     return f"記憶に追記: {counts}／読み取り位置を更新: {advanced}／まとめを再生成しました"
+
+
+def apply(rows, **kwargs):
+    with storage.file_lock(MEM):
+        storage.recover(MEM)
+        return _apply(rows, **kwargs)
 
 
 def format_error_lines(errors):

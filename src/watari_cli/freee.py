@@ -243,6 +243,7 @@ def _refresh(client_id: str, client_secret: str, refresh_token: str) -> dict:
     }, "認証情報の更新")
 
 
+@config.locked
 def access_token() -> str:
     """有効な access_token を返す（呼び出しのたびに refresh_token で更新する。cloud.py の
     access_token() と同じくキャッシュしない）。
