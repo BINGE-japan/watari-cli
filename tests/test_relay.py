@@ -86,7 +86,9 @@ class TextExtractTest(unittest.TestCase):
 
 class ToLineTest(_Base):
     def _r(self):
-        return relay.Relay(self.pi_store, "m1")
+        return relay.Relay(
+            self.pi_store, "m1", computer="windows", runtime="wsl",
+        )
 
     def test_roles_and_filtering(self):
         r, meta = self._r(), {"cwd": "/w"}
@@ -95,6 +97,8 @@ class ToLineTest(_Base):
             "message": {"role": "user", "content": "hello"}}), meta)
         self.assertIn('"role": "user"', u)
         self.assertIn('"machine": "m1"', u)
+        self.assertIn('"computer": "windows"', u)
+        self.assertIn('"runtime": "wsl"', u)
         self.assertIn('"cwd": "/w"', u)
         a = r._to_line(json.dumps({"type": "message", "id": "t2",
             "message": {"role": "assistant", "content": [{"type": "text", "text": "hi"}]}}), meta)

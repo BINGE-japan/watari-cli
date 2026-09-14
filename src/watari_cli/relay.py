@@ -81,9 +81,17 @@ class Relay:
     """1 マシン分の中継。cmd_chat が start()→(Pi 実行)→stop_and_flush() で使う。"""
 
     def __init__(self, pi_store: str, machine_id: str, home: str | None = None,
-                 poll_interval: float = 3.0):
+                 poll_interval: float = 3.0, *, computer: str | None = None,
+                 runtime: str | None = None):
         self.pi_store = pi_store
         self.machine_id = machine_id
+        if computer is None or runtime is None:
+            from watari_cli import host
+            context = host.runtime_context()
+            computer = computer or context["computer"]
+            runtime = runtime or context["runtime"]
+        self.computer = computer
+        self.runtime = runtime
         self.cloud_name = f"transcripts-{machine_id}.jsonl"
         self.poll_interval = poll_interval
         self._stop = threading.Event()
@@ -215,6 +223,7 @@ class Relay:
             return None
         return json.dumps({
             "ts": d.get("timestamp"), "turn_id": d.get("id"), "machine": self.machine_id,
+            "computer": self.computer, "runtime": self.runtime,
             "session": meta.get("session"), "cwd": meta.get("cwd"),
             "role": m["role"], "text": text,
         }, ensure_ascii=False) + "\n"
