@@ -5,7 +5,7 @@
 {
   "generated": ts,
   "stores": {"pi": {"cursor":.., "readable":bool, "count":n, "max_ts":..|null, "truncated":bool}},
-  "messages": [{"store","ts","session","uuid","cwd","file","text"}, ...]  # ts 昇順（store=pi）
+  "messages": [{"store","ts","session","uuid","cwd","file","machine","computer","runtime","text"}, ...]
 }
 
 - ストアが読めない回はそのストアを readable:false とし、カーソルは前進させない
@@ -157,7 +157,8 @@ def scan_cloud_stream(cursors, this_machine):
                 "ts": ts, "session": session,
                 "uuid": f"pi:{session or machine}:{d.get('turn_id') or ts}",
                 "cwd": d.get("cwd"), "file": name, "text": d.get("text"),
-                "role": d.get("role"),
+                "role": d.get("role"), "machine": machine,
+                "computer": d.get("computer"), "runtime": d.get("runtime"),
             })
         sources.append((cursor_key, cursor_key, True, msgs))
     return sources
@@ -170,8 +171,13 @@ def run():
     # ソース = (store_key, cursor_key, readable, msgs)。組み込みは Pi（自マシンのローカル）＋
     # クラウドの他マシン分。cursor 規律は共通（読めた分だけ前進・読めなければ据え置き）。
     pi_readable, pi_msgs = scan_pi_store(PI_STORE, cursors.get("transcripts_pi"), include_assistant=True)
-    sources = [("pi", "transcripts_pi", pi_readable, pi_msgs)]
     from watari_cli import host
+    current = host.runtime_context()
+    for message in pi_msgs:
+        message["machine"] = current["machine_id"]
+        message["computer"] = current["computer"]
+        message["runtime"] = current["runtime"]
+    sources = [("pi", "transcripts_pi", pi_readable, pi_msgs)]
     sources.extend(scan_cloud_stream(cursors, host.machine_id()))
 
     for store, cursor_key, readable, msgs in sources:

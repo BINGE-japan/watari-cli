@@ -6,12 +6,16 @@ import os
 import re
 import tempfile
 import unittest
+from unittest import mock
 
 from watari_cli import host
 
 
 TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
-AUTO_FIELDS = ("machine_id", "hostname", "platform", "python", "ai_clis", "shell", "facts", "updated")
+AUTO_FIELDS = (
+    "machine_id", "hostname", "platform", "computer", "runtime", "wsl_distribution",
+    "python", "ai_clis", "shell", "facts", "updated",
+)
 
 
 class HostRecordTest(unittest.TestCase):
@@ -35,6 +39,28 @@ class HostRecordTest(unittest.TestCase):
             # ディスク上の内容と一致する
             with open(path, encoding="utf-8") as f:
                 self.assertEqual(json.load(f), record)
+
+    def test_wsl_is_a_windows_computer_with_wsl_runtime(self) -> None:
+        with mock.patch.object(host.platform, "system", return_value="Linux"), \
+             mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu"}, clear=True):
+            context = host.runtime_context()
+        self.assertEqual(context["computer"], "windows")
+        self.assertEqual(context["runtime"], "wsl")
+        self.assertEqual(context["wsl_distribution"], "Ubuntu")
+
+    def test_macos_is_a_mac_computer(self) -> None:
+        with mock.patch.object(host.platform, "system", return_value="Darwin"), \
+             mock.patch.dict(os.environ, {}, clear=True):
+            context = host.runtime_context()
+        self.assertEqual(context["computer"], "mac")
+        self.assertEqual(context["runtime"], "native")
+        self.assertIsNone(context["wsl_distribution"])
+
+    def test_machine_id_stays_backward_compatible_on_wsl(self) -> None:
+        with mock.patch.object(host.platform, "system", return_value="Linux"), \
+             mock.patch.object(host.socket, "gethostname", return_value="BINGElaptop"), \
+             mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu"}, clear=True):
+            self.assertEqual(host.machine_id(), "linux-bingelaptop")
 
     def test_set_fact_persists_and_survives_refresh(self) -> None:
         with tempfile.TemporaryDirectory(prefix="watari-host-") as home:

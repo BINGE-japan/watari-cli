@@ -17,6 +17,7 @@ import os
 import tempfile
 import unittest
 from datetime import timedelta
+from unittest import mock
 
 from watari_cli import host
 from watari_cli.engine import extract, ingest, regen_state, watari_lib as wl
@@ -112,7 +113,8 @@ class ExtractSelectionTest(unittest.TestCase):
             extract.PI_STORE = pi
             wl.MEM = home  # 空 home → カーソルは全 None（絞り込み無し・書き込み無し）
             try:
-                result = extract.run()
+                with mock.patch.object(extract, "scan_cloud_stream", return_value=[]):
+                    result = extract.run()
             finally:
                 extract.PI_STORE, wl.MEM = saved
             pi_stats = result["stores"]["pi"]
@@ -120,6 +122,10 @@ class ExtractSelectionTest(unittest.TestCase):
             self.assertEqual(pi_stats["count"], 2)
             self.assertEqual(pi_stats["max_ts"], "2026-01-16T00:00:00.000Z")
             self.assertEqual([m["uuid"] for m in result["messages"]], ["pi:S1:a", "pi:S1:b"])
+            current = host.runtime_context()
+            self.assertTrue(all(m["machine"] == host.machine_id() for m in result["messages"]))
+            self.assertTrue(all(m["computer"] == current["computer"] for m in result["messages"]))
+            self.assertTrue(all(m["runtime"] == current["runtime"] for m in result["messages"]))
 
 
 class IngestApplyTest(unittest.TestCase):
@@ -252,6 +258,18 @@ class IngestApplyTest(unittest.TestCase):
         joined = "\n".join(cm.exception.args[0])
         self.assertIn("study", joined)
         self.assertIn("thread", joined)
+
+    def test_origin_reference_fields_are_validated(self):
+        bad_refs = [
+            {"uuid": "u1", "machine": ["bad"]},
+            {"uuid": "u2", "computer": "tablet"},
+            {"uuid": "u3", "runtime": "container"},
+        ]
+        for refs in bad_refs:
+            with self.subTest(refs=refs), self.assertRaises(ValueError) as cm:
+                ingest.apply([self._row(uuid=refs["uuid"], refs=refs)])
+            self.assertTrue(any("refs" in error for error in cm.exception.args[0]))
+        self.assertEqual(wl.load_log("life"), [])
 
     def test_domain_kebab_error_is_plain_language(self):
         row = self._row(uuid="u1", kind="study", domain="Bad_Domain",
@@ -463,6 +481,48 @@ class FoldProfileModesTest(unittest.TestCase):
         profile, facts, _interests, _threads = regen_state.fold_life([row], now)
         self.assertEqual(profile["response_style"], "brief")
         self.assertEqual(facts, {})
+
+
+class LocalResourceOriginTest(unittest.TestCase):
+    """端末内だけで使えるURL・パスは、作成元のパソコンをまとめへ残す。"""
+
+    def test_explicit_origin_is_kept_for_local_url(self):
+        now = parse_ts("2026-07-03T00:00:00.000Z")
+        row = {
+            "kind": "thread", "topic": "ローカル試作", "summary": "s",
+            "note": "http://127.0.0.1:4177/ で確認する。",
+            "ts": "2026-07-02T00:00:00.000Z",
+            "refs": {
+                "uuid": "u1", "cwd": "/home/sample/project",
+                "machine": "linux-sample", "computer": "windows", "runtime": "wsl",
+            },
+        }
+        _profile, _facts, _interests, threads = regen_state.fold_life([row], now)
+        self.assertEqual(threads[0]["origin"], {
+            "machine": "linux-sample", "computer": "windows", "runtime": "wsl",
+        })
+
+    def test_legacy_mac_cwd_recovers_mac_origin_for_local_url(self):
+        now = parse_ts("2026-07-03T00:00:00.000Z")
+        row = {
+            "kind": "thread", "topic": "ローカル試作", "summary": "s",
+            "note": "http://localhost:4177/ で確認する。",
+            "ts": "2026-07-02T00:00:00.000Z",
+            "refs": {"uuid": "u1", "cwd": "/Users/sample/workspace/project"},
+        }
+        _profile, _facts, _interests, threads = regen_state.fold_life([row], now)
+        self.assertEqual(threads[0]["origin"], {"computer": "mac"})
+
+    def test_public_url_does_not_gain_local_origin(self):
+        now = parse_ts("2026-07-03T00:00:00.000Z")
+        row = {
+            "kind": "thread", "topic": "公開サイト", "summary": "s",
+            "note": "https://example.com/ で確認する。",
+            "ts": "2026-07-02T00:00:00.000Z",
+            "refs": {"uuid": "u1", "cwd": "/Users/sample/workspace/project"},
+        }
+        _profile, _facts, _interests, threads = regen_state.fold_life([row], now)
+        self.assertNotIn("origin", threads[0])
 
 
 class FoldInterestsTest(unittest.TestCase):

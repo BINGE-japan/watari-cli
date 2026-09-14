@@ -127,6 +127,7 @@ function outputEntry(doc, noteLimit = MAX_NOTE_CHARS) {
     topic: doc.topic,
     ...(value.note ? { note: clipped(value.note, noteLimit) } : {}),
     ...(value.last ? { last: value.last } : {}),
+    ...(value.origin && typeof value.origin === "object" ? { origin: value.origin } : {}),
   };
   if (doc.kind === "thread") {
     if (value.deadline) base.deadline = value.deadline;

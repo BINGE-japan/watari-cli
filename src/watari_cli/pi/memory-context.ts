@@ -1,10 +1,19 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadMemoryContext } from "./memory-context.mjs";
+import { detectRuntimeContext } from "./runtime-context.mjs";
 import {
   getPerformanceMode,
   performanceInfo,
   performanceMemoryOptions,
 } from "./performance.mjs";
+
+const RUNTIME_GUIDANCE = `
+runtime_contextは、この会話を現在動かしているパソコンと実行環境です。WSLは独立したパソコンではなく、
+Windowsパソコン上の実行環境として扱ってください。localhost・127.0.0.1・端末固有のパスは、作成元の
+パソコンでだけ有効です。記憶項目のoriginとruntime_contextが一致し、実際に到達可能だと確認できた場合だけ
+利用可能な場所として案内してください。originが無い、または別のパソコンなら、記憶の記録で作成元を確認し、
+確認できない場所を現在使えるものとして案内しないでください。
+`;
 
 function memoryGuidance(mode: string) {
   if (mode === "butler") {
@@ -38,6 +47,7 @@ matchesに詳細がなく、回答がその詳細に依存する場合だけ、�
 export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event) => {
     const mode = getPerformanceMode();
+    const runtime_context = detectRuntimeContext();
     let payload: Record<string, unknown>;
     try {
       const memory = await loadMemoryContext(
@@ -45,16 +55,17 @@ export default function (pi: ExtensionAPI) {
         event.prompt,
         performanceMemoryOptions(mode),
       );
-      payload = { performance_mode: mode, ...memory };
+      payload = { performance_mode: mode, runtime_context, ...memory };
     } catch (error) {
       payload = {
         performance_mode: mode,
+        runtime_context,
         memory_checked: false,
         error: error instanceof Error ? error.message : String(error),
       };
     }
     return {
-      systemPrompt: `${event.systemPrompt}\n\n${memoryGuidance(mode)}${JSON.stringify(payload)}`,
+      systemPrompt: `${event.systemPrompt}\n\n${memoryGuidance(mode)}${RUNTIME_GUIDANCE}${JSON.stringify(payload)}`,
     };
   });
 }

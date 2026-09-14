@@ -29,6 +29,7 @@ usage: regen_state.py [--now ISO] [--check]
 """
 import argparse
 import json
+import re
 import sys
 
 from .watari_lib import (
@@ -40,6 +41,34 @@ from .watari_lib import (
 # --check の結果文言（表示の正本。engine main と cli(watari regen) が共用する）
 MSG_CHECK_OK = "まとめは記録と一致しています"
 MSG_STATE_MISSING = "まとめが未生成です。watari regen で生成できます"
+
+_LOCAL_REFERENCE_RE = re.compile(
+    r"(?:https?://)?(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?"
+    r"|(?<![\w])(?:[A-Za-z]:[\\/]|/Users/|/mnt/[A-Za-z]/|/home/)"
+)
+
+
+def _local_resource_origin(row, text):
+    """ローカル資源を含む現在値だけに、作成元のパソコン情報を残す。
+
+    新しい行はrefsの明示情報を使う。旧行はcwdからMac/Windowsを安全に判別できる場合だけ
+    補完し、/home はLinuxとWSLを区別できないため推測しない。
+    """
+    if not _LOCAL_REFERENCE_RE.search(str(text or "")):
+        return None
+    refs = row.get("refs") if isinstance(row.get("refs"), dict) else {}
+    origin = {}
+    for key in ("machine", "computer", "runtime"):
+        value = refs.get(key)
+        if isinstance(value, str) and value:
+            origin[key] = value
+    if "computer" not in origin:
+        cwd = str(refs.get("cwd") or "")
+        if cwd.startswith("/Users/"):
+            origin["computer"] = "mac"
+        elif re.match(r"^[A-Za-z]:[\\/]", cwd) or re.match(r"^/mnt/[A-Za-z]/", cwd):
+            origin["computer"] = "windows"
+    return origin or None
 
 
 def fold_learning(rows, aliases):
@@ -82,38 +111,50 @@ def fold_life(rows, now):
         if kind == "fact":
             p = d.get("profile")
             if isinstance(p, dict) and p.get("key") and p.get("value"):
+                note = d.get("note") or p["value"]
                 profile_entries[p["key"]] = {
                     "value": p["value"],
                     "mode": p.get("mode", "always"),  # 旧記録は従来どおり常時反映
                     "last": d["ts"],
-                    "note": d.get("note") or p["value"],
+                    "note": note,
                     "tags": d.get("tags") or [],
+                    "origin": _local_resource_origin(d, note),
                 }
         elif kind == "interest" and d.get("topic"):
-            it = interests.setdefault(d["topic"], {"last": None, "heat": 1, "note": ""})
+            it = interests.setdefault(d["topic"], {
+                "last": None, "heat": 1, "note": "", "origin": None,
+            })
             it["last"] = max(it["last"], parse_ts(d["ts"])) if it["last"] else parse_ts(d["ts"])
             if d.get("heat") is not None:
                 it["heat"] = int(d["heat"])
             if d.get("note"):
                 it["note"] = d["note"]
+                it["origin"] = _local_resource_origin(d, it["note"])
             elif d.get("summary") and not it["note"]:
                 it["note"] = d["summary"]
+                it["origin"] = _local_resource_origin(d, it["note"])
         elif kind == "thread" and d.get("topic"):
-            th = threads.setdefault(d["topic"], {"last": None, "note": "", "closed": False, "deadline": None})
+            th = threads.setdefault(d["topic"], {
+                "last": None, "note": "", "closed": False, "deadline": None, "origin": None,
+            })
             th["last"] = max(th["last"], parse_ts(d["ts"])) if th["last"] else parse_ts(d["ts"])
             th["closed"] = d.get("status") == "closed"
             if d.get("deadline"):  # 最新の非 null deadline を持ち越す（後続の null では消さない）
                 th["deadline"] = d["deadline"]
             if d.get("note"):
                 th["note"] = d["note"]
+                th["origin"] = _local_resource_origin(d, th["note"])
             elif d.get("summary") and not th["note"]:
                 th["note"] = d["summary"]
+                th["origin"] = _local_resource_origin(d, th["note"])
     profile, facts = {}, {}
     for key, entry in profile_entries.items():
         if entry["mode"] == "relevant":
             fact = {"last": entry["last"], "note": entry["note"]}
             if entry["tags"]:
                 fact["tags"] = entry["tags"]
+            if entry["origin"]:
+                fact["origin"] = entry["origin"]
             facts[key] = fact
         else:
             profile[key] = entry["value"]
@@ -124,6 +165,8 @@ def fold_life(rows, now):
         eff = max(0, it["heat"] - decay)
         if eff > 0:
             out_interests[topic] = {"last": fmt_ts(it["last"]), "heat": eff, "note": it["note"]}
+            if it["origin"]:
+                out_interests[topic]["origin"] = it["origin"]
     out_threads = []
     for topic, th in threads.items():
         if th["closed"]:
@@ -134,6 +177,8 @@ def fold_life(rows, now):
         if not deadline_future and age_days >= SINK_DAYS:
             continue  # sunk: state から沈める（log には残り復元可能）
         out = {"topic": topic, "note": th["note"], "last": fmt_ts(th["last"])}
+        if th["origin"]:
+            out["origin"] = th["origin"]
         if th["deadline"]:
             out["deadline"] = th["deadline"]
         if not deadline_future and age_days >= DORMANT_DAYS:

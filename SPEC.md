@@ -54,6 +54,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   push、union-merge）。会話は各マシンの chat が **クラウド中継所（Google Drive appDataFolder）**へ user＋
   assistant の発話だけ送り、どのマシンの夢もそれを読む＝A で話した分を B のワタリが覚える。生 transcript は
   git に入れない（履歴から消せず容量が単調増加するため）。install で「同期する／ローカルのみ」を選べる。
+- **パソコンと実行層を区別する**：WSLは独立パソコンではなくWindows上の実行環境として扱い、現在の
+  computer/runtimeを各入力前にモデルへ渡す。localhost・127.0.0.1・端末固有パスを含む記憶は作成元を保持し、
+  現在のパソコンとの一致と到達可能性を確認できない限り、利用可能な場所として案内しない。
 
 ## スコープ（境界＝engine に入るか、カセットか）
 - **engine（配布・`src/watari_cli/`）**：CLI・記憶エンジン・人格スキル・git 同期層・クラウド中継アダプタ。
@@ -101,6 +104,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     `watari performance --set` 経由のconfig永続化、フッター表示。balanced既定、fastはoff、butlerはhigh。
   - 同梱 `pi/memory-context.ts` / `memory-context.mjs`：各入力の `before_agent_start` で
     life/learning state をローカル読取する。factのprofile.modeをalways（毎回）/relevant（関連時検索）に分離し、balancedはalways profile最大5KB・優先thread最大3件・関連fact/topic最大6件・profile/fact/topic名catalogを区画別予算つき16KB以内、fastは4KB/1件/3件/catalog無し、butlerは全stateをsystem promptへ一時注入する。検索は題名・タグ・固有語を優先し、一般的な短い否定表現だけの誤一致を拒否する。always profileの5KB超過はauditで検出。モデル・network・subprocessを呼ばず、transcriptへ積まない。
+    `pi/runtime-context.mjs` はWindows/Mac/Linuxとnative/WSLを分離して毎入力へ添え、WSLをWindowsパソコンとして扱う。
+    会話同期とscanは発話元のmachine/computer/runtimeを運び、log refsからローカルURL・端末固有パスのoriginを
+    stateへ残す。旧記録もMac/Windows固有cwdを安全に判別できる場合だけ補完する。
   - 同梱 `pi/verification-guard.ts`：質問ターンで成功したtool callを追跡し、balanced/butlerでは
     `watari_evidence` で登録する。fastでは成功toolを自動登録して余分なモデル1往復を省く。未確認または
     推測表現を含む最終回答は隠さず、小さな警告行を添える。
@@ -220,6 +226,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **daily_report / knowledge は engine 非移植**（カセット or 別途）。
 - **忘却は3層**：active(<45日) / dormant(45–90日・声かけ待ちの印) / sunk(≥90日・沈むが log に残る)。
   実時計ベース。取り込みカーソルは **per-machine の host record**（git 共有で衝突しない）。
+- **環境識別**：同期互換のため既存 `machine_id` は変更しない。別フィールドの `computer` は
+  windows/mac/linux、`runtime` はnative/wslとし、WSLはWindowsパソコンへ属する。ローカル資源の記憶は
+  `refs.machine/computer/runtime` を作成元として保持し、現在環境との照合に使う。
 - **マルチマシン同期**：記憶は **git**（消えない正本・履歴が価値）、生の発話素材は **クラウド中継所**
   （消せる・機械可読）と使い分ける。中継所は **Google Drive appDataFolder**（ユーザーの Drive に出ない・
   API で削除可）。中身は **user＋assistant の発話だけ**（tool 出力・thinking は入れない）。書き込みは

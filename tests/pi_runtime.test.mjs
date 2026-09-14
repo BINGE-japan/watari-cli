@@ -43,6 +43,34 @@ test("memory budgets remain hard limits for oversized identifiers and Unicode", 
   }
 });
 
+test("memory hook identifies WSL as the current Windows computer", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const directory = mkdtempSync(join(tmpdir(), "watari-runtime-context-"));
+  const previousHome = process.env.WATARI_HOME;
+  const previousDistro = process.env.WSL_DISTRO_NAME;
+  try {
+    mkdirSync(join(directory, "life"));
+    mkdirSync(join(directory, "learning"));
+    writeFileSync(join(directory, "life/state.json"), JSON.stringify({ profile:{}, facts:{}, interests:{}, open_threads:[] }));
+    writeFileSync(join(directory, "learning/state.json"), JSON.stringify({ domains:{} }));
+    process.env.WATARI_HOME = directory;
+    process.env.WSL_DISTRO_NAME = "Ubuntu";
+    const { hooks } = await extension("src/watari_cli/pi/memory-context.ts");
+    const result = await hooks.before_agent_start({ prompt:"ローカルURL", systemPrompt:"base" });
+    assert.match(result.systemPrompt, /"runtime_context":\{/);
+    assert.match(result.systemPrompt, /"computer":"windows"/);
+    assert.match(result.systemPrompt, /"runtime":"wsl"/);
+    assert.match(result.systemPrompt, /127\.0\.0\.1/);
+  } finally {
+    if (previousHome === undefined) delete process.env.WATARI_HOME;
+    else process.env.WATARI_HOME = previousHome;
+    if (previousDistro === undefined) delete process.env.WSL_DISTRO_NAME;
+    else process.env.WSL_DISTRO_NAME = previousDistro;
+    rmSync(directory, { recursive:true, force:true });
+  }
+});
+
 test("progress, final text and shutdown never auto-publish unvalidated edits", async () => {
   const commands = [];
   let dirty = false;

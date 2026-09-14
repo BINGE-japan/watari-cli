@@ -99,6 +99,16 @@ class ScanCloudTest(_Cloud):
         _, _, _, msgs = extract.scan_cloud_stream({}, "me")[0]
         self.assertEqual(msgs[0]["uuid"], "pi:S:t1")
 
+    def test_origin_environment_survives_cloud_sync(self):
+        self.store.files_data["transcripts-A.jsonl"] = json.dumps(
+            {"ts": "2026-07-19T00:00:01.000Z", "turn_id": "t1", "machine": "A",
+             "computer": "mac", "runtime": "native", "session": "S", "cwd": "/Users/sample",
+             "role": "user", "text": "hi"}) + "\n"
+        _, _, _, msgs = extract.scan_cloud_stream({}, "me")[0]
+        self.assertEqual(msgs[0]["machine"], "A")
+        self.assertEqual(msgs[0]["computer"], "mac")
+        self.assertEqual(msgs[0]["runtime"], "native")
+
 
 class RunWithCloudTest(_Cloud):
     def test_run_includes_cloud(self):

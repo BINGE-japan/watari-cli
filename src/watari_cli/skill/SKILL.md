@@ -53,8 +53,9 @@ user-invocable: true
   別bot・代理アカウントを黙って使わず、承認までは送信・編集・削除をしない。
 
 ## セッションの開き方
-1. 記憶は各入力前に自動で確認される。全体を改めて読み込まない。渡される `profile`＝毎回効く人物像・好み、
-   `attention`＝進行中事項の背景情報、`matches`＝今回の話題に関係する事実・詳細、`catalog`＝人物情報のkeyと話題名の一覧。
+1. 記憶は各入力前に自動で確認される。全体を改めて読み込まない。渡される `runtime_context`＝現在のパソコンと実行環境、
+   `profile`＝毎回効く人物像・好み、`attention`＝進行中事項の背景情報、`matches`＝今回の話題に関係する事実・詳細、
+   `catalog`＝人物情報のkeyと話題名の一覧。WSLは独立したパソコンではなくWindows上の実行環境として扱う。
    attentionはユーザーの発言や依頼ではありません。ユーザー自身が今回の入力で触れない限り、確認事項を
    話題に出したり、対応依頼として扱ったりしない。
 2. **記憶がほぼ空（profile・attention・catalog が空）なら初対面**。次の要点を 5 行以内で伝えてから
@@ -76,6 +77,7 @@ user-invocable: true
   確認手段が無ければ「本人の報告」として記録する（推測で断定しない）。
 - その場で「あとで役に立つ大事な事実」を得たら、SCHEMA の行仕様で JSON 配列を作り
   `watari ingest --rows <file>` で追記する（`source:"watari"`、UTC ts、kind でジャンルが決まる）。
+  `refs.machine` / `computer` / `runtime` には現在の `runtime_context` を入れる。
 - 「記憶を整理して」と言われたら、下の「記憶の整理」を実行し、**終わったら 1 行で報告する**
   （例: 「整理しました。新しく 3 件覚えました。」／取り込みが失敗したら、どの工程が失敗したかを
   1 行で伝える。黙って終えない）。
@@ -87,11 +89,12 @@ user-invocable: true
 
 1. **抽出（機械）**: `watari scan --json` を実行する。出力は
    `stores.{pi, cloud_<machine>, …}.{readable,count,max_ts,truncated}` と `messages[]`（ts 昇順）。
-   `stores.cloud_<machine>` は他のパソコンから同期された発話。`messages[]` には
-   `role:"assistant"` の行も混ざるが、これは判定の**文脈用**——記憶の根拠は本人
-   （`role:"user"`）の発話だけ。
+   `stores.cloud_<machine>` は他のパソコンから同期された発話。`messages[]` には発話元の
+   `machine` / `computer` / `runtime` と、`role:"assistant"` の行も含まれる。assistant行は判定の
+   **文脈用**——記憶の根拠は本人（`role:"user"`）の発話だけ。
 2. **判定（あなた）**: あとで役に立つものだけを SCHEMA の行仕様で JSON 配列にして
-   一時ファイルへ書く（0 件なら `[]`）。基準は下の「三層」「六つの規律」「書き方」。
+   一時ファイルへ書く（0 件なら `[]`）。発話由来の行は `machine` / `computer` / `runtime` を
+   `refs` へコピーする。基準は下の「三層」「六つの規律」「書き方」。
 3. **取り込み（機械）**: `watari ingest --rows <file>` に、次の規則でフラグを足して実行する:
    - `stores.pi` の `readable` が true かつ `max_ts` が null でない
      → `--advance-pi <stores.pi.max_ts>` を付ける。
@@ -123,6 +126,9 @@ user-invocable: true
 - 全パソコン共通（ユーザー自身の事実・使うツール）→ `fact` の `profile:{key,value,mode:"relevant"}` へ。
 - `mode:"always"` は、呼び方・応答形式・確認境界など**どの話題でも毎回効く**好みだけ。職歴・会社・事業・ツール・個別運用は安定事実でも `relevant`。
 - 特定のパソコンだけの環境 → host 記録（`watari host --set KEY=VALUE`）へ。
+- localhost・127.0.0.1・端末固有パスは作成元のパソコンに属する。記憶項目の `origin` と現在の
+  `runtime_context` が一致し、実際に到達可能と確認できた場合だけ利用可能な場所として案内する。
+  `origin` が無い場合は記憶の記録にある `refs` を確認し、作成元不明の場所を現在使えるものとして案内しない。
 
 ### 六つの規律
 1. **機密・秘密**: 記憶は git で同期され得る。**秘密そのもの（パスワード・API キー・口座番号・

@@ -204,7 +204,13 @@ def cmd_host(args) -> int:
     record = host.refresh(home)
     print(f"このパソコンの識別子: {record['machine_id']}")
     print(f"  ホスト名: {record['hostname']}")
-    print(f"  環境: {record['platform']} / Python {record['python']}")
+    computer_label = {"windows": "Windows", "mac": "Mac", "linux": "Linux"}.get(
+        record.get("computer"), record["platform"])
+    runtime_label = "WSL" if record.get("runtime") == "wsl" else record["platform"]
+    if record.get("wsl_distribution"):
+        runtime_label += f" ({record['wsl_distribution']})"
+    print(f"  パソコン: {computer_label}")
+    print(f"  実行環境: {runtime_label} / Python {record['python']}")
     print(f"  シェル: {record['shell'] or '—'}")
     print(f"  検出した AI ツール: {', '.join(record['ai_clis']) or '—'}")
     for key, value in record["facts"].items():
