@@ -100,11 +100,13 @@ class Relay:
         if not cloud.is_configured():
             return  # 完全未設定（同期を使っていない）は無言で中継しない
         self._enabled = True
-        if cloud.has_live_authorization():
-            self._store = cloud.get_store()
+        # 起動時のtoken実交換は、一時的な通信失敗まで認証切れと誤表示し、その会話中は
+        # store=Noneのまま復旧できなかった。保存済み認証からstoreを作り、実通信は送信時に
+        # 行うことで、失敗したtickの次から同じ会話中に自動再試行できるようにする。
+        self._store = cloud.get_store()
         if self._store is None:
-            # 保存値の存在だけでなくtoken実交換に失敗した場合も即時に知らせる。送れない間も
-            # transcript抽出は続け、再認証後に送れるようローカルキューへ残す。
+            # OAuth clientだけ設定され、まだ承認されていない場合。送れない間もtranscript抽出は
+            # 続け、別ターミナルで再認証した後に送れるようローカルキューへ残す。
             self._warn_sync_failure()
         self._warn_if_queue_large()
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -114,10 +116,9 @@ class Relay:
         if self._warned_sync_failure:
             return
         print("! ワタリは、ほかのパソコンでも会話を引き継げるようGoogle Driveを使っています。\n"
-              "  現在Google Driveに接続できないため、この会話はほかのパソコンへ"
-              "まだ共有されません。\n"
-              "  会話はこのパソコンに保存されるため、内容は失われません。\n"
-              "  直すには、ターミナルで `watari auth` を実行してください。", file=sys.stderr)
+              "  現在Google Driveへ会話を共有できないため、このパソコンに保存して"
+              "自動で再試行します。内容は失われません。\n"
+              "  何度も続く場合は、ターミナルで `watari auth` を実行してください。", file=sys.stderr)
         self._warned_sync_failure = True
 
     def _warn_if_queue_large(self) -> None:
@@ -264,8 +265,13 @@ class Relay:
                 content = f.read()
         except FileNotFoundError:
             return
-        if not content or self._store is None:
+        if not content:
             return
+        if self._store is None:
+            # start後に別ターミナルでwatari authが完了した場合も、chatを再起動せず復旧する。
+            self._store = cloud.get_store()
+            if self._store is None:
+                return
         try:
             self._store.append(self.cloud_name, content)
         except cloud.CloudError:
