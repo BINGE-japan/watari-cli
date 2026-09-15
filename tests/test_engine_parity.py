@@ -490,7 +490,7 @@ class LocalResourceOriginTest(unittest.TestCase):
         now = parse_ts("2026-07-03T00:00:00.000Z")
         row = {
             "kind": "thread", "topic": "ローカル試作", "summary": "s",
-            "note": "http://127.0.0.1:4177/ で確認する。",
+            "note": "http://127.0.0.1:8080/ で確認する。",
             "ts": "2026-07-02T00:00:00.000Z",
             "refs": {
                 "uuid": "u1", "cwd": "/home/sample/project",
@@ -506,7 +506,7 @@ class LocalResourceOriginTest(unittest.TestCase):
         now = parse_ts("2026-07-03T00:00:00.000Z")
         row = {
             "kind": "thread", "topic": "ローカル試作", "summary": "s",
-            "note": "http://localhost:4177/ で確認する。",
+            "note": "http://localhost:8080/ で確認する。",
             "ts": "2026-07-02T00:00:00.000Z",
             "refs": {"uuid": "u1", "cwd": "/Users/sample/workspace/project"},
         }

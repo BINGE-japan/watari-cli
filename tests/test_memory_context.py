@@ -124,7 +124,7 @@ class MemoryContextTest(unittest.TestCase):
         life["open_threads"] = [{
             "topic": "ローカル試作",
             "last": "2026-01-03T00:00:00.000Z",
-            "note": "試作は http://127.0.0.1:4177/ で動く。",
+            "note": "試作は http://127.0.0.1:8080/ で動く。",
             "origin": {"machine": "darwin-sample", "computer": "mac", "runtime": "native"},
         }]
         result = _build(life, learning, "ローカル試作を見たい")
@@ -194,7 +194,7 @@ class MemoryContextTest(unittest.TestCase):
         script = (
             f"import {{ detectRuntimeContext }} from {json.dumps(RUNTIME_HELPER.as_uri())};"
             "console.log(JSON.stringify(detectRuntimeContext({"
-            "platform:'linux',hostname:'BINGElaptop',cwd:'/home/binge',"
+            "platform:'linux',hostname:'sample-host',cwd:'/home/example',"
             "env:{WSL_DISTRO_NAME:'Ubuntu'}})));"
         )
         result = subprocess.run(
@@ -207,7 +207,7 @@ class MemoryContextTest(unittest.TestCase):
         self.assertEqual(context["computer"], "windows")
         self.assertEqual(context["runtime"], "wsl")
         self.assertEqual(context["wsl_distribution"], "Ubuntu")
-        self.assertEqual(context["machine_id"], "linux-bingelaptop")
+        self.assertEqual(context["machine_id"], "linux-sample-host")
 
     def test_session_opening_no_longer_loads_the_whole_memory_summary(self):
         text = SKILL.read_text(encoding="utf-8")

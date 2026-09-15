@@ -58,9 +58,9 @@ class HostRecordTest(unittest.TestCase):
 
     def test_machine_id_stays_backward_compatible_on_wsl(self) -> None:
         with mock.patch.object(host.platform, "system", return_value="Linux"), \
-             mock.patch.object(host.socket, "gethostname", return_value="BINGElaptop"), \
+             mock.patch.object(host.socket, "gethostname", return_value="sample-host"), \
              mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu"}, clear=True):
-            self.assertEqual(host.machine_id(), "linux-bingelaptop")
+            self.assertEqual(host.machine_id(), "linux-sample-host")
 
     def test_set_fact_persists_and_survives_refresh(self) -> None:
         with tempfile.TemporaryDirectory(prefix="watari-host-") as home:

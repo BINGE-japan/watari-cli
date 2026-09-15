@@ -148,7 +148,7 @@ class FileLinksTest(unittest.TestCase):
         run.assert_not_called()
 
     def test_wsl_reveal_uses_absolute_windows_powershell_path(self):
-        converted = subprocess.CompletedProcess([], 0, r"C:\Users\BINGE\report.md\n", "")
+        converted = subprocess.CompletedProcess([], 0, r"C:\Users\example\report.md\n", "")
         opened = subprocess.CompletedProcess([], 0, "", "")
         with mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu", "PATH": "/usr/bin"},
                              clear=True), \
