@@ -207,8 +207,11 @@ Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari c
   未導入・古い場合は <https://nodejs.org/> の LTS 版を。
   `npx -y @earendil-works/pi-coding-agent` が通るかでも確認できます。
 - 「ワタリは、ほかのパソコンでも会話を引き継げるようGoogle Driveを使っています」と出る →
-  Google Driveへ送れない会話はそのパソコンに保存されています。
-  `watari auth` で接続を直すと、次回の `watari chat` で再送されます。OAuth client自体が削除済みなら、
+  Google Driveへ送れない会話はそのパソコンに保存され、通信の復旧後に自動で再送されます。
+  「同名の同期データが複数」など共有データの修復案内が出た場合、再ログインでは直りません。
+  データを削除せず、重複の内容と対象を確認してから修復してください。
+  認証切れの場合は、別のターミナルで `watari auth` を実行すると、起動中の会話でも再送を試みます。
+  OAuth client自体が削除済みなら、
   有効なclient ID / client secretの入力へ自動で切り替わります。別のパソコンでGoogle連携が動いている
   場合は同じOAuth clientを使えるため、新規作成は不要です。
 - 接続したサービスの認証が切れた → `watari connect <サービス名>` をもう一度実行してください。

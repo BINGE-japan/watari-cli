@@ -120,13 +120,18 @@ class Relay:
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
-    def _warn_sync_failure(self) -> None:
+    def _warn_sync_failure(self, error: cloud.CloudError | None = None) -> None:
         if self._warned_sync_failure:
             return
+        # Only fixed data diagnostics are safe to show; generic HTTP failures can
+        # contain external response bodies. Do not mislabel data conflicts as auth.
+        recovery = (f"{error} 共有データの確認・修復が必要です。"
+                    if isinstance(error, cloud.SyncDataError) else
+                    "何度も続く場合は、ターミナルで `watari auth` を実行してください。")
         print("! ワタリは、ほかのパソコンでも会話を引き継げるようGoogle Driveを使っています。\n"
               "  現在Google Driveへ会話を共有できないため、このパソコンに保存して"
               "自動で再試行します。内容は失われません。\n"
-              "  何度も続く場合は、ターミナルで `watari auth` を実行してください。", file=sys.stderr)
+              f"  {recovery}", file=sys.stderr)
         self._warned_sync_failure = True
 
     def _warn_if_queue_large(self) -> None:
@@ -283,8 +288,8 @@ class Relay:
                 return
         try:
             self._store.append(self.cloud_name, content)
-        except cloud.CloudError:
-            self._warn_sync_failure()
+        except cloud.CloudError as error:
+            self._warn_sync_failure(error)
             return  # 繰り越し（キューはそのまま・次回再送）
         storage.atomic_write_text(_queue_path(), "")  # 送信成功 → キューを空に
 
