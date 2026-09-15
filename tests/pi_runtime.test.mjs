@@ -3,13 +3,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 const pkg = process.env.WATARI_PI_PACKAGE || join(execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim(), "@earendil-works/pi-coding-agent");
 const requirePi = createRequire(join(pkg, "package.json"));
 const { createJiti } = requirePi("jiti");
-const jiti = createJiti(import.meta.url, { fsCache: false, moduleCache: false, alias: { typebox: requirePi.resolve("typebox") } });
+const piAiEntry = requirePi.resolve.paths("@earendil-works/pi-ai").map(base => join(base, "@earendil-works/pi-ai/dist/index.js")).find(existsSync);
+assert.ok(piAiEntry, "Pi AI dependency must be installed with Pi");
+const jiti = createJiti(import.meta.url, { fsCache: false, moduleCache: false, alias: { typebox: requirePi.resolve("typebox"), "@earendil-works/pi-ai": piAiEntry } });
 const root = resolve(import.meta.dirname, "..");
 const helper = (name) => import(pathToFileURL(join(root, "src/watari_cli/pi", name)));
 async function extension(path, extra = {}) {
@@ -171,4 +174,99 @@ test("Slack tool refuses noninteractive use and never posts after cancellation",
     else process.env.XDG_CONFIG_HOME = previousHome;
     rmSync(directory, { recursive:true, force:true });
   }
+});
+
+test("memory search reuses ranking and returns origin without unrelated context", async () => {
+  const { searchMemory } = await helper("memory-context.mjs");
+  const result = searchMemory({ profile:{tone:"Polite"}, facts:{ renderer:{ note:"Aurora rendering", origin:{computer:"mac"} } } }, {}, "Aurora", 5);
+  assert.equal(result.matches[0].topic, "renderer");
+  assert.equal(result.matches[0].origin.computer, "mac");
+  assert.equal(result.profile, undefined);
+  assert.throws(() => searchMemory({schema_version:999}, {}, "Aurora"));
+  assert.throws(() => searchMemory({}, {}, "", 0));
+});
+
+test("memory tools reject invented or expired batch identifiers before execution", async () => {
+  const { tools } = await extension("src/watari_cli/pi/memory-tools.ts");
+  assert.ok(tools.watari_memory_search);
+  assert.ok(tools.watari_memory_get);
+  assert.ok(tools.watari_memory_prepare);
+  await assert.rejects(() => tools.watari_memory_save.execute("test", {
+    batch_id:"invented", decisions_json:"[]",
+  }, undefined, undefined, {sessionManager:{getSessionId:()=>"synthetic"}}), /取得し直/);
+});
+
+test("memory native tools save actual session evidence offline and reject changed replay", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(join(tmpdir(), "watari-memory-native-"));
+  const keys = ["WATARI_HOME", "WATARI_PYTHON", "XDG_CONFIG_HOME", "XDG_STATE_HOME"];
+  const previous = Object.fromEntries(keys.map(k => [k, process.env[k]]));
+  try {
+    for (const genre of ["life", "learning"]) {
+      mkdirSync(join(dir, genre));
+      writeFileSync(join(dir, genre, "log.jsonl"), "");
+    }
+    process.env.WATARI_HOME = dir;
+    process.env.WATARI_PYTHON = process.env.WATARI_TEST_PYTHON || join(root, ".venv/bin/python");
+    process.env.XDG_CONFIG_HOME = join(dir, "config");
+    process.env.XDG_STATE_HOME = join(dir, "xdg-state");
+    const { tools, hooks } = await extension("src/watari_cli/pi/memory-tools.ts");
+    const ctx = { cwd: "/workspace/example", sessionManager: {
+      getSessionId: () => "sample-session",
+      getBranch: () => [{type:"message", id:"abcd1234", timestamp:"2026-01-02T00:00:00Z",
+        message:{role:"user", content:"I prefer short answers."}}],
+    }};
+    const prepare = await tools.watari_memory_prepare.execute("p", {scope:"current"}, undefined, undefined, ctx);
+    const batch = JSON.parse(prepare.content[0].text);
+    assert.equal(batch.messages[0].uuid, "pi:sample-session:abcd1234");
+    const args = { batch_id:batch.batch_id, decisions_json:JSON.stringify([{uuid:batch.messages[0].uuid, rows:[{
+      kind:"fact", summary:"The user prefers short answers.", note:"Short answers.",
+      profile:{key:"response_style", value:"Short answers.", mode:"always"},
+    }]}]) };
+    const saved = await tools.watari_memory_save.execute("s", args, undefined, undefined, ctx);
+    assert.equal(JSON.parse(saved.content[0].text).checked, true);
+    await tools.watari_memory_save.execute("s2", args, undefined, undefined, ctx);
+    assert.equal(readFileSync(join(dir, "life/log.jsonl"), "utf8").trim().split("\n").length, 1);
+    await assert.rejects(() => tools.watari_memory_save.execute("bad", {...args, decisions_json:"[]"}, undefined, undefined, ctx), /変更できません/);
+    const found = await tools.watari_memory_search.execute("q", {query:"response_style"});
+    assert.equal(JSON.parse(found.content[0].text).matches[0].topic, "response_style");
+    const details = await tools.watari_memory_get.execute("g", {kind:"fact", topic:"response_style"});
+    assert.equal(JSON.parse(details.content[0].text).rows[0].refs.uuid, batch.messages[0].uuid);
+    await hooks.session_tree();
+    await assert.rejects(() => tools.watari_memory_save.execute("old", args, undefined, undefined, ctx), /取得し直/);
+  } finally {
+    for (const k of keys) if (previous[k] === undefined) delete process.env[k]; else process.env[k] = previous[k];
+    rmSync(dir, {recursive:true, force:true});
+  }
+});
+
+test("explicit search rejects a pending save or a missing summary instead of reporting no matches", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { loadMemorySearch } = await helper("memory-context.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "watari-search-failure-"));
+  try {
+    await assert.rejects(() => loadMemorySearch(dir, "example"));
+    mkdirSync(join(dir, "life")); mkdirSync(join(dir, "learning"));
+    writeFileSync(join(dir, "life/state.json"), JSON.stringify({profile:{}, facts:{}}));
+    writeFileSync(join(dir, "learning/state.json"), JSON.stringify({domains:{}}));
+    writeFileSync(join(dir, ".watari-pending.json"), "{}");
+    await assert.rejects(() => loadMemorySearch(dir, "example"), /保存処理/);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test("memory subprocess cancellation and timeout report unknown save status", async () => {
+  const { runMemoryOperation } = await helper("memory-tools.mjs");
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(join(tmpdir(), "watari-memory-cancel-"));
+  try {
+    const env = {...process.env, WATARI_HOME:dir, XDG_STATE_HOME:join(dir,"state"),
+      XDG_CONFIG_HOME:join(dir,"config"), WATARI_PYTHON:process.env.WATARI_TEST_PYTHON || join(root,".venv/bin/python")};
+    const controller = new AbortController(); controller.abort();
+    assert.throws(() => runMemoryOperation({action:"get",kind:"fact",topic:"Example"}, {env,signal:controller.signal}));
+    await assert.rejects(() => runMemoryOperation({action:"get",kind:"fact",topic:"Example"}, {env,timeout:1}), /制限時間/);
+    assert.throws(() => runMemoryOperation({action:"get"}, {env:{WATARI_PYTHON:"relative",WATARI_HOME:dir}}), /未設定/);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
 });

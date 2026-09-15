@@ -14,6 +14,19 @@
 - 痕跡は log に混ぜない：log は事実の正本。対象0件など「走ったが事実は無い」記録は log に書かず、カーソルの `last_run`（host 記録内）に残す。
 - 決定論部分（発話の選別・dedup・カーソル前進・state の畳み込み・監査）は同梱エンジンが実装し、`watari` CLI（`watari scan` / `watari ingest` / `watari regen` / `watari audit`）が担う。LLM の仕事は「何を記憶するか」の判定と summary/note/mastery/heat の中身だけで、機械処理を手でなぞらない。
 
+## Pi専用道具の入力と保存境界
+
+- 人格はSKILL.md、保存時の選別基準・native toolの使い方・従来CLI手順はMEMORY.mdを作業時だけ読む。
+- `watari_memory_prepare` / `watari_memory_save`はこの行仕様の代替ではなく、既存ingest.applyへの固定入口。
+  AIは取得済みuser UUIDごとに`{uuid,rows:[...]}`を返す（見送りは空配列）。rowsは下の行仕様からts/source/refsを除く。
+  tsとrefsは取得結果からコピーし、sourceはwatariへ固定する。未回答、assistant根拠、未取得UUID、同kind複数行、
+  ts/source/refsの指定は保存前に拒否する。summary等の内容は引き続きモデルの判断である。
+- 読み取り位置の前進は、道具が保持する取得範囲から既存ingestのadvance引数へ変換する。current入力は前進しない。
+  conversationsはPi＋同期済みの他PC会話だけで、サービスの整理は既存の外部source/advance-ext手順を使う。
+- 取得batchの40件目安・32KB制限はPi道具の追加制限であり、下記の既存scan上限を変更しない。
+  境界同時刻の一群が32KBを超える場合は失敗し、黙って未読範囲を飛び越えない。画像本文は返さず省略を明示する。
+- batchはプロセス内の一時情報で、ユーザーの記憶に保存しない。根拠の対応付けは安全化版の認証や要約の意味的正しさの保証ではない。
+
 ## log.jsonl（1 行 = 1 事実。行き先のジャンルは kind で決まる）
 ```
 {"ts":"<UTC ISO ...Z>","source":"transcript|watari|<接続サービス名>","kind":"fact|study|interest|thread",

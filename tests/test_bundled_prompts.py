@@ -72,3 +72,21 @@ class BundledPromptsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ProgressiveSkillTest(unittest.TestCase):
+    def test_always_loaded_persona_is_small_and_routes_to_workflow(self):
+        text = SKILL_MD.read_text(encoding='utf-8')
+        self.assertLessEqual(len(text.encode()), 9500)
+        self.assertIn('MEMORY.md', text)
+        self.assertNotIn('--advance-cloud', text)
+        self.assertIn('明示承認', text)
+        self.assertIn('敬語', text)
+
+    def test_workflow_is_shipped_and_prompts_do_not_duplicate_advance_rules(self):
+        workflow = SKILL_DIR / 'MEMORY.md'
+        self.assertTrue(workflow.is_file())
+        self.assertIn('watari_memory_prepare', workflow.read_text())
+        for name in ('remember', 'organize'):
+            text = (PROMPTS_DIR / f'{name}.md').read_text()
+            self.assertIn('MEMORY.md', text)
+            self.assertNotIn('--advance-cloud', text)

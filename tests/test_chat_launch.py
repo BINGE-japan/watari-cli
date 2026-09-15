@@ -70,6 +70,8 @@ class ChatLaunchTest(unittest.TestCase):
         self.assertIn("briefing.ts", out)
         self.assertIn("file-links.ts", out)
         self.assertIn("slack-send.ts", out)
+        self.assertIn("memory-tools.ts", out)
+        self.assertIn("WATARI_PYTHON=", out)
         self.assertIn("WATARI_FILE_LINK_KEY_PATH=", out)
         self.assertNotIn("--model", out)
         self.assertNotIn("--thinking", out)

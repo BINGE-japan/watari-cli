@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 export const DEFAULT_MAX_CONTEXT_BYTES = 16_000;
@@ -354,4 +354,45 @@ export async function loadMemoryContext(home, query, options = {}) {
     readJson(join(home, "learning", "state.json"), {}),
   ]);
   return buildMemoryContext(life, learning, query, options);
+}
+
+// Explicit lookup shares the automatic hook's ranking, not its context budget.
+export function searchMemory(life, learning, query, limit = 6) {
+  if (typeof query !== "string" || !query.trim() || query.length > 2048 ||
+      !Number.isInteger(limit) || limit < 1 || limit > 20) {
+    throw new Error("検索語と1〜20件の取得上限を指定してください。");
+  }
+  // Use the same version validation as the automatic path.
+  buildMemoryContext(life, learning, "", { full: true });
+  const docs = documents(life, learning);
+  for (const [topic, note] of Object.entries(life?.profile || {})) {
+    docs.push({ kind: "fact", topic, value: { note } });
+  }
+  const ranked = rank(docs, query, limit + 1);
+  const result = { matches: ranked.slice(0, limit).map(doc => outputEntry(doc, 1200)),
+    truncated: ranked.length > limit, updated: { life: life?.updated, learning: learning?.updated } };
+  while (byteLength(result) > 32_000 && result.matches.length) {
+    result.matches.pop();
+    result.truncated = true;
+  }
+  if (!result.matches.length && ranked.length) throw new Error("検索結果の一件が取得上限を超えています。話題名で詳細を取得してください。");
+  return result;
+}
+
+export async function loadMemorySearch(home, query, limit) {
+  if (!home) throw new Error("記憶フォルダが設定されていません。");
+  const paths = [join(home, "life", "state.json"), join(home, "learning", "state.json")];
+  const signature = async () => JSON.stringify(await Promise.all(paths.map(async path => {
+    const s = await stat(path, { bigint: true });
+    return [s.ino, s.size, s.mtimeNs].map(String);
+  })));
+  const before = await signature(); // Explicit search must not treat absent files as empty memory.
+  const snapshot = await loadMemoryContext(home, "", { full: true });
+  const after = await signature();
+  try {
+    await readFile(join(home, ".watari-pending.json"));
+    throw new Error("記憶の保存処理が完了していません。");
+  } catch (error) { if (error?.code !== "ENOENT") throw error; }
+  if (before !== after) throw new Error("記憶が更新されました。検索を再実行してください。");
+  return searchMemory({ ...snapshot.life, profile: snapshot.profile }, snapshot.learning, query, limit);
 }

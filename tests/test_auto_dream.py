@@ -69,3 +69,19 @@ class DreamGuardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_background_organizer_gets_task_guide_and_same_native_tools(tmp_path, monkeypatch):
+    import sys
+    from unittest.mock import Mock, patch
+    monkeypatch.setenv('XDG_STATE_HOME', str(tmp_path / 'state'))
+    monkeypatch.delenv('WATARI_SKIP_AUTO_DREAM', raising=False)
+    process = Mock(pid=999999999)
+    with patch('subprocess.Popen', return_value=process) as start, patch('threading.Thread'):
+        cli._spawn_background_dream(str(tmp_path / 'memory'), 'pi', '/synthetic/skill')
+    args, kwargs = start.call_args
+    assert '/synthetic/skill/SKILL.md' in args[0]
+    assert '/synthetic/skill/MEMORY.md' in args[0]
+    assert any(item.endswith('memory-tools.ts') for item in args[0])
+    assert kwargs['env']['WATARI_PYTHON'] == sys.executable
+    assert kwargs['env']['WATARI_HOME'] == str(tmp_path / 'memory')
