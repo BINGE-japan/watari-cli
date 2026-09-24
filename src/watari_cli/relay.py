@@ -5,10 +5,10 @@ tail し、user＋assistant の発話テキストだけ（tool 出力・thinking
 クラウドのマシン別ファイルへ追記する。＝別マシンの夢がこの会話を読めるようにする素材の中継。
 
 - 発火は数秒ポーリング（zero-dep で移植性優先。実質ターン終了時に送信になる粒度）。
-- 送信失敗（offline 等）はローカルキューに繰り越し、次の tick か次回 chat で再送。
+- 送信失敗（offline 等）はローカルキューに繰り越し、待機時間を増やしながら再送。
 - 終了時（正常/SIGINT は finally、SIGTERM はハンドラ）に最終 flush。
 - Google連携が完全未設定なら start() は何もしない。設定済みなのに実接続できない場合は即時警告し、
-  発話をローカルキューへ残して再認証後の次回chatで再送する。
+  発話をローカルキューへ残し、通信復旧・再認証後は同じchat内で自動再送する。
 
 抽出のバイトオフセット・再送キューはローカル状態（XDG_STATE_HOME/watari、非同期・マシン固有）。
 """
@@ -19,11 +19,14 @@ import json
 import os
 import sys
 import threading
+import time
 
 from watari_cli import cloud, storage
 
 # 送信キューがこの大きさを超えたら「同期が滞っている」として1行警告する
 QUEUE_WARN_BYTES = 10 * 1024 * 1024
+RETRY_INITIAL_SECONDS = 5.0
+RETRY_MAX_SECONDS = 300.0
 
 
 def _state_dir() -> str:
@@ -90,7 +93,9 @@ class Relay:
         self._thread: threading.Thread | None = None
         self._store: cloud.CloudStore | None = None
         self._enabled = False  # Google連携を設定した利用者だけローカルキューを使う
-        self._warned_sync_failure = False
+        self._warned_failures: set[str] = set()
+        self._next_retry_at = 0.0
+        self._retry_delay = RETRY_INITIAL_SECONDS
         self._offsets = _load_offsets()
         self._meta: dict[str, dict] = {}  # path -> {"cwd", "session"}
         self._pi_cursor = _pi_cursor_epoch(home)  # 初見ファイルの「夢見済み」判定用
@@ -100,25 +105,47 @@ class Relay:
         if not cloud.is_configured():
             return  # 完全未設定（同期を使っていない）は無言で中継しない
         self._enabled = True
-        if cloud.has_live_authorization():
-            self._store = cloud.get_store()
-        if self._store is None:
-            # 保存値の存在だけでなくtoken実交換に失敗した場合も即時に知らせる。送れない間も
-            # transcript抽出は続け、再認証後に送れるようローカルキューへ残す。
-            self._warn_sync_failure()
+        self._connect()
         self._warn_if_queue_large()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
-    def _warn_sync_failure(self) -> None:
-        if self._warned_sync_failure:
+    def _connect(self) -> bool:
+        try:
+            cloud.check_live_authorization()
+            self._store = cloud.get_store()
+            if self._store is None:
+                raise cloud.OAuthTokenError("接続設定を確認してください。", code="missing_credentials")
+        except cloud.CloudError as error:
+            self._record_failure(error)
+            return False
+        return True
+
+    def _record_failure(self, error: cloud.CloudError) -> None:
+        needs_auth = isinstance(error, cloud.OAuthTokenError) and error.requires_reauthentication
+        delay = RETRY_MAX_SECONDS if needs_auth else self._retry_delay
+        self._next_retry_at = time.monotonic() + delay
+        self._retry_delay = min(delay * 2, RETRY_MAX_SECONDS)
+        kind = "auth" if needs_auth else "connection"
+        if kind in self._warned_failures:
             return
+        if needs_auth:
+            action = "Google の認証が必要です。ターミナルで `watari auth` を実行してください。"
+        else:
+            action = "接続を確認できませんでした。自動で再試行します。"
+        # Never expose response bodies/credentials in an alert. An unknown failure is
+        # not proof that authorization was revoked; only explicit OAuth errors qualify.
         print("! ワタリは、ほかのパソコンでも会話を引き継げるようGoogle Driveを使っています。\n"
-              "  現在Google Driveに接続できないため、この会話はほかのパソコンへ"
-              "まだ共有されません。\n"
-              "  会話はこのパソコンに保存されるため、内容は失われません。\n"
-              "  直すには、ターミナルで `watari auth` を実行してください。", file=sys.stderr)
-        self._warned_sync_failure = True
+              "  会話の共有が保留されています。会話はこのパソコンに保存されるため、内容は失われません。\n"
+              f"  {action}", file=sys.stderr)
+        self._warned_failures.add(kind)
+
+    def _recovered(self) -> None:
+        if self._warned_failures:
+            print("会話の同期が再開しました。保留分も送信しました。", file=sys.stderr)
+        self._warned_failures.clear()
+        self._next_retry_at = 0.0
+        self._retry_delay = RETRY_INITIAL_SECONDS
 
     def _warn_if_queue_large(self) -> None:
         """送信できていないキューが肥大していたら1行警告する（会話は止めない）。"""
@@ -129,7 +156,7 @@ class Relay:
         if size > QUEUE_WARN_BYTES:
             mb = size / (1024 * 1024)
             print(f"! 送信できていない会話データが {mb:.0f}MB たまっています。"
-                  "続く場合は watari auth でログインし直してください。", file=sys.stderr)
+                  "接続状況を確認しながら自動で再送します。", file=sys.stderr)
 
     def _loop(self) -> None:
         while not self._stop.is_set():
@@ -264,14 +291,18 @@ class Relay:
                 content = f.read()
         except FileNotFoundError:
             return
-        if not content or self._store is None:
+        if not content or time.monotonic() < self._next_retry_at:
             return
+        if self._store is None:
+            if not self._enabled or not self._connect():
+                return
         try:
             self._store.append(self.cloud_name, content)
-        except cloud.CloudError:
-            self._warn_sync_failure()
-            return  # 繰り越し（キューはそのまま・次回再送）
+        except cloud.CloudError as error:
+            self._record_failure(error)
+            return  # 繰り越し（キューはそのまま・待機後に再送）
         storage.atomic_write_text(_queue_path(), "")  # 送信成功 → キューを空に
+        self._recovered()
 
 
 def prune_cloud(home: str, days: int = 90) -> None:

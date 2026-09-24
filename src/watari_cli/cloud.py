@@ -81,9 +81,19 @@ class CloudError(Exception):
 class OAuthTokenError(CloudError):
     """Google token endpoint が返したOAuthエラー。機械判定用のcodeを保持する。"""
 
-    def __init__(self, message: str, *, code: str | None = None):
+    def __init__(self, message: str, *, code: str | None = None,
+                 status: int | None = None):
         super().__init__(message)
         self.code = code
+        self.status = status
+
+    @property
+    def requires_reauthentication(self) -> bool:
+        # An unavailable/rate-limited endpoint is not evidence of revoked credentials.
+        return self.status in (None, 400, 401, 403) and self.code in (
+            "missing_credentials", "missing_token", "invalid_grant", "invalid_client",
+            "deleted_client", "unauthorized_client", "access_denied",
+        )
 
 
 def _http_with_headers(method: str, url: str, headers: dict | None = None, data: bytes | None = None):
@@ -119,6 +129,13 @@ def is_authorized() -> bool:
     return is_configured() and bool(_refresh_token())
 
 
+def check_live_authorization() -> None:
+    """Check saved credentials without discarding the reason for a failure."""
+    if not is_configured():
+        raise OAuthTokenError("Google との接続設定がありません。", code="missing_credentials")
+    _access_token()
+
+
 def has_live_authorization() -> bool:
     """保存済み refresh token を実際に交換できるか確認する。
 
@@ -128,7 +145,8 @@ def has_live_authorization() -> bool:
     if not is_authorized():
         return False
     try:
-        return bool(_access_token())
+        check_live_authorization()
+        return True
     except (CloudError, json.JSONDecodeError, KeyError, TypeError):
         return False
 
@@ -140,7 +158,7 @@ def oauth_client_is_deleted() -> bool:
     try:
         _access_token()
     except OAuthTokenError as error:
-        return error.code == "deleted_client"
+        return error.code == "deleted_client" and error.requires_reauthentication
     except (CloudError, json.JSONDecodeError, KeyError, TypeError):
         return False
     return False
@@ -149,7 +167,9 @@ def oauth_client_is_deleted() -> bool:
 def _access_token() -> str:
     rt = _refresh_token()
     if not rt:
-        raise CloudError("Google にログインしていません。watari auth を実行し、ブラウザで承認してください。")
+        raise OAuthTokenError(
+            "Google にログインしていません。watari auth を実行し、ブラウザで承認してください。",
+            code="missing_token")
     data = urllib.parse.urlencode({
         "client_id": _client_id(), "client_secret": _client_secret(),
         "refresh_token": rt, "grant_type": "refresh_token",
@@ -161,12 +181,22 @@ def _access_token() -> str:
             error_code = json.loads(body).get("error")
         except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
             error_code = None
-        raise OAuthTokenError(
-            f"Google へのログインが期限切れか取り消されています({status})。"
-            f"watari auth で再ログインしてください（詳細: {connector_http.body_text(body)}）",
-            code=error_code,
-        )
-    return json.loads(body)["access_token"]
+        error = OAuthTokenError("", code=error_code if isinstance(error_code, str) else None,
+                                status=status)
+        if error.requires_reauthentication:
+            message = (f"Google へのログインが期限切れか取り消されています({status})。"
+                       "watari auth で再ログインしてください。")
+        else:
+            message = f"Google との接続を確認できませんでした({status})。時間をおいて再試行してください。"
+        raise OAuthTokenError(message, code=error.code, status=status)
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise CloudError("Google からの応答を確認できませんでした。") from error
+    token = payload.get("access_token") if isinstance(payload, dict) else None
+    if not isinstance(token, str) or not token.strip():
+        raise CloudError("Google からの応答を確認できませんでした。")
+    return token
 
 
 def access_token() -> str:

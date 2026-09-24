@@ -95,6 +95,34 @@ class AuthTest(_Base):
         self.assertFalse(cloud.has_live_authorization())
         self.assertTrue(cloud.oauth_client_is_deleted())
 
+    def test_server_failure_is_not_misclassified_as_deleted_client(self):
+        self.fake(lambda m, u, d: (503, b'{"error":"deleted_client"}'))
+        self.assertFalse(cloud.oauth_client_is_deleted())
+
+    def test_access_token_errors_preserve_status_without_false_auth_guidance(self):
+        for status, body in ((429, b'{"error":"rate_limit_exceeded"}'),
+                             (503, b'{"error":"invalid_grant"}'),
+                             (400, b'{"error":"unknown_error"}'),
+                             (502, b'not-json'), (500, b'[]'),
+                             (400, b'{"error":[]}')):
+            with self.subTest(status=status, body=body):
+                self.fake(lambda m, u, d: (status, body))
+                with self.assertRaises(cloud.OAuthTokenError) as caught:
+                    cloud.access_token()
+                self.assertEqual(caught.exception.status, status)
+                self.assertFalse(caught.exception.requires_reauthentication)
+                self.assertNotIn('watari auth', str(caught.exception))
+                self.assertFalse(cloud.has_live_authorization())
+
+    def test_invalid_token_response_fails_closed(self):
+        for body in (b'not-json', b'[]', b'null', b'{}', b'{"access_token":true}',
+                     b'{"access_token":" "}', b'\xff'):
+            with self.subTest(body=body):
+                self.fake(lambda m, u, d: (200, body))
+                with self.assertRaises(cloud.CloudError):
+                    cloud.access_token()
+                self.assertFalse(cloud.has_live_authorization())
+
     def test_revoked_token_is_not_misclassified_as_deleted_client(self):
         self.fake(lambda m, u, d: (
             400, b'{"error":"invalid_grant","error_description":"token revoked"}'))

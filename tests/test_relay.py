@@ -15,6 +15,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from watari_cli import cloud, relay
 from watari_cli.engine.watari_lib import fmt_ts, now_utc
@@ -148,11 +149,13 @@ class TickFlushTest(_Base):
         self._one_user()
         r = relay.Relay(self.pi_store, "m1")
         r._store = FakeStore(fail=True)
-        r._tick()  # 送信失敗 → queue に残る
+        with patch("time.monotonic", return_value=100):
+            r._tick()  # 送信失敗 → queue に残る
         with open(relay._queue_path(), encoding="utf-8") as f:
             self.assertIn("hi", f.read())
-        r._store = FakeStore()  # 復帰
-        r._flush()
+        r._store = FakeStore()  # 復帰（再試行の待機時間を進める）
+        with patch("time.monotonic", return_value=105):
+            r._flush()
         self.assertIn("hi", r._store.data["transcripts-m1.jsonl"])
         with open(relay._queue_path(), encoding="utf-8") as f:
             self.assertEqual(f.read(), "")
@@ -162,7 +165,10 @@ class TickFlushTest(_Base):
         r = relay.Relay(self.pi_store, "m1")
         r._store = FakeStore(fail=True)
         err = io.StringIO()
-        with contextlib.redirect_stderr(err):
+        # Reauthentication is appropriate only for a confirmed OAuth failure.
+        with contextlib.redirect_stderr(err), patch.object(
+                r._store, "append", side_effect=cloud.OAuthTokenError(
+                    "synthetic revocation", code="invalid_grant")):
             r._tick()
             r._flush()
         self.assertIn("ワタリは", err.getvalue())
@@ -180,7 +186,9 @@ class TickFlushTest(_Base):
         r = relay.Relay(self.pi_store, "m1")
         r._enabled = True
         r._store = None
-        r.stop_and_flush()
+        with patch.object(cloud, "check_live_authorization", side_effect=cloud.OAuthTokenError(
+                "synthetic revocation", code="invalid_grant")):
+            r.stop_and_flush()
         with open(relay._queue_path(), encoding="utf-8") as f:
             self.assertIn("hi", f.read())
 
@@ -223,20 +231,15 @@ class FirstRunSkipTest(_Base):
 
 class StartTest(_Base):
     def _start(self, *, configured, store, live=True):
-        saved = (cloud.get_store, cloud.is_configured, cloud.has_live_authorization)
-        cloud.get_store = lambda: store
-        cloud.is_configured = lambda: configured
-        cloud.has_live_authorization = lambda: live
         r = relay.Relay(self.pi_store, "m1")
         err = io.StringIO()
-        try:
-            with contextlib.redirect_stderr(err):
-                r.start()
-        finally:
-            cloud.get_store, cloud.is_configured, cloud.has_live_authorization = saved
-            r._stop.set()
-            if r._thread is not None:
-                r._thread.join(timeout=5)
+        failure = None if live else cloud.OAuthTokenError("synthetic revocation", code="invalid_grant")
+        # Keep network and thread activity inside the mock lifetime.
+        with patch.object(cloud, "get_store", return_value=store), \
+                patch.object(cloud, "is_configured", return_value=configured), \
+                patch.object(cloud, "check_live_authorization", side_effect=failure), \
+                patch("threading.Thread.start"), contextlib.redirect_stderr(err):
+            r.start()
         return r, err.getvalue()
 
     def test_start_silent_noop_when_fully_unconfigured(self):
@@ -274,7 +277,8 @@ class StartTest(_Base):
         finally:
             relay.QUEUE_WARN_BYTES = saved_limit
         self.assertIn("たまっています", err)
-        self.assertIn("watari auth", err)
+        self.assertIn("自動で再送", err)
+        self.assertNotIn("watari auth", err)  # queue size alone is not an auth failure
 
     def test_start_no_queue_warning_under_limit(self):
         with open(relay._queue_path(), "w", encoding="utf-8") as f:
