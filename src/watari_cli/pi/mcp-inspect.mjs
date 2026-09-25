@@ -1,7 +1,7 @@
 // Offline public API only. Never return raw server definitions or credentials.
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
-import { connectionBinding } from './mcp-management.mjs';
+import { connectionBinding, authHints, definitionFingerprint } from './mcp-management.mjs';
 const [root, cwd] = process.argv.slice(2);
 try {
   let warning = false;
@@ -21,6 +21,7 @@ try {
     const entry = cache?.servers?.[name];
     const valid = entry && metadata.isServerCacheValid(entry, def);
     return {
+      ...authHints(def), definition_fingerprint: definitionFingerprint(def),
       name, status: def.disabled || def.enabled === false ? 'disabled' : 'configured',
       connection_binding: (() => { try { return connectionBinding(config, name, cwd, metadata); } catch { return null; } })(),
       transport: def.url ? 'http' : def.socket ? 'socket' : 'stdio',
@@ -31,7 +32,7 @@ try {
       tools: valid ? (entry.tools || []).slice(0, 1000).map(t => ({ name: t.name })) : [],
     };
   });
-  const presets = (api.KNOWN_SERVER_PRESETS || []).filter(p => p.entry?.url).map(p => ({id:p.id,name:p.name,url:p.entry.url,auth:p.entry.auth || 'none'}));
+  const presets = (api.KNOWN_SERVER_PRESETS || []).filter(p => p.entry?.url).map(p => ({id:p.id,name:p.name,url:p.entry.url,...authHints(p.entry),auth:authHints(p.entry).oauth_setup_required ? 'bearer' : p.entry.auth || 'none'}));
   process.stdout.write(JSON.stringify({ version: 1, servers, presets, config_files: discovery.sources.filter(s => s.exists).map(s => s.path) }));
 } catch {
   process.stderr.write('MCP configuration inspection failed.');

@@ -135,6 +135,9 @@ MCPのURLが分かっている場合は `watari connect team-docs --url https://
 登録前に接続名・URL・保存先を確認します。URLへAPIキーを含めないでください。
 `watari connect --list` は設定の確認だけで、外部へ接続しません。
 新規のローカル実行型MCPなどの詳細設定は `watari connect --advanced` で開けます。
+GitHubは、[OAuth用アプリの事前登録](https://github.com/github/github-mcp-server/blob/main/docs/host-integration.md)が必要なため、通常はアクセストークン（PAT）方式を使います。
+以前ブラウザ認証で登録した場合は、一覧で選んで「アクセストークン方式に切り替える」から変更できます。
+対象リポジトリと必要最小限の権限だけを選び、トークンは端末の非表示入力に貼り付けてください。チャットには貼らないでください。
 管理操作はAdapter 2.37.0で検証しています。未検証の版では、詳細設定の画面を利用してください。
 
 認証情報はAdapterの既存の保管先だけに保存し、ワタリへ複製しません。

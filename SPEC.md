@@ -82,6 +82,12 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   Python・argv・設定・結果・診断ログへ転記しない。sampling/elicitation/traceは管理操作で有効にしない。
   公開APIに管理接続がないため、小さなNode bridgeのみAdapter 2.37.0のdist管理APIに固定する。
   未検証versionは管理操作を拒否し詳細画面へ案内する。protocol/authの独自実装はしない。
+  GitHubのhosted MCPはOAuth用アプリの事前登録が必要（公式host-integration.md）。Adapterのpresetをそのまま
+  ブラウザ認証可能とは扱わず、基本追加UIはPAT方式を提示する。既存の登録済みOAuthアプリ設定は維持する。
+  既存接続には本人確認付きの「アクセストークン方式に切り替える」を提供する。共通設定の単純な定義のみを対象に、
+  確認時のbindingと有効な定義のfingerprintをロック内で照合する。別設定の上書き・headers・oauth・秘密の削除は拒否。
+  新規追加後は認証を先に選択する。DCR非対応・401/403・通信・timeout・一時障害は安全な分類で次の操作を案内し、
+  生の例外・応答本文・秘密は表示しない。修正検証も合成データ・模擬HTTP・Adapterのテスト用保管先だけを使う。
   確認時の定義・解決済み環境参照・認証保管設定・cwdをhashで束縛し、操作直前の変更時は再確認を要求する。
   中止・timeout・失敗で子プロセス、接続、OAuth待受を片付ける。通信は明示された管理操作にだけ必要である。
   Adapterは本人が `pi install npm:pi-mcp-adapter@2.37.0` で導入する。未導入時は案内のみで、自動installしない。

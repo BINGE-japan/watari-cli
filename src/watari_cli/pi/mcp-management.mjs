@@ -16,6 +16,47 @@ export function connectionBinding(config, name, cwd, metadata) {
   ])).digest('hex');
 }
 
+// Public provider constraints, not personal configuration. GitHub documents that
+// OAuth hosts must register an app; the adapter's preset alone is insufficient:
+// https://github.com/github/github-mcp-server/blob/main/docs/host-integration.md
+export function authHints(definition) {
+  try {
+    const url = new URL(definition.url);
+    if (url.protocol === 'https:' && url.hostname === 'api.githubcopilot.com'
+        && (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/'))) {
+      return {
+        oauth_setup_required: !definition.oauth?.clientId,
+        token_help_url: 'https://github.com/settings/personal-access-tokens/new',
+      };
+    }
+  } catch {}
+  return {};
+}
+
+export function definitionFingerprint(definition) {
+  return createHash('sha256').update(JSON.stringify(Object.keys(definition).sort().map(key => [key, definition[key]]))).digest('hex');
+}
+
+export function classifyFailure(error, signal) {
+  if (signal?.aborted) return 'cancelled';
+  const errors = [];
+  const visit = (err, depth = 0) => {
+    if (!err || depth > 3 || errors.includes(err)) return;
+    errors.push(err); visit(err.cause, depth + 1);
+    if (Array.isArray(err.errors)) for (const item of err.errors.slice(0, 10)) visit(item, depth + 1);
+  };
+  visit(error);
+  if (errors.some(e => ['OAUTH_CREDENTIAL_STORE_UNAVAILABLE','BEARER_CREDENTIAL_STORE_UNAVAILABLE'].includes(e.code))) return 'credential-store-unavailable';
+  // Match SDK-owned text, never echo exception messages or response bodies.
+  if (errors.some(e => e.message === 'Incompatible auth server: does not support dynamic client registration')) return 'oauth-client-required';
+  if (errors.some(e => e.status === 401 || e.name === 'UnauthorizedError')) return 'needs-auth';
+  if (errors.some(e => e.status === 403)) return 'forbidden';
+  if (errors.some(e => e.status === 429 || (e.status >= 500 && e.status <= 599))) return 'server-error';
+  if (errors.some(e => ['ETIMEDOUT','UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT'].includes(e.code))) return 'timeout';
+  if (errors.some(e => ['ENOTFOUND','EAI_AGAIN','ECONNREFUSED','ECONNRESET','ENETUNREACH','EHOSTUNREACH'].includes(e.code))) return 'network-error';
+  return 'error';
+}
+
 // readline owns raw-mode restoration; output is discarded so callback codes and
 // bearer tokens never echo. Adapter validates OAuth state, issuer and token exchange.
 export async function hiddenInput(signal, prompt) {
@@ -86,16 +127,7 @@ export async function manageConnection(request, deps) {
   } catch (error) {
     // Never print an adapter/remote exception: messages can contain URL credentials,
     // command arguments, response bodies and tokens. Expose allowlisted categories.
-    const codes = new Set();
-    const visit = (err, depth = 0) => {
-      if (!err || depth > 3) return;
-      codes.add(err.code);
-      visit(err.cause, depth + 1);
-      if (Array.isArray(err.errors)) for (const item of err.errors.slice(0, 10)) visit(item, depth + 1);
-    };
-    visit(error);
-    answer = error instanceof ManagementFailure ? result(error.status) : result(signal?.aborted ? 'cancelled' :
-      codes.has('OAUTH_CREDENTIAL_STORE_UNAVAILABLE') || codes.has('BEARER_CREDENTIAL_STORE_UNAVAILABLE') ? 'credential-store-unavailable' : 'error');
+    answer = result(error instanceof ManagementFailure ? error.status : classifyFailure(error, signal));
   } finally {
     try { await manager?.closeAll(); } catch { answer = result('cleanup-failed'); }
     try { if (runtime) await flow.shutdownOAuth(runtime); } catch { answer = result('cleanup-failed'); }
@@ -150,7 +182,7 @@ export async function main(argv) {
       },
     });
     emit(answer);
-  } catch { emit({version:1,status:'error'}); }
+  } catch { emit({version:1,status:'adapter-error'}); }
   finally {
     clearTimeout(timer); clearTimeout(hardStop);
     process.removeListener('SIGINT',stop); process.removeListener('SIGTERM',stop);

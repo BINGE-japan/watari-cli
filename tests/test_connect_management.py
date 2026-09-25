@@ -189,3 +189,52 @@ class ConnectManagementTest(unittest.TestCase):
                 if process.poll() is None: process.kill(); process.wait()
             for thread in workers: thread.join(timeout=6)
             termios.tcsetattr(slave,termios.TCSANOW,before);os.close(master);os.close(slave)
+
+    def test_token_switch_preserves_other_settings_and_requires_current_binding(self):
+        path=self.root/'mcp.json'
+        value={'mcpServers':{'example':{'url':'https://mcp.example.com/mcp','auth':'oauth','approveTools':True,'lifecycle':'lazy'},'other':{'command':'synthetic'}},'settings':{'sampling':False}}
+        path.write_text(json.dumps(value))
+        import hashlib
+        self.server['definition_fingerprint']=hashlib.sha256(json.dumps(sorted(value['mcpServers']['example'].items()),ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+        with patch.object(mcp,'shared_config_path',return_value=path), patch.object(mcp,'inventory',return_value=self.inventory):
+            mcp.switch_to_token(self.server)
+        changed=json.loads(path.read_text())
+        self.assertEqual(changed['mcpServers']['example']['auth'],'bearer')
+        self.assertIs(changed['mcpServers']['example']['bearerTokenStore'],True)
+        self.assertEqual(changed['mcpServers']['other'],value['mcpServers']['other'])
+        self.assertEqual(changed['settings'],value['settings'])
+        before=path.read_text()
+        with patch.object(mcp,'shared_config_path',return_value=path), patch.object(mcp,'inventory',return_value={**self.inventory,'servers':[{**self.server,'connection_binding':'b'*64}]}):
+            with self.assertRaises(mcp.ConnectionError):mcp.switch_to_token(self.server)
+        self.assertEqual(path.read_text(),before)
+
+    def test_token_switch_never_deletes_existing_credentials_or_advanced_auth(self):
+        path=self.root/'mcp.json'
+        for extra in ({'headers':{'Authorization':'synthetic-secret'}},{'oauth':{'clientId':'synthetic-client'}},{'bearerToken':'synthetic-secret'}):
+            path.write_text(json.dumps({'mcpServers':{'example':{'url':'https://mcp.example.com/mcp','auth':'oauth',**extra}}}))
+            before=path.read_text()
+            with patch.object(mcp,'shared_config_path',return_value=path), patch.object(mcp,'inventory',return_value=self.inventory):
+                with self.assertRaises(mcp.ConnectionError):mcp.switch_to_token(self.server)
+            self.assertEqual(path.read_text(),before)
+
+    def test_cancelled_auth_method_change_never_writes_settings(self):
+        with patch.object(prompts,'select',return_value='token'), patch.object(prompts,'confirm',return_value=False), patch.object(mcp,'switch_to_token') as write, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(mcp._manage_server(self.server),0)
+        write.assert_not_called()
+
+    def test_unregistered_oauth_preset_only_offers_token_and_prefers_auth_after_add(self):
+        preset={'id':'example','name':'Example','url':'https://mcp.example.com/mcp','auth':'bearer','oauth_setup_required':True}
+        current={**self.inventory,'servers':[],'presets':[preset]}
+        with patch.object(prompts,'select',return_value='bearer') as select, patch.object(prompts,'confirm',return_value=True), patch.object(mcp,'register_remote') as save, patch.object(mcp,'_checked_inventory',return_value=self.inventory), patch.object(mcp,'_manage_server',return_value=0) as manage, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(mcp._add_remote(current,'example',None),0)
+        self.assertEqual(select.call_args.args[1],[('アクセストークンを入力','bearer')])
+        save.assert_called_once_with('example',preset['url'],auth='bearer')
+        manage.assert_called_once_with(self.server,prefer_auth=True)
+
+    def test_different_effective_definition_prevents_auth_rewrite(self):
+        path=self.root/'mcp.json';path.write_text(json.dumps({'mcpServers':{'example':{'url':'https://mcp.example.com/mcp','auth':'oauth'}}}))
+        before=path.read_text()
+        self.server['definition_fingerprint']='b'*64
+        with patch.object(mcp,'shared_config_path',return_value=path), patch.object(mcp,'inventory',return_value=self.inventory):
+            with self.assertRaises(mcp.ConnectionError):mcp.switch_to_token(self.server)
+        self.assertEqual(path.read_text(),before)

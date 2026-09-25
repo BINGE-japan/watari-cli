@@ -73,3 +73,25 @@ test('early authentication refusal still reports a failed cleanup',async()=>{
  assert.equal((await manageConnection(request(f,'auth'),f)).status,'cleanup-failed');
  assert.ok(f.calls.some(c=>c[0]==='shutdown'));
 });
+test('OAuth client registration failure is actionable without returning raw errors',async()=>{
+ const f=fixture();f.flow.authenticate=async()=>{throw new Error('Incompatible auth server: does not support dynamic client registration');};
+ const r=await manageConnection(request(f,'auth'),f);
+ assert.equal(r.status,'oauth-client-required');
+ assert.ok(!JSON.stringify(r).includes('Incompatible'));
+});
+test('HTTP and network failures retain safe categories, not response text',async()=>{
+ for(const [error,status] of [[Object.assign(new Error('secret'),{status:401}),'needs-auth'],[Object.assign(new Error('secret'),{status:403}),'forbidden'],[Object.assign(new Error('secret'),{cause:{code:'ENOTFOUND'}}),'network-error']]){
+  const f=fixture();f.Manager.prototype.connect=async()=>{throw error;};
+  assert.equal((await manageConnection(request(f),f)).status,status);
+ }
+});
+test('hosted provider prerequisites do not depend on connection name or expose client identity',async()=>{
+ const {authHints,definitionFingerprint}=await import('../src/watari_cli/pi/mcp-management.mjs');
+ const url='https://api.githubcopilot.com/mcp/';
+ assert.equal(authHints({url}).oauth_setup_required,true);
+ assert.equal(authHints({url,oauth:{clientId:'synthetic-client'}}).oauth_setup_required,false);
+ assert.deepEqual(authHints({url:'https://api.githubcopilot.com.attacker.example/mcp'}),{});
+ assert.ok(!JSON.stringify(authHints({url,oauth:{clientId:'synthetic-client'}})).includes('synthetic-client'));
+ assert.equal(definitionFingerprint({auth:'oauth',url}),definitionFingerprint({url,auth:'oauth'}));
+ assert.notEqual(definitionFingerprint({auth:'oauth',url}),definitionFingerprint({auth:'bearer',url}));
+});

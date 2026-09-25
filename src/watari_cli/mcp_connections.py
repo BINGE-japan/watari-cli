@@ -6,6 +6,8 @@ Inspection only calls its public config/metadata exports, which do not connect s
 from __future__ import annotations
 
 import json
+import hashlib
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
@@ -63,12 +65,8 @@ def validate_url(url: str) -> str:
     return url
 
 
-def register_remote(name: str, url: str, *, auth: str = 'auto') -> None:
-    if auth not in ('auto', 'oauth', 'bearer', 'none'):
-        raise ConnectionError('認証方式が不正です。')
-    if not re.fullmatch(r'[a-z][a-z0-9-]{0,62}', name):
-        raise ConnectionError('接続名は小文字の英字で始まる英数字とハイフンで指定してください。')
-    validate_url(url)
+@contextmanager
+def _locked_shared_config():
     path = shared_config_path()
     # Reject links before taking a lock (also refuse a linked parent).
     if path.is_symlink() or path.parent.is_symlink():
@@ -91,6 +89,16 @@ def register_remote(name: str, url: str, *, auth: str = 'auto') -> None:
             if 'schema_version' in value or 'mcp-servers' in value: raise ValueError
         except (OSError, ValueError):
             raise ConnectionError('既存の接続設定を安全に読み取れません。watari connect --advanced で編集してください。') from None
+        yield path, value
+
+
+def register_remote(name: str, url: str, *, auth: str = 'auto') -> None:
+    if auth not in ('auto', 'oauth', 'bearer', 'none'):
+        raise ConnectionError('認証方式が不正です。')
+    if not re.fullmatch(r'[a-z][a-z0-9-]{0,62}', name):
+        raise ConnectionError('接続名は小文字の英字で始まる英数字とハイフンで指定してください。')
+    validate_url(url)
+    with _locked_shared_config() as (path, value):
         servers = value.setdefault('mcpServers', {})
         if name in servers:
             if isinstance(servers[name], dict) and servers[name].get('url') == url:
@@ -104,6 +112,26 @@ def register_remote(name: str, url: str, *, auth: str = 'auto') -> None:
         if not isinstance(settings, dict): raise ConnectionError('接続設定の形式が不正です。')
         settings.setdefault('sampling', False)
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        storage.atomic_write_text(str(path), storage.json_text(value))
+
+
+def switch_to_token(server: dict) -> None:
+    """Explicit user-approved edit of a simple shared entry, never credentials."""
+    with _locked_shared_config() as (path, value):
+        current = _checked_inventory()
+        effective = next((s for s in current['servers'] if s['name'] == server['name']), None)
+        if not server.get('connection_binding') or not effective or effective.get('connection_binding') != server['connection_binding']:
+            raise ConnectionError('確認後に設定が変わりました。もう一度 watari connect を開いてください。')
+        definition = value.get('mcpServers', {}).get(server['name'])
+        allowed = {'url','auth','bearerTokenStore','lifecycle','approveTools','protocolVersion'}
+        if not isinstance(definition, dict) or set(definition) - allowed:
+            raise ConnectionError('詳細な認証設定または別の保存先を使用しています。watari connect --advanced で変更してください。')
+        fingerprint = hashlib.sha256(json.dumps(sorted(definition.items()), ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
+        if fingerprint != server.get('definition_fingerprint'):
+            raise ConnectionError('別の設定が優先されているか、設定が変わっています。watari connect --advanced で確認してください。')
+        validate_url(definition.get('url', ''))
+        definition['auth'] = 'bearer'
+        definition['bearerTokenStore'] = True
         storage.atomic_write_text(str(path), storage.json_text(value))
 
 
@@ -181,7 +209,8 @@ def run_operation(server: dict, action: str) -> dict:
     result = None
     statuses = {'connected','needs-auth','changed','disabled','missing','invalid','cancelled','error',
                 'credential-store-unavailable','cleanup-failed','config-error','unsupported-version',
-                'unsupported-auth','advanced-auth','tty-required'}
+                'unsupported-auth','advanced-auth','tty-required','oauth-client-required','forbidden',
+                'network-error','server-error','timeout','adapter-error'}
     try:
         size = 0
         while line := process.stdout.readline(16385):
@@ -231,7 +260,7 @@ def _checked_inventory() -> dict:
     return value
 
 
-def _manage_server(server: dict) -> int:
+def _manage_server(server: dict, *, prefer_auth: bool = False) -> int:
     from . import prompts
     name = server['name']
     print(f"\n{_display(name)} — {_display(server.get('endpoint') or server.get('transport', ''))}")
@@ -240,15 +269,36 @@ def _manage_server(server: dict) -> int:
         return 2
     options = [('接続を確認', 'check')]
     if server.get('transport') == 'http' and server.get('authentication') != 'none': options.append(('認証して接続を確認', 'auth'))
+    if server.get('transport') == 'http' and server.get('authentication') != 'bearer':
+        options.append(('アクセストークン方式に切り替える', 'token'))
     options += [('詳細設定（Pi）', 'advanced'), ('終了', None)]
-    action = prompts.select('操作を選んでください', options)
+    if server.get('oauth_setup_required') and server.get('authentication') in ('auto','oauth'):
+        print('このサービスのブラウザ認証には接続アプリの事前登録が必要です。未登録の場合はアクセストークン方式を選んでください。')
+        default = next((i for i, (_, mode) in enumerate(options) if mode == 'token'), 0)
+    else:
+        default = next((i for i, (_, mode) in enumerate(options) if prefer_auth and mode == 'auth'), 0)
+    action = prompts.select('操作を選んでください', options, default=default)
     if action is None: return 0
     if action == 'advanced': return launch_setup('/mcp')
+    if action == 'token':
+        print(f'この接続の認証方式をアクセストークン方式へ変更します。保存先: {shared_config_path()}')
+        print('保存済みの認証情報や、ほかの接続は削除しません。')
+        if not prompts.confirm('この認証方式へ変更しますか？', default=False): return 0
+        switch_to_token(server)
+        fresh = next((s for s in _checked_inventory()['servers'] if s['name'] == name), None)
+        if not fresh or fresh.get('authentication') != 'bearer':
+            raise ConnectionError('変更後の設定を確認できません。watari connect --advanced で確認してください。')
+        return _manage_server(fresh, prefer_auth=True)
     if server.get('transport') in ('stdio','socket'):
         print('設定済みのローカルプログラムを実行、またはローカル接続を開始します。')
     else:
         print('このサービスと通信します。設定によっては認証用のローカルプログラムも実行されます。')
-    if action == 'auth': print('認証情報はPi MCP Adapterの既存の保管先へ保存します。')
+    if action == 'auth':
+        print('認証情報はPi MCP Adapterの既存の保管先へ保存します。')
+        if server.get('authentication') == 'bearer' and server.get('token_help_url') == 'https://github.com/settings/personal-access-tokens/new':
+            print('GitHubのFine-grained personal access tokenを作成し、対象リポジトリと必要最小限の権限だけを選んでください。')
+            print(server['token_help_url'])
+            print('トークンはこの端末の非表示入力へ貼り付けてください。チャットには貼らないでください。')
     print('ツールの実行やAIへの送信は行いません。中止はCtrl+Cです。')
     if not prompts.confirm('この接続先で実行しますか？', default=False): return 0
     print('認証・接続を確認しています。' if action == 'auth' else '接続を確認しています。', flush=True)
@@ -259,6 +309,12 @@ def _manage_server(server: dict) -> int:
         print('watari chat で利用できます。既に開いている会話には再起動が必要な場合があります。')
         return 0
     messages = {
+        'oauth-client-required':'このサービスはOAuth接続アプリの事前登録が必要です。認証方式をアクセストークンへ切り替えるか、詳細設定で登録済みアプリを指定してください。',
+        'forbidden':'サービスがアクセスを拒否しました（HTTP 403）。トークンの権限・対象リポジトリ・組織側の利用許可を確認してください。',
+        'network-error':'通信先へ接続できません。インターネット接続・DNS・プロキシ設定を確認してください。',
+        'server-error':'サービス側で一時エラーまたは利用制限が発生しています。時間を置いて再試行してください。',
+        'timeout':'接続処理が時間内に完了しませんでした。通信状態を確認して再試行してください。',
+        'adapter-error':'接続用プログラムの読込または初期設定に失敗しました。Pi MCP Adapterの導入状態を確認してください。',
         'needs-auth':'認証が必要です。もう一度 watari connect を開き「認証して接続を確認」を選んでください。',
         'changed':'確認後に設定が変わりました。もう一度 watari connect を開いて接続先を確認してください。',
         'credential-store-unavailable':'認証情報の保管先を利用できません。OSのキーチェーン設定を確認するか watari connect --advanced を開いてください。',
@@ -286,7 +342,12 @@ def _add_remote(current: dict, name: str | None, url: str | None) -> int:
     name = name or prompts.text('接続名（例: team-docs）')
     if any(s.get('name') == name for s in current.get('servers', [])):
         raise ConnectionError('同じ名前のMCP接続が既に設定されています。一覧から選ぶか別の接続名にしてください。')
-    modes = [('ブラウザでログイン（OAuth）','oauth'),('アクセストークンを入力','bearer'),('認証不要','none')]
+    preset = preset or next((p for p in presets if p.get('url', '').rstrip('/') == url.rstrip('/')), None)
+    if preset and preset.get('oauth_setup_required'):
+        print('このサービスのブラウザ認証にはアプリの事前登録が必要です。ここではアクセストークンで接続します。')
+        modes = [('アクセストークンを入力','bearer')]
+    else:
+        modes = [('ブラウザでログイン（OAuth）','oauth'),('アクセストークンを入力','bearer'),('認証不要','none')]
     default = next((i for i, (_, mode) in enumerate(modes) if preset and mode == preset.get('auth')), 0)
     auth = prompts.select('サービス指定の認証方式', modes, default=default)
     print(f'MCP接続先: {url}\n接続名: {_display(name)}\n保存先: {shared_config_path()}')
@@ -297,7 +358,7 @@ def _add_remote(current: dict, name: str | None, url: str | None) -> int:
     fresh = _checked_inventory()
     server = next((s for s in fresh['servers'] if s['name'] == name), None)
     if not server: raise ConnectionError('登録後の設定を確認できません。watari connect --advanced を開いてください。')
-    return _manage_server(server)
+    return _manage_server(server, prefer_auth=True)
 
 
 def connect(args) -> int:
