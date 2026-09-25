@@ -33,10 +33,41 @@ CURSOR_KEYS = (
 
 
 def machine_id() -> str:
-    """このマシンの安定した（乱数を使わない）ファイル名安全なスラッグ。"""
+    """このマシンの安定した（乱数を使わない）ファイル名安全なスラッグ。
+
+    既存の会話同期名・カーソルとの互換性を保つため、WSLでも従来どおり Linux 名を維持する。
+    利用者が認識する物理的なパソコンは runtime_context() の computer で別に表す。
+    """
     raw = f"{platform.system().lower()}-{socket.gethostname()}"
     slug = re.sub(r"[^a-z0-9-]+", "-", raw.lower()).strip("-")
     return slug or "unknown"
+
+
+def runtime_context() -> dict:
+    """現在のパソコンと、その中でwatariを動かす実行層を区別して返す。
+
+    WSLは独立したパソコンではなくWindows上の実行層として扱う。machine_idは同期互換のため
+    変更せず、computer/runtimeを判断用の明示フィールドとして追加する。
+    """
+    system = platform.system()
+    is_wsl = system == "Linux" and bool(
+        os.environ.get("WSL_DISTRO_NAME")
+        or os.environ.get("WSL_INTEROP")
+        or "microsoft" in platform.release().lower()
+    )
+    if is_wsl or system == "Windows":
+        computer = "windows"
+    elif system == "Darwin":
+        computer = "mac"
+    else:
+        computer = "linux"
+    return {
+        "machine_id": machine_id(),
+        "hostname": socket.gethostname(),
+        "computer": computer,
+        "runtime": "wsl" if is_wsl else "native",
+        "wsl_distribution": os.environ.get("WSL_DISTRO_NAME") if is_wsl else None,
+    }
 
 
 def host_path(home: str) -> str:
@@ -63,10 +94,14 @@ def build_record(home: str) -> dict:
     facts = existing.get("facts")
     if not isinstance(facts, dict):
         facts = {}
+    context = runtime_context()
     record = {
-        "machine_id": machine_id(),
-        "hostname": socket.gethostname(),
+        "machine_id": context["machine_id"],
+        "hostname": context["hostname"],
         "platform": platform.system(),
+        "computer": context["computer"],
+        "runtime": context["runtime"],
+        "wsl_distribution": context["wsl_distribution"],
         "python": platform.python_version(),
         "ai_clis": [name for name in AI_CLIS if shutil.which(name)],
         "shell": os.path.basename(os.environ.get("SHELL") or ""),

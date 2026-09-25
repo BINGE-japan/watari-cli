@@ -58,13 +58,26 @@ service credentials are used.
 - Drive snapshots carry the response's strong ETag and file ID. Append and pruning use
   conditional PATCH with `If-Match`; a conflict keeps the queue/data for a later retry.
   Pruning empties or rewrites content conditionally, rather than deleting by name.
-  A provider that omits the ETag or does not support this operation is not silently
-  downgraded to an unsafe overwrite. Legacy/custom adapters must implement the same
-  snapshot/conditional-update contract or pruning is skipped.
+  Drive v3 can omit ETag on a successful media read. In that case (or for a weak
+  ETag), bracket a fresh Drive v2 `files.get?alt=media` read with v2 file metadata
+  reads (`id,etag,version`). Both file-resource ETag and monotonic version must be
+  unchanged across the body read. The download representation's ETag can differ from
+  the file-resource ETag; only the latter is sent in `If-Match`. The revision carries
+  `v2`, so conditional media PATCH uses the matching v2 upload endpoint. Never attach
+  later metadata to the earlier v3 content or treat the numeric `version` as ETag.
+  A failed v3 read does not trigger fallback. If v2 also lacks a strong validator,
+  returns partial content, or fails, no write occurs. An unknown revision API fails
+  closed. No blind overwrite fallback is introduced. Legacy/custom adapters must
+  implement the same snapshot/conditional-update contract or pruning is skipped.
+  Read-only compatibility diagnosis confirmed v3 omissions and distinct v2 file/media validators;
+  a live conditional write/conflict check remains a separate approved operation.
 - A racing initial file creation is never converted to overwrite. Duplicate names are
   rejected rather than selecting an arbitrary copy. Supported single-host writers
   serialize creation through the local queue lock; shared machine identifiers on
-  independent installations are not supported.
+  independent installations are not supported. Duplicate-data and missing-validator
+  failures display fixed data-repair diagnostics instead of suggesting relogin;
+  raw provider response bodies are not rendered. Existing duplicates are not silently
+  merged, renamed, or deleted. Repair needs exact-target review and user approval.
 - Network access is required only for the existing explicit service operations. The
   new request-header access exists specifically to prevent remote lost updates; no
   additional credential collection or background destination is introduced.

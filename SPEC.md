@@ -25,6 +25,8 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   確認事項はユーザー発言としてモデルへ渡さず、ユーザー自身が触れるまで会話へ持ち込まない。
 - **決定論**：log＝正本（追記専用）→ state＝派生（log から再生成）。同じ log＋now なら必ず同じ state。
 - **モデル非依存**：判定はランタイム上のモデル、機械処理は CLI。**CLI はモデルも MCP も呼ばない**。
+  既存処理をPiの専用道具からも呼び、MCP化やserver移行を前提にしない。人格・承認境界は常時、
+  作業固有の判断基準と手順はその作業時だけ読み込む。モデルの安全性への期待を理由に承認境界を削らない。
 - **一般公開可能な汎用性**：特定の個人・会社・別製品・私的運用を条件分岐へ持ち込まない。
   接続サービスは共通adapter契約で扱い、ユーザー固有の事情は記憶フォルダ/configだけに置く。
 - **観測を優先して回答**：質問では利用できる実ツールの情報を優先し、成功結果を evidence として登録する。
@@ -54,6 +56,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   push、union-merge）。会話は各マシンの chat が **クラウド中継所（Google Drive appDataFolder）**へ user＋
   assistant の発話だけ送り、どのマシンの夢もそれを読む＝A で話した分を B のワタリが覚える。生 transcript は
   git に入れない（履歴から消せず容量が単調増加するため）。install で「同期する／ローカルのみ」を選べる。
+- **パソコンと実行層を区別する**：WSLは独立パソコンではなくWindows上の実行環境として扱い、現在の
+  computer/runtimeを各入力前にモデルへ渡す。localhost・127.0.0.1・端末固有パスを含む記憶は作成元を保持し、
+  現在のパソコンとの一致と到達可能性を確認できない限り、利用可能な場所として案内しない。
 
 ## スコープ（境界＝engine に入るか、カセットか）
 - **engine（配布・`src/watari_cli/`）**：CLI・記憶エンジン・人格スキル・git 同期層・クラウド中継アダプタ。
@@ -67,6 +72,20 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   スケジューラも同梱しない（cron 等の外部に任せる。`docs/scheduled-organize.md`）。
 
 ## 現在地（status — 変わったら更新する）
+- **スキルの段階的読取・Pi専用の記憶操作**：常時渡すSKILL.mdは人格・安全境界・作業別資料の案内に絞り、
+  選別基準と保存・整理手順は同梱MEMORY.mdへ集約する。/remember・/organizeは手順を複製せず同資料を参照する。
+  `pi/memory-tools.ts`は追加検索・話題別根拠取得・取得済み会話の選別準備・保存をPiの道具として公開する。
+  `memory_operations.py`は既存extract/ingest/audit/Git同期を再利用し、batchからts/source/refsとadvance引数を生成する。
+  AIから日時・作成元・cursorを受けず、各user UUIDの残す／見送る判断を必須とし、assistantは文脈専用とする。
+  会話は40件目安・同時刻境界維持・32KBのbatchとし、範囲超過時は切り捨てず従来手順へ戻す。currentは直近の本人発話のみ、
+  読み取り位置を進めない。native toolは一つの発話でkindごと一件までとし、同kindの黙った取りこぼしを拒否する。
+  batch IDはプロセス内に最大8件・30分保持し、session/homeに束縛する。分岐変更・終了・再起動では失効する。
+  同じIDで違う内容は拒否し、同じ内容の再送は保存済み結果または既存dedupで確認する。保存成功と検査・同期警告を分離する。
+  検索は既存の順位付けを共用し、正確な話題名から閉じた項目を含む根拠を最大20件・32KBでページ取得できる。
+  `WATARI_PYTHON`はlauncherが自身のPythonを渡し、shellなしの固定module・上限付きstdin/stdoutで呼ぶ。常駐server・MCPは追加しない。
+  バックグラウンド整理にも同じ道具を渡し、その作業時だけMEMORY.mdを事前展開する。会話以外のサービスの整理は既存CLI手順を維持する。
+  この入口は手順ミス削減用で、悪意あるローカルプロセスを認証する境界やSecurity v1のbrokerではない。
+  モデルによる内容選別の正確さ・呼び忘れ・実環境での性能向上は自動保証しない。手順・包装・synthetic実行を試験対象とする。
 - **0.1.1 信頼性修正**：親Gitリポジトリへの誤コミットを拒否。記憶の検査・更新・再生成・Git操作を
   メモリフォルダ単位のプロセス間ロックで直列化し、全出力を保存前に検証。中断した保存はversion 1の
   redo journalから再開する（journal・一時ファイルはGitに含めない）。通常のstatus/helpは副作用なし。
@@ -101,6 +120,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     `watari performance --set` 経由のconfig永続化、フッター表示。balanced既定、fastはoff、butlerはhigh。
   - 同梱 `pi/memory-context.ts` / `memory-context.mjs`：各入力の `before_agent_start` で
     life/learning state をローカル読取する。factのprofile.modeをalways（毎回）/relevant（関連時検索）に分離し、balancedはalways profile最大5KB・優先thread最大3件・関連fact/topic最大6件・profile/fact/topic名catalogを区画別予算つき16KB以内、fastは4KB/1件/3件/catalog無し、butlerは全stateをsystem promptへ一時注入する。検索は題名・タグ・固有語を優先し、一般的な短い否定表現だけの誤一致を拒否する。always profileの5KB超過はauditで検出。モデル・network・subprocessを呼ばず、transcriptへ積まない。
+    `pi/runtime-context.mjs` はWindows/Mac/Linuxとnative/WSLを分離して毎入力へ添え、WSLをWindowsパソコンとして扱う。
+    会話同期とscanは発話元のmachine/computer/runtimeを運び、log refsからローカルURL・端末固有パスのoriginを
+    stateへ残す。旧記録もMac/Windows固有cwdを安全に判別できる場合だけ補完する。
   - 同梱 `pi/verification-guard.ts`：質問ターンで成功したtool callを追跡し、balanced/butlerでは
     `watari_evidence` で登録する。fastでは成功toolを自動登録して余分なモデル1往復を省く。未確認または
     推測表現を含む最終回答は隠さず、小さな警告行を添える。
@@ -173,7 +195,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   見つからなければパスの直接入力を促して検証・保存する。scope は他の組み込みコネクタの既定
   "cloud" と違い **"local"**（各マシンが自分のログを自分で夢に見る。cloud の「担当1台」ルール
   （＝cloud スコープの connector は同期グループ内のどれか1台だけが夢で読む取り決め。詳細は
-  SKILL.md）は当てはまらない）。読み取り行には Pi transcript と同じ `role`（"user"/"assistant"）を必ず持たせ、
+  MEMORY.md）は当てはまらない）。読み取り行には Pi transcript と同じ `role`（"user"/"assistant"）を必ず持たせ、
   記憶の根拠にしてよいのは role=user のみ（assistant は文脈用）。Claude Code の本物のユーザー発話は
   `type=="user"` かつ `message.content` が文字列（配列除外）かつ `toolUseResult` 無し・
   isMeta/isCompactSummary/isSidechain 無し・timestamp 有り・合成行（`<system-reminder>` 等）でない
@@ -187,14 +209,19 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **マルチマシン同期（main にマージ済み）**：git 同期層／Drive appDataFolder 中継／chat の抽出スレッド／
   夢が共有ストリームを読む＋クラウド削除／chat 起動時の裏 dream。Google 認証は `watari auth` に集約
   （client_id/secret は env/対話で受け取り config.json に保存、install の承認も同経路）。chat起動時は
-  保存値でなくtoken実交換で接続を確認する。失敗時の再認証案内は認証情報の欠落または明示的なOAuth拒否に
-  限定し、通信障害・429/5xx・不明な応答は認証切れと断定しない。未送信発話はローカルキューへ残し、
-  起動時に失敗しても同じchat内で接続・送信を再試行する。待機は5秒から倍増し最大300秒、認証拒否は300秒。
+  保存済み認証から送信処理を用意し、ネットワーク検査は行わず、実送信時の失敗を通知する。
+  失敗時の再認証案内は認証情報の欠落または明示的なOAuth拒否に限定し、通信障害・429/5xx・不明な応答は
+  認証切れと断定しない。未送信発話はローカルキューへ残し、通信・認証の復旧後は同じchat内で再送する。
+  待機は5秒から倍増し最大300秒、認証拒否・データ修復待ちは300秒。
   同じ障害種別の警告は復旧まで1回とし、実送信とキュー消去が成功した時だけ復旧を通知する。
   キューの大きさだけでは再認証を要求しない（完全未設定の利用者には警告もキューも作らない）。
   接続確認・再送は既存のGoogle OAuth/Drive経路のみを使い、診断用の外部送信や秘密の出力は追加しない。
   合成データによる回帰試験は `tests/test_relay_recovery.py`、既存の認証・送信契約は
   `tests/test_cloud.py` / `tests/test_relay.py` で検証する。
+  Drive v3のmedia読み取りにstrong ETagがない場合、同一IDをv2で再読取する。本文取得の前後で
+  file metadataのETag・versionが同じことを確認し、本文・file ETag・API版を一組として保持する。
+  download用ETagとは区別し、条件付き更新もv2へ固定する。ETag欠落や競合時の無条件上書きは禁止する。
+  同名データの重複は自動削除せず、再認証ではなくデータ修復が必要と通知する。
 - **Obsidianの安全な固定読み取り（実装・テスト済み）**：旧カスタム指示に依存せず、設定済みvaultの
   Markdownだけをlocal connectorとして読む。読み取り先をvault内へ固定し、内部設定・派生まとめ・
   隠し領域・symlinkを除外、件数/文字数を境界時刻を落とさず制限する。
@@ -226,6 +253,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **daily_report / knowledge は engine 非移植**（カセット or 別途）。
 - **忘却は3層**：active(<45日) / dormant(45–90日・声かけ待ちの印) / sunk(≥90日・沈むが log に残る)。
   実時計ベース。取り込みカーソルは **per-machine の host record**（git 共有で衝突しない）。
+- **環境識別**：同期互換のため既存 `machine_id` は変更しない。別フィールドの `computer` は
+  windows/mac/linux、`runtime` はnative/wslとし、WSLはWindowsパソコンへ属する。ローカル資源の記憶は
+  `refs.machine/computer/runtime` を作成元として保持し、現在環境との照合に使う。
 - **マルチマシン同期**：記憶は **git**（消えない正本・履歴が価値）、生の発話素材は **クラウド中継所**
   （消せる・機械可読）と使い分ける。中継所は **Google Drive appDataFolder**（ユーザーの Drive に出ない・
   API で削除可）。中身は **user＋assistant の発話だけ**（tool 出力・thinking は入れない）。書き込みは
@@ -261,5 +291,6 @@ docstring・コメント・本ファイル）は正確さ優先で従来語を�
 
 ## 読む順
 1. **このファイル**（何を・今どこ）→ 2. `AGENTS.md`（開発規律・安全境界）→
-3. `SCHEMA.md`（記憶のデータ仕様）/ `SKILL.md`（人格・夢の手順）。
+3. 作業に関係する資料だけ：`SCHEMA.md`（記憶の形式変更）、`SKILL.md`（人格・安全境界）、
+   `MEMORY.md`（記憶の選別・保存・整理手順）。
 （利用者向けの導入・使い方は `README.md`。）

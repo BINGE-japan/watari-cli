@@ -148,11 +148,14 @@ class EntrypointContractTests(unittest.TestCase):
         wheel, dist_info = wheels[0], "watari_cli-0.1.1.dist-info"
         expected_members = {"watari_cli/__init__.py", "watari_cli/cli/__init__.py",
             "watari_cli/skill/SKILL.md", "watari_cli/skill/SCHEMA.md",
+            "watari_cli/skill/MEMORY.md", "watari_cli/memory_operations.py",
+            "watari_cli/pi/memory-tools.ts", "watari_cli/pi/memory-tools.mjs",
             *(f"watari_cli/skill/prompts/{name}.md"
               for name in ("remember", "organize", "profile", "forget", "goal", "watari-help")),
             "watari_cli/pi/compact-tools.mjs", "watari_cli/pi/politeness.mjs",
             "watari_cli/pi/verification.mjs", "watari_cli/pi/memory-context.mjs",
-            "watari_cli/pi/performance.mjs", "watari_cli/pi/thinking-progress.mjs",
+            "watari_cli/pi/runtime-context.mjs", "watari_cli/pi/performance.mjs",
+            "watari_cli/pi/thinking-progress.mjs",
             "watari_cli/pi/slack-send.mjs", "watari_cli/pi/politeness-guard.ts",
             "watari_cli/pi/performance.ts", "watari_cli/pi/thinking-progress.ts",
             "watari_cli/pi/compact-tools.ts",

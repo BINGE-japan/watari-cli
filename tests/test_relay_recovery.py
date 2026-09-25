@@ -20,6 +20,7 @@ class FakeStore(cloud.CloudStore):
     def append(self, name, text):
         if self.error:
             raise self.error
+        cloud.check_live_authorization()  # real classification, mocked HTTP transport
         self.sent.append((name, text))
 
 
@@ -48,7 +49,8 @@ class DriveRecoveryTest(unittest.TestCase):
         self.http = stack.enter_context(patch.object(cloud, '_http', return_value=(
             200, b'{"access_token":"synthetic-access"}')))
         self.store = FakeStore()
-        self.get_store = stack.enter_context(patch.object(cloud, 'get_store', return_value=self.store))
+        self.get_store = stack.enter_context(patch.object(
+            cloud, 'get_store', side_effect=lambda: self.store if cloud.is_authorized() else None))
         stack.enter_context(patch('threading.Thread.start'))
         # Patch the standard clock so both old and fixed implementations can run.
         self.clock = stack.enter_context(patch('time.monotonic', return_value=100.0))
@@ -65,12 +67,22 @@ class DriveRecoveryTest(unittest.TestCase):
     def queue(self):
         return Path(relay._queue_path()).read_text()
 
+    def test_start_prepares_delivery_without_network_probe(self):
+        self.http.side_effect = cloud.CloudError('synthetic offline at startup')
+        self.worker.start()
+        self.http.assert_not_called()
+        self.assertIs(self.worker._store, self.store)
+        self.assertEqual(self.err.getvalue(), '')
+
     def test_temporary_network_failure_must_not_request_reauthentication(self):
         self.http.side_effect = cloud.CloudError('synthetic network outage')
         self.worker.start()
+        self.add_message()
+        self.worker._tick()
         self.assertNotIn('watari auth', self.err.getvalue())
         self.assertIn('自動', self.err.getvalue())
-        self.assertIsNone(self.worker._store)
+        self.assertEqual(self.store.sent, [])
+        self.assertIn('synthetic message', self.queue())
         self.assertTrue(self.worker._enabled)
 
     def test_startup_network_recovery_must_resume_delivery(self):
@@ -102,9 +114,12 @@ class DriveRecoveryTest(unittest.TestCase):
                 self.err.seek(0); self.err.truncate()
                 worker = relay.Relay(str(self.pi), 'synthetic-machine')
                 worker.start()
+                Path(relay._queue_path()).write_text('synthetic pending\n')
+                worker._flush()
                 self.assertNotIn('watari auth', self.err.getvalue())
                 self.assertIn('自動', self.err.getvalue())
-                self.assertIsNone(worker._store)
+                self.assertEqual(self.store.sent, [])
+                self.assertEqual(self.queue(), 'synthetic pending\n')
 
     def test_revoked_or_missing_credentials_require_auth_and_can_recover(self):
         for code in ('invalid_grant', 'invalid_client', 'deleted_client', 'missing_token'):
@@ -117,9 +132,12 @@ class DriveRecoveryTest(unittest.TestCase):
                 self.http.return_value = 400, json.dumps({'error': code}).encode()
                 worker = relay.Relay(str(self.pi), 'synthetic-machine')
                 worker.start()
-                self.assertIn('watari auth', self.err.getvalue())
-                self.assertIsNone(worker._store)
+                sent_before = len(self.store.sent)
                 Path(relay._queue_path()).write_text('synthetic pending\n')
+                worker._flush()
+                self.assertIn('watari auth', self.err.getvalue())
+                self.assertEqual(len(self.store.sent), sent_before)
+                self.assertEqual(self.queue(), 'synthetic pending\n')
                 worker._flush()
                 self.assertEqual(self.err.getvalue().count('!'), 1)
                 config.save_config(google={
@@ -135,9 +153,10 @@ class DriveRecoveryTest(unittest.TestCase):
     def test_retries_back_off_but_keep_collecting_messages(self):
         self.http.side_effect = cloud.CloudError('synthetic outage')
         self.worker.start()
-        self.assertEqual(self.http.call_count, 1)
+        self.assertEqual(self.http.call_count, 0)
         self.add_message('first')
         self.worker._tick()
+        self.assertEqual(self.http.call_count, 1)
         self.clock.return_value = 104
         self.add_message('second')
         self.worker._tick()
@@ -194,6 +213,8 @@ class DriveRecoveryTest(unittest.TestCase):
     def test_errors_never_expose_response_details_in_alerts(self):
         self.http.return_value = 400, b'{"error":"invalid_grant","error_description":"synthetic-private-detail"}'
         self.worker.start()
+        self.add_message()
+        self.worker._tick()
         self.assertIn('watari auth', self.err.getvalue())
         self.assertNotIn('synthetic-private-detail', self.err.getvalue())
         self.assertNotIn('synthetic-refresh', self.err.getvalue())

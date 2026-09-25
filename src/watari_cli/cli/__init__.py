@@ -204,7 +204,13 @@ def cmd_host(args) -> int:
     record = host.refresh(home)
     print(f"このパソコンの識別子: {record['machine_id']}")
     print(f"  ホスト名: {record['hostname']}")
-    print(f"  環境: {record['platform']} / Python {record['python']}")
+    computer_label = {"windows": "Windows", "mac": "Mac", "linux": "Linux"}.get(
+        record.get("computer"), record["platform"])
+    runtime_label = "WSL" if record.get("runtime") == "wsl" else record["platform"]
+    if record.get("wsl_distribution"):
+        runtime_label += f" ({record['wsl_distribution']})"
+    print(f"  パソコン: {computer_label}")
+    print(f"  実行環境: {runtime_label} / Python {record['python']}")
     print(f"  シェル: {record['shell'] or '—'}")
     print(f"  検出した AI ツール: {', '.join(record['ai_clis']) or '—'}")
     for key, value in record["facts"].items():
@@ -818,11 +824,17 @@ def _spawn_background_dream(home: str, runtime: str, skill: str) -> None:
     lock_path = os.path.join(_state_dir(), "dream.lock")
     if _dream_recently(lock_path):
         return
+    memory_tools = _find_pi_runtime_file("memory-tools.ts")
+    if not memory_tools:
+        return
     cmd = _runtime_base(runtime) + [
         "--no-skills", "--append-system-prompt", os.path.join(skill, "SKILL.md"),
+        "--append-system-prompt", os.path.join(skill, "MEMORY.md"),
+        "--extension", memory_tools,
         "--no-session", "-p", "記憶を整理して"]
     env = dict(os.environ)
     env["WATARI_HOME"] = home
+    env["WATARI_PYTHON"] = sys.executable
     env["WATARI_SKIP_AUTO_DREAM"] = "1"
     try:
         proc = subprocess.Popen(
@@ -942,10 +954,12 @@ def cmd_chat(args) -> int:
     briefing_extension = _find_pi_runtime_file("briefing.ts")
     file_links_extension = _find_pi_runtime_file("file-links.ts")
     slack_send_extension = _find_pi_runtime_file("slack-send.ts")
+    memory_tools_extension = _find_pi_runtime_file("memory-tools.ts")
     herdr_plugin = _find_herdr_plugin_dir()
     if not all((politeness_guard, performance_extension, thinking_progress,
                 compact_tools, memory_context, verification_guard,
-                briefing_extension, file_links_extension, slack_send_extension)):
+                briefing_extension, file_links_extension, slack_send_extension,
+                memory_tools_extension)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -965,6 +979,7 @@ def cmd_chat(args) -> int:
         "--extension", briefing_extension,
         "--extension", file_links_extension,
         "--extension", slack_send_extension,
+        "--extension", memory_tools_extension,
     ] + args.extra
 
     env = dict(os.environ)
@@ -978,6 +993,7 @@ def cmd_chat(args) -> int:
     else:
         env.pop("NODE_OPTIONS", None)
     env["WATARI_HOME"] = home  # ランタイムの bash ツールが同じ記憶を読めるように
+    env["WATARI_PYTHON"] = sys.executable  # 同じ配布物の固定処理を、shellを経由せず呼ぶ
     env["WATARI_PERFORMANCE_MODE"] = config.load_performance_mode()
     from watari_cli.file_links import (
         ensure_file_link_key,
@@ -995,6 +1011,7 @@ def cmd_chat(args) -> int:
         print(f"chat が実行するコマンド（実行環境: {runtime}。"
               "未導入でも初回に npx が自動で取得します）:")
         print(f"WATARI_HOME={home}")
+        print(f"WATARI_PYTHON={sys.executable}")
         print(f"WATARI_PERFORMANCE_MODE={env['WATARI_PERFORMANCE_MODE']}")
         print(f"WATARI_FILE_LINK_KEY_PATH={env['WATARI_FILE_LINK_KEY_PATH']}")
         if env.get("NODE_OPTIONS"):

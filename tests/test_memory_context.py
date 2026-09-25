@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "src" / "watari_cli" / "pi" / "memory-context.mjs"
+RUNTIME_HELPER = ROOT / "src" / "watari_cli" / "pi" / "runtime-context.mjs"
 EXTENSION = ROOT / "src" / "watari_cli" / "pi" / "memory-context.ts"
 SKILL = ROOT / "src" / "watari_cli" / "skill" / "SKILL.md"
 
@@ -118,6 +119,19 @@ class MemoryContextTest(unittest.TestCase):
         rendered = json.dumps(result, ensure_ascii=False)
         self.assertNotIn("strictNullChecksとSymbol型を学習済み", rendered)
 
+    def test_local_resource_origin_is_kept_in_relevant_memory(self):
+        life, learning = _states()
+        life["open_threads"] = [{
+            "topic": "ローカル試作",
+            "last": "2026-01-03T00:00:00.000Z",
+            "note": "試作は http://127.0.0.1:8080/ で動く。",
+            "origin": {"machine": "darwin-sample", "computer": "mac", "runtime": "native"},
+        }]
+        result = _build(life, learning, "ローカル試作を見たい")
+        match = next(item for item in result["matches"] if item["topic"] == "ローカル試作")
+        self.assertEqual(match["origin"]["computer"], "mac")
+        self.assertEqual(result["attention"][0]["origin"]["machine"], "darwin-sample")
+
     def test_oversized_profile_cannot_evict_attention_matches_and_catalog(self):
         life, learning = _states()
         life["profile"] = {f"account_fact_{index:03d}": "x" * 500 for index in range(40)}
@@ -168,7 +182,32 @@ class MemoryContextTest(unittest.TestCase):
         text = EXTENSION.read_text(encoding="utf-8")
         self.assertIn('pi.on("before_agent_start"', text)
         self.assertIn("loadMemoryContext", text)
+        self.assertIn("detectRuntimeContext", text)
+        self.assertIn("runtime_context", text)
+        self.assertIn("127.0.0.1", text)
         self.assertNotIn("pi.sendMessage", text)
+
+    def test_runtime_context_maps_wsl_to_windows_without_changing_machine_id(self):
+        node = shutil.which("node")
+        if not node:
+            raise unittest.SkipTest("node is required by the Pi runtime")
+        script = (
+            f"import {{ detectRuntimeContext }} from {json.dumps(RUNTIME_HELPER.as_uri())};"
+            "console.log(JSON.stringify(detectRuntimeContext({"
+            "platform:'linux',hostname:'sample-host',cwd:'/home/example',"
+            "env:{WSL_DISTRO_NAME:'Ubuntu'}})));"
+        )
+        result = subprocess.run(
+            [node, "--input-type=module", "-e", script],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        if result.returncode != 0:
+            raise AssertionError(result.stderr)
+        context = json.loads(result.stdout)
+        self.assertEqual(context["computer"], "windows")
+        self.assertEqual(context["runtime"], "wsl")
+        self.assertEqual(context["wsl_distribution"], "Ubuntu")
+        self.assertEqual(context["machine_id"], "linux-sample-host")
 
     def test_session_opening_no_longer_loads_the_whole_memory_summary(self):
         text = SKILL.read_text(encoding="utf-8")

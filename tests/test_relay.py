@@ -3,8 +3,8 @@
 - 本文抽出：user/assistant の text だけ（thinking/toolcall/toolResult は除外）。
 - バイトオフセット tail：新規行だけ抽出し offset を進める。
 - クラウド送信：成功で queue クリア、offline は queue に繰り越し→復帰後に再送。
-- start() の告知規律：完全未設定は無言 / 設定済みでログインできていないときだけ1行 /
-  送信キュー肥大（QUEUE_WARN_BYTES 超）で1行。
+- start() の告知規律：完全未設定は無言 / 保存済み認証は起動時にネットワーク検査しない /
+  未認証・送信失敗・送信キュー肥大（QUEUE_WARN_BYTES 超）は1回だけ知らせる。
 """
 from __future__ import annotations
 
@@ -28,8 +28,12 @@ class _Base(unittest.TestCase):
         os.environ["XDG_STATE_HOME"] = self._st.name
         self._pi = tempfile.TemporaryDirectory(prefix="watari-relay-pi-")
         self.pi_store = self._pi.name
+        # relayが接続を取り直すテストでも、開発者の実Google Driveへ到達させない。
+        self._saved_get_store = cloud.get_store
+        cloud.get_store = lambda: None
 
     def tearDown(self):
+        cloud.get_store = self._saved_get_store
         if self._saved_state is None:
             os.environ.pop("XDG_STATE_HOME", None)
         else:
@@ -83,7 +87,9 @@ class TextExtractTest(unittest.TestCase):
 
 class ToLineTest(_Base):
     def _r(self):
-        return relay.Relay(self.pi_store, "m1")
+        return relay.Relay(
+            self.pi_store, "m1", computer="windows", runtime="wsl",
+        )
 
     def test_roles_and_filtering(self):
         r, meta = self._r(), {"cwd": "/w"}
@@ -92,6 +98,8 @@ class ToLineTest(_Base):
             "message": {"role": "user", "content": "hello"}}), meta)
         self.assertIn('"role": "user"', u)
         self.assertIn('"machine": "m1"', u)
+        self.assertIn('"computer": "windows"', u)
+        self.assertIn('"runtime": "wsl"', u)
         self.assertIn('"cwd": "/w"', u)
         a = r._to_line(json.dumps({"type": "message", "id": "t2",
             "message": {"role": "assistant", "content": [{"type": "text", "text": "hi"}]}}), meta)
@@ -175,19 +183,34 @@ class TickFlushTest(_Base):
         self.assertIn("Google Drive", err.getvalue())
         self.assertIn("ほかのパソコン", err.getvalue())
         self.assertIn("このパソコンに保存", err.getvalue())
+        self.assertIn("Google の認証が必要", err.getvalue())
         self.assertIn("ターミナル", err.getvalue())
         self.assertIn("watari auth", err.getvalue())
         self.assertEqual(err.getvalue().count("!"), 1)
         with open(relay._queue_path(), encoding="utf-8") as f:
             self.assertIn("hi", f.read())
 
+    def test_missing_store_is_reacquired_and_queued_messages_send(self):
+        self._one_user()
+        r = relay.Relay(self.pi_store, "m1")
+        recovered = FakeStore()
+        saved = cloud.get_store
+        cloud.get_store = lambda: recovered
+        try:
+            r._tick()
+        finally:
+            cloud.get_store = saved
+        self.assertIs(r._store, recovered)
+        self.assertIn("hi", recovered.data["transcripts-m1.jsonl"])
+        with open(relay._queue_path(), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "")
+
     def test_stop_queues_final_messages_when_auth_is_invalid(self):
         self._one_user()
         r = relay.Relay(self.pi_store, "m1")
         r._enabled = True
         r._store = None
-        with patch.object(cloud, "check_live_authorization", side_effect=cloud.OAuthTokenError(
-                "synthetic revocation", code="invalid_grant")):
+        with patch.object(cloud, "get_store", return_value=None):
             r.stop_and_flush()
         with open(relay._queue_path(), encoding="utf-8") as f:
             self.assertIn("hi", f.read())
@@ -230,14 +253,16 @@ class FirstRunSkipTest(_Base):
 
 
 class StartTest(_Base):
-    def _start(self, *, configured, store, live=True):
+    def _start(self, *, configured, store):
         r = relay.Relay(self.pi_store, "m1")
         err = io.StringIO()
-        failure = None if live else cloud.OAuthTokenError("synthetic revocation", code="invalid_grant")
-        # Keep network and thread activity inside the mock lifetime.
+        # Startup must not probe the network, even when saved credentials exist.
+        failure = AssertionError("start must not perform network checks")
         with patch.object(cloud, "get_store", return_value=store), \
                 patch.object(cloud, "is_configured", return_value=configured), \
+                patch.object(cloud, "_http", side_effect=failure), \
                 patch.object(cloud, "check_live_authorization", side_effect=failure), \
+                patch.object(cloud, "has_live_authorization", side_effect=failure), \
                 patch("threading.Thread.start"), contextlib.redirect_stderr(err):
             r.start()
         return r, err.getvalue()
@@ -249,8 +274,8 @@ class StartTest(_Base):
         self.assertEqual(err, "")
 
     def test_start_warns_relogin_when_configured_but_not_authorized(self):
-        # 設定はあるのにログインできていない（トークン失効等）→ 1行だけ知らせる
-        r, err = self._start(configured=True, store=None, live=False)
+        # 設定はあるのに保存済み認証がない → 1回だけ知らせる
+        r, err = self._start(configured=True, store=None)
         self.assertIsNotNone(r._thread)  # 未送信分をローカルキューへ残すため抽出は続ける
         self.assertIn("ワタリは", err)
         self.assertIn("Google Drive", err)
@@ -259,13 +284,13 @@ class StartTest(_Base):
         self.assertIn("このパソコンに保存", err)
         self.assertEqual(err.count("!"), 1)
 
-    def test_start_checks_live_auth_instead_of_saved_token_presence(self):
-        # storeを作れる（保存値あり）だけでは接続済みにしない。token実交換が失敗したら即警告する。
-        r, err = self._start(configured=True, store=FakeStore(), live=False)
-        self.assertIsNone(r._store)
+    def test_start_uses_saved_authorization_without_network_probe(self):
+        # 起動時の一時的な通信失敗を認証切れと誤判定せず、実送信時に再試行できるstoreを保持する。
+        store = FakeStore()
+        r, err = self._start(configured=True, store=store)
+        self.assertIs(r._store, store)
         self.assertIsNotNone(r._thread)
-        self.assertIn("ワタリは", err)
-        self.assertIn("Google Drive", err)
+        self.assertEqual(err, "")
 
     def test_start_warns_when_queue_exceeds_limit(self):
         with open(relay._queue_path(), "w", encoding="utf-8") as f:

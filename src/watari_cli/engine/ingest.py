@@ -66,6 +66,14 @@ def validate(rows, allow_new_domain):
         refs = d.get("refs")
         if not isinstance(refs, dict) or not isinstance(refs.get("uuid"), str) or not refs["uuid"].strip():
             invalid.append("refs.uuid")
+        if isinstance(refs, dict):
+            if "machine" in refs and (
+                    not isinstance(refs["machine"], str) or not refs["machine"].strip()):
+                invalid.append("refs.machine")
+            if "computer" in refs and refs["computer"] not in ("windows", "mac", "linux"):
+                invalid.append("refs.computer")
+            if "runtime" in refs and refs["runtime"] not in ("native", "wsl"):
+                invalid.append("refs.runtime")
         p = d.get("profile")
         if p is not None and (not isinstance(p, dict) or any(
                 not isinstance(p.get(k), str) or not p[k].strip() for k in ("key", "value"))):

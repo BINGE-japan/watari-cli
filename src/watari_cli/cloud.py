@@ -78,6 +78,13 @@ class CloudError(Exception):
     """クラウド置き場の操作失敗（呼び出し側はスキップ/繰り越しで扱う）。"""
 
 
+class SyncDataError(CloudError):
+    """Local, fixed diagnostic for sync data incompatibility (not a relogin failure).
+
+    Messages must never contain external response bodies or conversation text.
+    """
+
+
 class OAuthTokenError(CloudError):
     """Google token endpoint が返したOAuthエラー。機械判定用のcodeを保持する。"""
 
@@ -248,6 +255,10 @@ class DriveAppDataStore(CloudStore):
 
     API = "https://www.googleapis.com/drive/v3"
     UPLOAD = "https://www.googleapis.com/upload/drive/v3"
+    # v3 may omit ETag even on successful media reads. v2 exposes the file-resource
+    # ETag in metadata; do not confuse it with the download representation's ETag.
+    API_V2 = "https://www.googleapis.com/drive/v2"
+    UPLOAD_V2 = "https://www.googleapis.com/upload/drive/v2"
 
     def _headers(self, extra: dict | None = None) -> dict:
         h = {"Authorization": f"Bearer {_access_token()}"}
@@ -265,7 +276,7 @@ class DriveAppDataStore(CloudStore):
                 f"同期データの検索に失敗しました({status}): {connector_http.body_text(body)}")
         files = json.loads(body).get("files", [])
         if len(files) > 1:
-            raise CloudError("同名の同期データが複数あるため、変更を見送りました。")
+            raise SyncDataError("同名の同期データが複数あるため、変更を見送りました。")
         return files[0] if files else None
 
     def list(self) -> list[dict]:
@@ -322,16 +333,53 @@ class DriveAppDataStore(CloudStore):
         status, body, headers = _http_with_headers(
             "GET", f"{self.API}/files/{f['id']}?alt=media", self._headers())
         etag = next((v for k, v in headers.items() if k.lower() == "etag"), None)
-        if status != 200 or not etag or etag.startswith("W/"):
-            raise CloudError("同期データの更新番号を確認できないため、変更を見送りました。")
-        return body.decode("utf-8"), (f["id"], etag)
+        if status != 200:
+            raise CloudError(f"同期データの読み取りに失敗しました({status})。")
+        if etag and not etag.startswith("W/"):
+            return body.decode("utf-8"), (f["id"], etag)
+        # The v2 download ETag differs from the file-resource ETag used for updates.
+        # Bracket a fresh body read with metadata: both version and file ETag must
+        # remain unchanged. Never attach later metadata to an earlier v3 body.
+        before = self._v2_revision(f["id"])
+        status, body, _headers = _http_with_headers(
+            "GET", f"{self.API_V2}/files/{f['id']}?alt=media", self._headers())
+        if status != 200:
+            raise CloudError(f"同期データの読み取りに失敗しました({status})。")
+        after = self._v2_revision(f["id"])
+        if before != after:
+            raise CloudError("別の更新と重なったため、次回に再送します。")
+        return body.decode("utf-8"), (f["id"], before[0], "v2")
+
+    def _v2_revision(self, file_id):
+        status, body, _headers = _http_with_headers(
+            "GET", f"{self.API_V2}/files/{file_id}?fields=id,etag,version", self._headers())
+        if status != 200:
+            raise CloudError(f"同期データの更新情報を取得できませんでした({status})。")
+        try:
+            meta = json.loads(body)
+            etag, version = meta["etag"], meta["version"]
+            if (meta["id"] != file_id or not isinstance(etag, str)
+                    or not etag.startswith('"') or not etag.endswith('"')
+                    or not isinstance(version, str) or not version.isascii()
+                    or not version.isdigit()):
+                raise ValueError("invalid revision")
+        except (ValueError, TypeError, KeyError):
+            raise SyncDataError("同期データの更新番号を確認できないため、変更を見送りました。") from None
+        return etag, version
 
     def replace_if_unchanged(self, name, revision, text):
         if not revision:
             return False
-        file_id, etag = revision
+        if not isinstance(revision, tuple) or len(revision) not in (2, 3):
+            raise SyncDataError("未対応の更新情報のため、変更を見送りました。")
+        if len(revision) == 3 and revision[2] != "v2":
+            raise SyncDataError("未対応の更新情報のため、変更を見送りました。")
+        file_id, etag = revision[:2]
+        if not isinstance(etag, str) or not etag or etag.startswith("W/"):
+            raise SyncDataError("同期データの更新番号を確認できないため、変更を見送りました。")
+        upload = self.UPLOAD_V2 if len(revision) == 3 else self.UPLOAD
         headers = self._headers({"Content-Type": "text/plain"}) | {"If-Match": etag}
-        status, body = _http("PATCH", f"{self.UPLOAD}/files/{file_id}?uploadType=media",
+        status, body = _http("PATCH", f"{upload}/files/{file_id}?uploadType=media",
                              headers, text.encode("utf-8"))
         if status in (404, 412):
             return False

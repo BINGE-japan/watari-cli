@@ -14,6 +14,19 @@
 - 痕跡は log に混ぜない：log は事実の正本。対象0件など「走ったが事実は無い」記録は log に書かず、カーソルの `last_run`（host 記録内）に残す。
 - 決定論部分（発話の選別・dedup・カーソル前進・state の畳み込み・監査）は同梱エンジンが実装し、`watari` CLI（`watari scan` / `watari ingest` / `watari regen` / `watari audit`）が担う。LLM の仕事は「何を記憶するか」の判定と summary/note/mastery/heat の中身だけで、機械処理を手でなぞらない。
 
+## Pi専用道具の入力と保存境界
+
+- 人格はSKILL.md、保存時の選別基準・native toolの使い方・従来CLI手順はMEMORY.mdを作業時だけ読む。
+- `watari_memory_prepare` / `watari_memory_save`はこの行仕様の代替ではなく、既存ingest.applyへの固定入口。
+  AIは取得済みuser UUIDごとに`{uuid,rows:[...]}`を返す（見送りは空配列）。rowsは下の行仕様からts/source/refsを除く。
+  tsとrefsは取得結果からコピーし、sourceはwatariへ固定する。未回答、assistant根拠、未取得UUID、同kind複数行、
+  ts/source/refsの指定は保存前に拒否する。summary等の内容は引き続きモデルの判断である。
+- 読み取り位置の前進は、道具が保持する取得範囲から既存ingestのadvance引数へ変換する。current入力は前進しない。
+  conversationsはPi＋同期済みの他PC会話だけで、サービスの整理は既存の外部source/advance-ext手順を使う。
+- 取得batchの40件目安・32KB制限はPi道具の追加制限であり、下記の既存scan上限を変更しない。
+  境界同時刻の一群が32KBを超える場合は失敗し、黙って未読範囲を飛び越えない。画像本文は返さず省略を明示する。
+- batchはプロセス内の一時情報で、ユーザーの記憶に保存しない。根拠の対応付けは安全化版の認証や要約の意味的正しさの保証ではない。
+
 ## log.jsonl（1 行 = 1 事実。行き先のジャンルは kind で決まる）
 ```
 {"ts":"<UTC ISO ...Z>","source":"transcript|watari|<接続サービス名>","kind":"fact|study|interest|thread",
@@ -21,7 +34,7 @@
  "mastery":1..3 (study必須),"heat":0..3 (interest任意),"note":"<state用・現在形1〜2文。study必須/interest・thread推奨>",
  "related":["domain/topic",...] (study任意),"freshness":"<ts>" (study任意・接触時刻の上書き),
  "profile":{"key":"...","value":"...","mode":"always|relevant"} (fact任意。旧行はmode省略可),"status":"closed" (thread任意),"deadline":"<UTC ISO ...Z>" (thread任意・未来なら age によらず active 固定),
- "tags":["..."],"refs":{"cwd":"...","session":"...","uuid":"..."}}
+ "tags":["..."],"refs":{"cwd":"...","session":"...","uuid":"...","machine":"...","computer":"windows|mac|linux","runtime":"wsl|native"}}
 ```
 - **判定は行を書く時点で行い、行に記録する**：state はこれらの値を機械的に畳むだけで、内容の判断を後段でやり直さない。
 - 形式番号は省略時を旧互換のversion 1として扱う。明示した `schema_version` は整数1のみ対応し、不明な番号は拒否する。Piの会話ヘッダはversion 1/2/3（省略時1）に対応する。
@@ -30,6 +43,10 @@
 - `ts` は UTC（…Z）で保存。比較は必ず instant（時刻）として行い、JST と混ぜない。
 - `profile.mode`：`always`＝どの話題でも毎回効く人物像・応答の好み、`relevant`＝職歴・事業・ツール・個別運用など話題に応じて検索すればよい事実。新しい profile 行は必ずどちらかを明示する。mode が無い旧行だけは互換性のため `always` とみなす。
 - `refs.uuid` は元 transcript メッセージの uuid（dedup の鍵）。`refs.session` は session id。
+  `watari scan` が返す発話から書く場合は同じ発話の `machine` / `computer` / `runtime` を、会話中にその場で
+  書く場合は現在の `runtime_context.machine_id` / `computer` / `runtime` を `refs` へコピーする。
+  WSLは別のパソコンではなくWindows上の実行環境なので `computer:"windows", runtime:"wsl"` とする。
+  localhost・127.0.0.1・端末固有パスを含む現在値では、この情報を作成元として記憶のまとめにも残す。
 - 記憶の根拠は原則ユーザー本人（user 発話）。ワタリ(assistant)の発言はユーザーが採用/同意した事実の確認にのみ使う。
   サブエージェント(isSidechain)・ツール出力・メタ行は無視する。
 
@@ -69,9 +86,9 @@ tool 結果は `role:"toolResult"`、bash 実行や注入は別 type（`bashExec
 {
   "updated": "<ts>",
   "profile": { "...毎回の応答に効く人物像・好み..." },
-  "facts": { "<key>": { "last": "<ts>", "note": "...", "tags": ["..."](任意) } },
-  "interests": { "<topic>": { "last": "<ts>", "heat": 0, "note": "..." } },
-  "open_threads": [ { "topic": "...", "note": "...", "last": "<ts>", "deadline": "<ts>"(任意), "dormant": true(dormant 層のみ), "dormant_days": <int>(dormant 層のみ) } ]
+  "facts": { "<key>": { "last": "<ts>", "note": "...", "tags": ["..."](任意), "origin": {"machine":"...","computer":"...","runtime":"..."}(ローカル資源のみ) } },
+  "interests": { "<topic>": { "last": "<ts>", "heat": 0, "note": "...", "origin": {...}(ローカル資源のみ) } },
+  "open_threads": [ { "topic": "...", "note": "...", "last": "<ts>", "origin": {...}(ローカル資源のみ), "deadline": "<ts>"(任意), "dormant": true(dormant 層のみ), "dormant_days": <int>(dormant 層のみ) } ]
 }
 ```
 

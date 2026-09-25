@@ -7,8 +7,8 @@ tail し、user＋assistant の発話テキストだけ（tool 出力・thinking
 - 発火は数秒ポーリング（zero-dep で移植性優先。実質ターン終了時に送信になる粒度）。
 - 送信失敗（offline 等）はローカルキューに繰り越し、待機時間を増やしながら再送。
 - 終了時（正常/SIGINT は finally、SIGTERM はハンドラ）に最終 flush。
-- Google連携が完全未設定なら start() は何もしない。設定済みなのに実接続できない場合は即時警告し、
-  発話をローカルキューへ残し、通信復旧・再認証後は同じchat内で自動再送する。
+- Google連携が完全未設定なら start() は何もしない。起動時は保存済み設定だけを読み、実通信は送信時に行う。
+  失敗時は発話をローカルキューへ残し、通信復旧・再認証後は同じchat内で自動再送する。
 
 抽出のバイトオフセット・再送キューはローカル状態（XDG_STATE_HOME/watari、非同期・マシン固有）。
 """
@@ -84,9 +84,17 @@ class Relay:
     """1 マシン分の中継。cmd_chat が start()→(Pi 実行)→stop_and_flush() で使う。"""
 
     def __init__(self, pi_store: str, machine_id: str, home: str | None = None,
-                 poll_interval: float = 3.0):
+                 poll_interval: float = 3.0, *, computer: str | None = None,
+                 runtime: str | None = None):
         self.pi_store = pi_store
         self.machine_id = machine_id
+        if computer is None or runtime is None:
+            from watari_cli import host
+            context = host.runtime_context()
+            computer = computer or context["computer"]
+            runtime = runtime or context["runtime"]
+        self.computer = computer
+        self.runtime = runtime
         self.cloud_name = f"transcripts-{machine_id}.jsonl"
         self.poll_interval = poll_interval
         self._stop = threading.Event()
@@ -111,8 +119,10 @@ class Relay:
         self._thread.start()
 
     def _connect(self) -> bool:
+        # Preserve nonblocking startup: token exchange happens only during delivery.
+        # Re-read saved settings here so separate-terminal authentication can recover
+        # the same running chat without a second, conflicting reconnect mechanism.
         try:
-            cloud.check_live_authorization()
             self._store = cloud.get_store()
             if self._store is None:
                 raise cloud.OAuthTokenError("接続設定を確認してください。", code="missing_credentials")
@@ -123,14 +133,18 @@ class Relay:
 
     def _record_failure(self, error: cloud.CloudError) -> None:
         needs_auth = isinstance(error, cloud.OAuthTokenError) and error.requires_reauthentication
-        delay = RETRY_MAX_SECONDS if needs_auth else self._retry_delay
+        needs_repair = isinstance(error, cloud.SyncDataError)
+        delay = RETRY_MAX_SECONDS if needs_auth or needs_repair else self._retry_delay
         self._next_retry_at = time.monotonic() + delay
         self._retry_delay = min(delay * 2, RETRY_MAX_SECONDS)
-        kind = "auth" if needs_auth else "connection"
+        kind = "auth" if needs_auth else "data" if needs_repair else "connection"
         if kind in self._warned_failures:
             return
         if needs_auth:
             action = "Google の認証が必要です。ターミナルで `watari auth` を実行してください。"
+        elif needs_repair:
+            # SyncDataError contains fixed local diagnostics, never provider bodies.
+            action = f"{error} 共有データの確認・修復が必要です。"
         else:
             action = "接続を確認できませんでした。自動で再試行します。"
         # Never expose response bodies/credentials in an alert. An unknown failure is
@@ -241,6 +255,7 @@ class Relay:
             return None
         return json.dumps({
             "ts": d.get("timestamp"), "turn_id": d.get("id"), "machine": self.machine_id,
+            "computer": self.computer, "runtime": self.runtime,
             "session": meta.get("session"), "cwd": meta.get("cwd"),
             "role": m["role"], "text": text,
         }, ensure_ascii=False) + "\n"
@@ -294,7 +309,7 @@ class Relay:
         if not content or time.monotonic() < self._next_retry_at:
             return
         if self._store is None:
-            if not self._enabled or not self._connect():
+            if not self._connect():
                 return
         try:
             self._store.append(self.cloud_name, content)
