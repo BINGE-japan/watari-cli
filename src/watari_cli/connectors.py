@@ -99,7 +99,7 @@ def _github_adapter() -> ServiceAdapter:
             "3. Under 'Permissions' > 'Repository permissions', set Issues and Pull requests to "
             "Read-only, then click 'Generate token'",
             "4. Paste the generated token here",
-            "Note: when the token expires, run `watari connect github` to replace it",
+            "Note: when the token expires, run `watari connect github --legacy` to replace it",
         ],
         verify=github.verify, read=github.read,
     )
@@ -400,12 +400,12 @@ def brief(name: str, now) -> list[dict]:
     if service is None or service.brief is None:
         return []
     if not is_configured(name):
-        raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name}）")
+        raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name} --legacy）")
     if service.auth_kind in ("oauth", "local"):
         return service.brief(now)
     api_key = auth_key(name)
     if not api_key:
-        raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name}）")
+        raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name} --legacy）")
     return service.brief(api_key, now)
 
 
@@ -419,9 +419,9 @@ def read(name: str, since: str | None) -> list[dict]:
         raise ConnectorError(f"{service.label} は未対応です（対応予定）")
     if service.auth_kind in ("oauth", "local"):
         if not is_configured(name):
-            raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name}）")
+            raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name} --legacy）")
         return service.read(since)
     api_key = auth_key(name)
     if not api_key:
-        raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name}）")
+        raise ConnectorError(f"{name} は未接続です（接続するには: watari connect {name} --legacy）")
     return service.read(api_key, since)

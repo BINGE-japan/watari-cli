@@ -275,3 +275,44 @@ test("memory subprocess cancellation and timeout report unknown save status", as
     assert.throws(() => runMemoryOperation({action:"get"}, {env:{WATARI_PYTHON:"relative",WATARI_HOME:dir}}), /未設定/);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
+
+test('dashboard command and tool launch fixed Python command without reading memory into the model', async () => {
+  const previous = process.env.WATARI_PYTHON;
+  process.env.WATARI_PYTHON = '/synthetic/python';
+  try {
+    const commands = {}, calls = [];
+    const { tools } = await extension('src/watari_cli/pi/dashboard.ts', {
+      registerCommand: (name, def) => commands[name] = def,
+      getThinkingLevel: () => "high", getActiveTools: () => ["read", "mcp"],
+      exec: async (...args) => {calls.push(args);return {code:0,stdout:JSON.stringify({url:'http://127.0.0.1:4567/#synthetic-token',browser_opened:false})};},
+    });
+    const result = await tools.watari_dashboard.execute('id', {open_browser:false});
+    assert.deepEqual(calls[0][1], ['-m','watari_cli','dashboard','--json','--no-browser']);
+    assert.equal(calls[0][0], '/synthetic/python');
+    assert.match(result.content[0].text,/このパソコン専用/);
+    assert.ok(commands.dashboard);
+    const messages=[];
+    await commands.dashboard.handler('',{ui:{notify:message=>messages.push(message)}});
+    assert.match(messages[0], /127\.0\.0\.1/);
+  } finally {
+    if(previous===undefined)delete process.env.WATARI_PYTHON;else process.env.WATARI_PYTHON=previous;
+  }
+});
+
+test('connect setup only primes management command and refuses model turns', async () => {
+  const previous = process.env.WATARI_CONNECT_COMMAND;
+  process.env.WATARI_CONNECT_COMMAND = '/mcp setup';
+  try {
+    const {hooks}=await extension('src/watari_cli/pi/connect-ui.ts');
+    const editor=[];
+    await hooks.session_start({}, {hasUI:true,ui:{setEditorText:t=>editor.push(t),notify:()=>{}}});
+    assert.deepEqual(editor,['/mcp setup']);
+    assert.deepEqual(await hooks.input({text:'Call an external service'}, {hasUI:true,ui:{notify:()=>{}}}), {action:'handled'});
+    assert.deepEqual(hooks.cache_warming_decision(), {action:'stop'});
+    let stopped=false;
+    await hooks.session_start({}, {hasUI:false,shutdown:()=>stopped=true});
+    assert.equal(stopped,true);
+  } finally {
+    if(previous===undefined)delete process.env.WATARI_CONNECT_COMMAND;else process.env.WATARI_CONNECT_COMMAND=previous;
+  }
+});

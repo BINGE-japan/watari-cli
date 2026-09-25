@@ -27,7 +27,7 @@ CLI 側が挟まない）に乗せる。ただし gmail/calendar/gdrive と違�
   上書き保存してから access_token を返す（保存前に返すと、保存に失敗した回だけ新しい
   refresh_token が失われ次回から認証不能になる）。保存は config.save_config の
   tmp+os.replace による原子的書き込みに委ねる。90日失効・invalid_grant は
-  「再接続が必要です（`watari connect freee`）」と明示するエラーにする。
+  「再接続が必要です（`watari connect freee --legacy`）」と明示するエラーにする。
 
 事業所(company_id): トークン取得直後に GET /api/1/companies を叩き、1件なら自動選択、複数なら
 `prompts.select` で選ばせて company_id を保存する（read はこの company_id を使い回す）。
@@ -217,7 +217,7 @@ def _token_request(data: dict, context: str) -> dict:
         except json.JSONDecodeError:
             parsed = {}
         if parsed.get("error") == "invalid_grant":
-            raise ConnectorError("freee: 再接続が必要です（watari connect freee）")
+            raise ConnectorError("freee: 再接続が必要です（watari connect freee --legacy）")
         raise ConnectorError(
             f"freee: {context}に失敗しました({status}): {connector_http.body_text(body)}。"
             f"{connector_http.reconnect_hint('freee')}")
@@ -256,12 +256,12 @@ def access_token() -> str:
     client_secret = section.get("client_secret")
     refresh_token = section.get("refresh_token")
     if not (client_id and client_secret and refresh_token):
-        raise ConnectorError("freee: 未接続です（接続するには: watari connect freee）")
+        raise ConnectorError("freee: 未接続です（接続するには: watari connect freee --legacy）")
     token = _refresh(client_id, client_secret, refresh_token)
     new_refresh_token = token.get("refresh_token")
     if not new_refresh_token:
         raise ConnectorError(
-            "freee: 認証の更新情報を受け取れませんでした。再接続が必要です（watari connect freee）")
+            "freee: 認証の更新情報を受け取れませんでした。再接続が必要です（watari connect freee --legacy）")
     _save_auth(refresh_token=new_refresh_token)  # ローテーション対応：必ず新しい値へ差し替える
     access = token.get("access_token")
     if not access:
@@ -276,7 +276,7 @@ def access_token() -> str:
 def _get_json(url: str, token: str) -> dict:
     status, body = _http("GET", url, {"Authorization": f"Bearer {token}"})
     if status == 401:
-        raise ConnectorError("freee: 認証に失敗しました。再接続が必要です（watari connect freee）")
+        raise ConnectorError("freee: 認証に失敗しました。再接続が必要です（watari connect freee --legacy）")
     if status != 200:
         raise ConnectorError(
             f"freee: API エラー({status}): {connector_http.body_text(body)}。"
@@ -323,7 +323,7 @@ def verify() -> tuple[bool, str]:
     client_secret = prompts.text("Paste the freee app Client Secret")
     if not client_id or not client_secret:
         return False, ("Client ID / Client Secret が入力されなかったため中止しました。"
-                       "watari connect freee でやり直せます")
+                       "watari connect freee --legacy でやり直せます")
     try:
         code, redirect_uri = _run_authorization(client_id)
         token = _exchange_code(client_id, client_secret, code, redirect_uri)
@@ -381,7 +381,7 @@ def read(since: str | None) -> list[dict]:
     section = _auth_section()
     company_id = section.get("company_id")
     if not company_id:
-        raise ConnectorError("freee: 未接続です（接続するには: watari connect freee）")
+        raise ConnectorError("freee: 未接続です（接続するには: watari connect freee --legacy）")
     token = access_token()
     since_date = (since or "1970-01-01")[:10]
     params = urllib.parse.urlencode({

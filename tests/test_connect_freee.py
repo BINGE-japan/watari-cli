@@ -110,7 +110,7 @@ class ConnectWizardFreeeTest(_XdgIsolated):
         prompts.text = self._queued_text(["cid-123", "csecret-456"])
         self._router_single_company()
 
-        rc, out, err = _run(["connect", "freee"])
+        rc, out, err = _run(["connect", "--legacy", "freee"])
         self.assertEqual(rc, 0, err)
         self.assertIn("株式会社テスト", out)
         self.assertNotIn("csecret-456", out)  # 認証情報は print しない
@@ -132,7 +132,7 @@ class ConnectWizardFreeeTest(_XdgIsolated):
         freee._http = _fake_http(lambda m, u, h, d: (
             400, json.dumps({"error": "invalid_request"}).encode()))
 
-        rc, out, err = _run(["connect", "freee"])
+        rc, out, err = _run(["connect", "--legacy", "freee"])
         self.assertEqual(rc, 1)
         self.assertEqual(config.load_config().get("connectors_auth", {}).get("freee"), None)
         self.assertEqual(config.load_connectors(), [])
@@ -140,7 +140,7 @@ class ConnectWizardFreeeTest(_XdgIsolated):
     def test_empty_client_id_aborts_without_saving(self):
         from watari_cli import prompts
         prompts.text = self._queued_text(["", "csecret-456"])
-        rc, _out, err = _run(["connect", "freee"])
+        rc, _out, err = _run(["connect", "--legacy", "freee"])
         self.assertEqual(rc, 1)
         self.assertEqual(config.load_config().get("connectors_auth", {}).get("freee"), None)
         self.assertEqual(config.load_connectors(), [])
@@ -166,7 +166,7 @@ class ConnectWizardFreeeTest(_XdgIsolated):
             return 404, b"{}"
         freee._http = _fake_http(router)
 
-        rc, out, err = _run(["connect", "freee"])
+        rc, out, err = _run(["connect", "--legacy", "freee"])
         self.assertEqual(rc, 0, err)
         self.assertEqual(len(captured["options"]), 2)
         saved = config.load_config()["connectors_auth"]["freee"]
@@ -188,7 +188,7 @@ class ConnectWizardFreeeTest(_XdgIsolated):
             captured["options"] = options
             raise prompts.Cancelled  # メニューを見るだけで抜ける
         prompts.select = fake_select
-        rc, _out, _err = _run(["connect"])
+        rc, _out, _err = _run(["connect", "--legacy"])
         self.assertEqual(rc, 0)  # メニューの終了は正常終了
         self.assertIn("freee", [value for _label, value in captured["options"]])
 

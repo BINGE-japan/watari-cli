@@ -99,7 +99,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
         self._auth_ok()
         answers = iter(["xoxp-secret-123", "xoxb-secret-456"])
         prompts.text = lambda *a, **k: next(answers)
-        rc, out, err = _run(["connect", "slack"])
+        rc, out, err = _run(["connect", "--legacy", "slack"])
         self.assertEqual(rc, 0)
         self.assertIn("example-user@Example Team", out)
         self.assertIn("Watari bot", out)
@@ -119,7 +119,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
         slack._http = _fake_http(
             lambda m, u, h, d: (200, json.dumps(
                 {"ok": False, "error": "invalid_auth"}).encode()))
-        rc, out, err = _run(["connect", "slack"])
+        rc, out, err = _run(["connect", "--legacy", "slack"])
         self.assertEqual(rc, 1)
         self.assertIn("invalid_auth", err)
         self.assertIsNone(connectors.auth_key("slack"))
@@ -130,7 +130,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
         answers = iter(["xoxp-bad", "xoxb-valid-shape"])
         prompts.text = lambda *a, **k: next(answers)
         slack._http = _fake_http(lambda m, u, h, d: (401, b'{"error":"invalid_auth"}'))
-        rc, out, err = _run(["connect", "slack"])
+        rc, out, err = _run(["connect", "--legacy", "slack"])
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("slack"))
         self.assertEqual(config.load_connectors(), [])
@@ -138,7 +138,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
     def test_empty_key_aborts_without_saving(self):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""
-        rc, _out, err = _run(["connect", "slack"])
+        rc, _out, err = _run(["connect", "--legacy", "slack"])
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("slack"))
         self.assertEqual(config.load_connectors(), [])
@@ -148,7 +148,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
         self._auth_ok()
         answers = iter(["xoxp-secret-123", "xoxb-invalid"])
         prompts.text = lambda *a, **k: next(answers)
-        rc, out, err = _run(["connect", "slack"])
+        rc, out, err = _run(["connect", "--legacy", "slack"])
         self.assertEqual(rc, 1)
         self.assertIn("bot", err.lower())
         self.assertNotIn("xoxb-invalid", out + err)
@@ -169,7 +169,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
             }).encode()
         slack._http = _fake_http(router)
 
-        rc, out, err = _run(["connect", "slack"])
+        rc, out, err = _run(["connect", "--legacy", "slack"])
         self.assertEqual(rc, 1)
         self.assertIn("別のSlack workspace", err)
         self.assertNotIn("xoxp-one", out + err)
@@ -183,7 +183,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
         prompts.text = lambda *a, **k: "xoxb-bot-token-123"
         slack._http = _fake_http(
             lambda m, u, h, d: self.fail("接頭辞チェックで拒否すべき（API を叩かない）"))
-        rc, _out, err = _run(["connect", "slack"])
+        rc, _out, err = _run(["connect", "--legacy", "slack"])
         self.assertEqual(rc, 1)
         self.assertIn("xoxp-", err)  # 正しいトークンの見分け方を案内
         self.assertIn("bot", err)
@@ -204,7 +204,7 @@ class ConnectWizardSlackTest(_XdgIsolated):
     def test_guide_mentions_apps_url_and_manifest(self):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""  # 空入力で中止させ、案内文だけを見る
-        rc, out, _err = _run(["connect", "slack"])
+        rc, out, _err = _run(["connect", "--legacy", "slack"])
         self.assertEqual(rc, 1)
         self.assertIn("https://api.slack.com/apps", out)
         self.assertIn("search:read", out)
@@ -509,7 +509,7 @@ class ConnectWizardChatworkTest(_XdgIsolated):
         from watari_cli import prompts
         self._me_ok()
         prompts.text = lambda *a, **k: "cw-secret-123"
-        rc, out, err = _run(["connect", "chatwork"])
+        rc, out, err = _run(["connect", "--legacy", "chatwork"])
         self.assertEqual(rc, 0)
         self.assertIn("Example User", out)
         self.assertIn("Example Team", out)
@@ -524,7 +524,7 @@ class ConnectWizardChatworkTest(_XdgIsolated):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: "bad-token"
         chatwork._http = _fake_http(lambda m, u, h, d: (401, b'{"errors":["invalid token"]}'))
-        rc, out, err = _run(["connect", "chatwork"])
+        rc, out, err = _run(["connect", "--legacy", "chatwork"])
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("chatwork"))
         self.assertEqual(config.load_connectors(), [])
@@ -534,7 +534,7 @@ class ConnectWizardChatworkTest(_XdgIsolated):
     def test_empty_key_aborts_without_saving(self):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""
-        rc, _out, err = _run(["connect", "chatwork"])
+        rc, _out, err = _run(["connect", "--legacy", "chatwork"])
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("chatwork"))
         self.assertEqual(config.load_connectors(), [])
@@ -543,7 +543,7 @@ class ConnectWizardChatworkTest(_XdgIsolated):
         """案内は URL を直に示す（画面から辿る道と、管理者による有効化の注意も添える）。"""
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""  # 空入力で中止させ、案内文だけを見る
-        rc, out, _err = _run(["connect", "chatwork"])
+        rc, out, _err = _run(["connect", "--legacy", "chatwork"])
         self.assertEqual(rc, 1)
         self.assertIn(
             "https://www.chatwork.com/service/packages/chatwork/subpackages/api/token.php", out)

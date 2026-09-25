@@ -14,11 +14,11 @@ export function loadSlackCredentials(env = process.env, home = homedir(), read =
   try {
     parsed = JSON.parse(read(configPath(env, home), "utf8"));
   } catch {
-    throw new Error("Slackの投稿設定を読み取れません。ターミナルで `watari connect slack` を実行してください。");
+    throw new Error("Slackの投稿設定を読み取れません。ターミナルで `watari connect slack --legacy` を実行してください。");
   }
   const token = parsed?.connectors_auth?.slack?.bot_token;
   if (typeof token !== "string" || !token.startsWith("xoxb-")) {
-    throw new Error("Watari botが未接続です。ターミナルで `watari connect slack` を実行してください。");
+    throw new Error("Watari botが未接続です。ターミナルで `watari connect slack --legacy` を実行してください。");
   }
   return { token, identity: parsed?.connectors_auth?.slack?.identity };
 }
@@ -32,7 +32,7 @@ export async function verifySlackSender(credentials, request = fetch) {
   const keys = ["team_id", "bot_id", "user_id"];
   if (!identity || keys.some(key => typeof identity[key] !== "string" || !identity[key])
       || String(identity.name).toLowerCase() !== "watari") {
-    throw new Error("Slackの送信者が未確認です。ターミナルで `watari connect slack` を実行してください。");
+    throw new Error("Slackの送信者が未確認です。ターミナルで `watari connect slack --legacy` を実行してください。");
   }
   const response = await request("https://slack.com/api/auth.test", {
     method: "POST", headers: { Authorization: `Bearer ${token}` },
@@ -81,7 +81,7 @@ function slackErrorMessage(code) {
     return "Watariがこのチャンネルに参加していません。Slackで @Watari をチャンネルへ招待してください。";
   }
   if (code === "missing_scope" || code === "invalid_auth" || code === "token_revoked") {
-    return `Watari botの投稿権限を確認できません（${code}）。\`watari connect slack\` で接続し直してください。`;
+    return `Watari botの投稿権限を確認できません（${code}）。\`watari connect slack --legacy\` で接続し直してください。`;
   }
   return `Slackへの送信に失敗しました（${code || "unknown_error"}）。`;
 }

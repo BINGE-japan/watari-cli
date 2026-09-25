@@ -108,7 +108,8 @@ MCPや常駐サーバーは不要です。保存先と同期方法、回答前�
 | `watari install` | 初回セットアップ（記憶フォルダの用意と設定の保存） |
 | `watari chat` | ワタリと話す（Pi を起動します） |
 | `watari performance` | 返信速度と、回答前に確認する記憶の詳しさを確認・変更 |
-| `watari connect` | 外部サービスと接続（Gmail・カレンダー・Slack など） |
+| `watari connect` | MCPでサービスと接続 |
+| `watari dashboard` | 機能・記憶・接続・設定をブラウザで確認 |
 | `watari brief` | 期限・予定・未返信・未読を実状態から最大3件に絞って確認 |
 | `watari status` | 記憶の様子を確認 |
 | `watari auth` | Google にログイン（複数のパソコンで会話を同期する場合だけ） |
@@ -120,13 +121,34 @@ MCPや常駐サーバーは不要です。保存先と同期方法、回答前�
 
 ## サービス接続（watari connect）
 
-`watari connect <サービス名>` で、外部サービスの動きをワタリに読ませられます。
+接続は **MCP**（AIとサービスをつなぐ共通方式）が標準です。Pi MCP Adapterを導入したうえで接続画面を開きます。
+
+```sh
+pi install npm:pi-mcp-adapter@2.37.0
+watari connect
+```
+
+入力済みの `/mcp setup` をEnterで実行し、画面から追加・認証・接続確認を行います。
+MCPのURLが分かっている場合は `watari connect team-docs --url https://mcp.example.com/mcp` でも登録できます。
+登録前に接続名・URL・保存先を確認します。URLへAPIキーを含めないでください。
+`watari connect --list` は設定の確認だけで、外部へ接続しません。
+
+認証・MCP通信はPi MCP Adapterが担当し、`watari chat` でも同じ接続設定を使います。
+信頼できるMCPだけを登録してください。ローカル実行型のMCPは、このパソコンでプログラムを実行します。
+MCPを追加しただけでは、定期的な読み取りや記憶の整理は始まりません。
+既存の接続・記憶の読み取り設定は自動で移行・削除しません。
+外部への送信は引き続き本人の事前承認が必要です。
+
+### 従来方式とローカル資料
+
+`watari connect <サービス名> --legacy` で、外部サービスの動きをワタリに読ませられます。
 接続すると、次の記憶の整理から自動で読み込まれます。Gmail・Google カレンダー・Linearは、
 `watari chat` の起動中に期限・近い予定・未返信・未読も読み取り専用で確認し、重要なものを最大3件だけ
 知らせます。同じ状態は24時間繰り返しません。
 
 対応サービス: Linear・GitHub・Notion・Slack・Chatwork・freee・Gmail・Google カレンダー・
-Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari connect` で選択メニューが出ます。
+Google ドライブ・Obsidian・Claude Code・Codex。`watari connect --legacy` で選択メニューが出ます。
+ローカル資料は `watari connect obsidian` / `watari connect claude-code` / `watari connect codex` でも設定できます。
 
 - 多くのサービスは、画面の案内に従ってトークンを 1 つ貼るだけです。貼った内容は
   その場で接続テストをしてから保存されます。
@@ -146,6 +168,23 @@ Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari c
 - 一覧にないツール（その他の参照ノートや独自サービスなど）は、上級者向けに
   `watari connector add` で読み方を自由記述で登録できます。`watari connector list` で
   登録済みの一覧を確認できます。
+
+## ダッシュボード
+
+`watari dashboard`、会話中の `/dashboard`、または「ダッシュボードを開いて」で表示できます。
+
+- **記憶**：人物像・事実・進行中事項・関心・学習状況
+- **記録と出典**：過去の記録を検索。完了した話題も確認できます
+- **接続**：MCPの登録先・過去に取得したツール一覧・従来方式の読み取り先
+- **同期・パソコン**：認証情報の有無と、各パソコンの読み取り位置
+- **設定・機能**：性能モード・保存先・機能とコマンド。会話から開けばモデル・思考設定・道具の一覧も表示
+
+このパソコン専用の読み取り画面です。秘密の設定値は表示しませんが、記憶には私的な内容が含まれるため、URLを共有しないでください。
+外部サービスへの接続確認・同期・記憶の変更はしません。「登録済み」は「接続成功」とは別です。
+画面の「更新」で現在の保存内容を読み直します。1時間使わないと表示用プログラムが終了します。
+
+`--no-browser` でURLだけ取得、`--serve` で端末内に表示用プログラムを維持できます（Ctrl+Cで終了）。
+`--snapshot` は画面を起動せず確認内容をJSON出力します。1ファイル32MB、記録合計10万件・1件1MBを超える場合はエラーを表示します。
 
 ## 複数のパソコンで使う
 
@@ -186,6 +225,7 @@ Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari c
 |---|---|
 | `/remember <覚えてほしいこと>` | いま言ったことを確実に記憶に残す |
 | `/organize` | 記憶の整理を今すぐ実行する |
+| `/dashboard` | 機能・記憶・接続・設定をブラウザで確認 |
 | `/profile` | いまワタリが覚えているあなたのことを、平易な言葉で要約する |
 | `/forget <話題>` | 指定した話題を記憶から外す |
 | `/goal <目標>` | この会話の目標を決めて、達成まで見失わずに進める |
@@ -225,7 +265,7 @@ Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari c
   OAuth client自体が削除済みなら、
   有効なclient ID / client secretの入力へ自動で切り替わります。別のパソコンでGoogle連携が動いている
   場合は同じOAuth clientを使えるため、新規作成は不要です。
-- 接続したサービスの認証が切れた → `watari connect <サービス名>` をもう一度実行してください。
+- 接続したサービスの認証が切れた → `watari connect` の接続画面で認証してください。従来方式は `watari connect <サービス名> --legacy` を実行します。
 - 「記憶の同期に失敗しました（オフライン？）」と出る → 変更は保存済みです。
   ネットワーク復帰後の実行時に自動で再試行されます。
 
@@ -250,7 +290,7 @@ Google ドライブ・Obsidian・Claude Code・Codex。引数なしの `watari c
 - 会話の同期は、再送用データを保存してから読み取り位置を確定します。同期先の整理・追記は、
   読んだ後に内容が変わっていないことを確認できる場合だけ行います。
 - Slackの送信元を接続時のbotへ固定し、送信前に実際の送信者を再確認します。
-  **旧版から更新した場合、Slackで投稿する前にターミナルで `watari connect slack` を一度実行してください。**
+  **旧版から更新した場合、Slackで投稿する前にターミナルで `watari connect slack --legacy` を一度実行してください。**
   送信元の登録がない旧設定では、投稿を停止します。読み取り用の設定はそのまま使えます。
 - `watari status` に、自動の記憶整理の終了結果を表示します。AIの正常終了と記憶内容の正しさは別です。
 

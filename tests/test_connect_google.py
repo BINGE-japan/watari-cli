@@ -125,7 +125,7 @@ class ConnectWizardGmailTest(_GoogleIsolated):
             200, json.dumps({"emailAddress": "me@example.com"}).encode())
             if "/profile" in u else (404, b"{}"))
 
-        rc, out, err = _run(["connect", "gmail"])
+        rc, out, err = _run(["connect", "--legacy", "gmail"])
         self.assertEqual(rc, 0, err)
         self.assertEqual(capture, [[gconn.GMAIL_SCOPE]])
         self.assertIn("me@example.com", out)
@@ -145,13 +145,13 @@ class ConnectWizardGmailTest(_GoogleIsolated):
             200, json.dumps({"emailAddress": "me@example.com"}).encode())
             if "/profile" in u else (404, b"{}"))
 
-        rc, out, err = _run(["connect", "gmail"])
+        rc, out, err = _run(["connect", "--legacy", "gmail"])
         self.assertEqual(rc, 0, err)
         self.assertIn("me@example.com", out)
 
     def test_authorize_failure_saves_nothing(self):
         self._fake_authorize(ok=False, message="認証されませんでした（timeout）")
-        rc, out, err = _run(["connect", "gmail"])
+        rc, out, err = _run(["connect", "--legacy", "gmail"])
         self.assertEqual(rc, 1)
         self.assertEqual(config.load_connectors(), [])
         self.assertIn("認証されませんでした", err)
@@ -160,7 +160,7 @@ class ConnectWizardGmailTest(_GoogleIsolated):
         self._fake_authorize()
         gconn._http = _fake_http(lambda m, u, h, d: (
             200, json.dumps({"emailAddress": "me@example.com"}).encode()))
-        rc, out, _err = _run(["connect", "gmail"])
+        rc, out, _err = _run(["connect", "--legacy", "gmail"])
         self.assertEqual(rc, 0)
         self.assertIn("browser", out)  # prompts.text が呼ばれていれば setUp の AssertionError で落ちる
 
@@ -171,7 +171,7 @@ class ConnectWizardGmailTest(_GoogleIsolated):
         self._fake_authorize()
         gconn._http = _fake_http(lambda m, u, h, d: (
             200, json.dumps({"emailAddress": "me@example.com"}).encode()))
-        rc, out, _err = _run(["connect"])
+        rc, out, _err = _run(["connect", "--legacy"])
         self.assertEqual(rc, 0)
         self.assertIn("me@example.com", out)
 
@@ -283,7 +283,7 @@ class ConnectWizardCalendarTest(_GoogleIsolated):
         self._fake_authorize(capture=capture)
         gconn._http = _fake_http(lambda m, u, h, d: (
             200, json.dumps({"summary": "My Calendar", "id": "me@example.com"}).encode()))
-        rc, out, err = _run(["connect", "calendar"])
+        rc, out, err = _run(["connect", "--legacy", "calendar"])
         self.assertEqual(rc, 0, err)
         self.assertEqual(capture, [[gconn.CALENDAR_SCOPE]])
         self.assertIn("My Calendar", out)
@@ -346,7 +346,7 @@ class ConnectWizardGdriveTest(_GoogleIsolated):
         self._fake_authorize(capture=capture)
         gconn._http = _fake_http(lambda m, u, h, d: (
             200, json.dumps({"user": {"emailAddress": "me@example.com"}}).encode()))
-        rc, out, err = _run(["connect", "gdrive"])
+        rc, out, err = _run(["connect", "--legacy", "gdrive"])
         self.assertEqual(rc, 0, err)
         self.assertEqual(capture, [[gconn.GDRIVE_SCOPE]])
         self.assertIn("me@example.com", out)
@@ -428,7 +428,7 @@ class RegistryGoogleExtensionTest(_GoogleIsolated):
             captured["options"] = options
             raise prompts.Cancelled
         prompts.select = fake_select
-        rc, _out, _err = _run(["connect"])  # Cancelled=メニュー終了
+        rc, _out, _err = _run(["connect", "--legacy"])  # Cancelled=メニュー終了
         self.assertEqual(rc, 0)  # メニューを閉じるのは正常終了
         # ラベルには接続状態が付く（未接続なら「（未接続）」）
         self.assertIn(("⬜ Google ドライブ", "gdrive"), captured["options"])
@@ -450,7 +450,7 @@ class RegistryGoogleExtensionTest(_GoogleIsolated):
             raise prompts.Cancelled
 
         prompts.select = fake_select
-        rc, _out, _err = _run(["connect"])
+        rc, _out, _err = _run(["connect", "--legacy"])
         self.assertEqual(rc, 0)
         labels = dict((value, label) for label, value in captured["options"])
         self.assertEqual(labels["gmail"], "⬜ Gmail")
@@ -474,7 +474,7 @@ class RegistryGoogleExtensionTest(_GoogleIsolated):
             raise prompts.Cancelled
 
         prompts.select = fake_select
-        rc, _out, _err = _run(["connect"])
+        rc, _out, _err = _run(["connect", "--legacy"])
         self.assertEqual(rc, 0)
         labels = dict((value, label) for label, value in captured["options"])
         self.assertEqual(labels["gmail"], "⬜ Gmail")

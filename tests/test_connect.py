@@ -89,7 +89,7 @@ class ConnectWizardTest(_XdgIsolated):
         from watari_cli import prompts
         self._viewer_ok()
         prompts.text = lambda *a, **k: "sekret-key-123"
-        rc, out, err = _run(["connect", "linear"])
+        rc, out, err = _run(["connect", "--legacy", "linear"])
         self.assertEqual(rc, 0)
         self.assertIn("Example User", out)
         self.assertNotIn("sekret-key-123", out)  # 認証情報は print しない
@@ -106,7 +106,7 @@ class ConnectWizardTest(_XdgIsolated):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: "bad-key"
         linear._http = _fake_http(lambda m, u, h, d: (401, b'{"error":"unauthorized"}'))
-        rc, out, err = _run(["connect", "linear"])
+        rc, out, err = _run(["connect", "--legacy", "linear"])
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("linear"))
         self.assertEqual(config.load_connectors(), [])
@@ -116,7 +116,7 @@ class ConnectWizardTest(_XdgIsolated):
     def test_empty_key_aborts_without_saving(self):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""
-        rc, _out, err = _run(["connect", "linear"])
+        rc, _out, err = _run(["connect", "--legacy", "linear"])
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("linear"))
         self.assertEqual(config.load_connectors(), [])
@@ -128,7 +128,7 @@ class ConnectWizardTest(_XdgIsolated):
         saved_registry = dict(connectors.REGISTRY)
         connectors.REGISTRY["not-yet-implemented"] = connectors._placeholder("NotYetService")
         try:
-            rc, out, _err = _run(["connect", "not-yet-implemented"])
+            rc, out, _err = _run(["connect", "--legacy", "not-yet-implemented"])
         finally:
             connectors.REGISTRY.clear()
             connectors.REGISTRY.update(saved_registry)
@@ -138,7 +138,7 @@ class ConnectWizardTest(_XdgIsolated):
         self.assertEqual(config.load_connectors(), [])
 
     def test_unknown_service_is_an_error(self):
-        rc, _out, err = _run(["connect", "not-a-real-service"])
+        rc, _out, err = _run(["connect", "--legacy", "not-a-real-service"])
         self.assertEqual(rc, 2)
         self.assertIn("不明", err)
 
@@ -148,7 +148,7 @@ class ConnectWizardTest(_XdgIsolated):
         picks = iter(["linear", None])  # 接続後はメニューに戻るので「終了」を選ぶ
         prompts.select = lambda *a, **k: next(picks)
         prompts.text = lambda *a, **k: "key123"
-        rc, out, _err = _run(["connect"])
+        rc, out, _err = _run(["connect", "--legacy"])
         self.assertEqual(rc, 0)
         self.assertEqual(connectors.auth_key("linear"), "key123")
 
@@ -253,7 +253,7 @@ class ConnectWizardGithubTest(_XdgIsolated):
         from watari_cli import prompts
         self._user_ok()
         prompts.text = lambda *a, **k: "ghp-secret-123"
-        rc, out, err = _run(["connect", "github"])
+        rc, out, err = _run(["connect", "--legacy", "github"])
         self.assertEqual(rc, 0)
         self.assertIn("exampledev", out)
         self.assertNotIn("ghp-secret-123", out)  # 認証情報は print しない
@@ -267,7 +267,7 @@ class ConnectWizardGithubTest(_XdgIsolated):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: "bad-token"
         github._http = _fake_http(lambda m, u, h, d: (401, b'{"message":"Bad credentials"}'))
-        rc, out, err = _run(["connect", "github"])
+        rc, out, err = _run(["connect", "--legacy", "github"])
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("github"))
         self.assertEqual(config.load_connectors(), [])
@@ -277,7 +277,7 @@ class ConnectWizardGithubTest(_XdgIsolated):
     def test_empty_key_aborts_without_saving(self):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""
-        rc, _out, err = _run(["connect", "github"])
+        rc, _out, err = _run(["connect", "--legacy", "github"])
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("github"))
         self.assertEqual(config.load_connectors(), [])
@@ -285,7 +285,7 @@ class ConnectWizardGithubTest(_XdgIsolated):
     def test_guide_mentions_token_creation_url(self):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""  # 空入力で中止させ、案内文だけを見る
-        rc, out, _err = _run(["connect", "github"])
+        rc, out, _err = _run(["connect", "--legacy", "github"])
         self.assertEqual(rc, 1)
         # Fine-grained トークン作成画面への直リンクを案内する
         self.assertIn("https://github.com/settings/personal-access-tokens/new", out)
@@ -390,7 +390,7 @@ class ConnectWizardNotionTest(_XdgIsolated):
         from watari_cli import prompts
         self._me_ok()
         prompts.text = lambda *a, **k: "ntn-secret-123"
-        rc, out, err = _run(["connect", "notion"])
+        rc, out, err = _run(["connect", "--legacy", "notion"])
         self.assertEqual(rc, 0)
         self.assertIn("Watari Bot", out)
         self.assertNotIn("ntn-secret-123", out)  # 認証情報は print しない
@@ -404,7 +404,7 @@ class ConnectWizardNotionTest(_XdgIsolated):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: "bad-token"
         notion._http = _fake_http(lambda m, u, h, d: (401, b'{"message":"unauthorized"}'))
-        rc, out, err = _run(["connect", "notion"])
+        rc, out, err = _run(["connect", "--legacy", "notion"])
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("notion"))
         self.assertEqual(config.load_connectors(), [])
@@ -414,7 +414,7 @@ class ConnectWizardNotionTest(_XdgIsolated):
     def test_empty_key_aborts_without_saving(self):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""
-        rc, _out, err = _run(["connect", "notion"])
+        rc, _out, err = _run(["connect", "--legacy", "notion"])
         self.assertEqual(rc, 1)
         self.assertIsNone(connectors.auth_key("notion"))
         self.assertEqual(config.load_connectors(), [])
@@ -422,7 +422,7 @@ class ConnectWizardNotionTest(_XdgIsolated):
     def test_guide_mentions_integration_setup_url_and_connection_step(self):
         from watari_cli import prompts
         prompts.text = lambda *a, **k: ""  # 空入力で中止させ、案内文だけを見る
-        rc, out, _err = _run(["connect", "notion"])
+        rc, out, _err = _run(["connect", "--legacy", "notion"])
         self.assertEqual(rc, 1)
         self.assertIn("https://www.notion.so/my-integrations", out)
         self.assertIn("Connections", out)  # 2段目（ページ/DB への接続）の案内が含まれる
@@ -545,7 +545,7 @@ class RegistryExtensibilityTest(_XdgIsolated):
         linear._http = _fake_http(
             lambda m, u, h, d: (200, json.dumps({"data": {"viewer": {"name": "Toshi"}}}).encode()))
         try:
-            _run(["connect"])
+            _run(["connect", "--legacy"])
         finally:
             prompts.select = saved
             prompts.text = saved_text
@@ -578,7 +578,7 @@ class RegistryExtensibilityTest(_XdgIsolated):
         prompts.text = lambda *a, **k: "fake-api-key"
 
         # メニューに現れる（cli 側はレジストリを列挙しただけ・"fakesvc" を知らない）
-        rc, out, _err = _run(["connect"])
+        rc, out, _err = _run(["connect", "--legacy"])
         self.assertEqual(rc, 0)
         first, second = captured["renders"][0], captured["renders"][1]
         self.assertIn(("⬜ FakeService", "fakesvc"), first)
@@ -620,7 +620,7 @@ class ConnectSuccessNextStepTest(_XdgIsolated):
     def test_non_tty_message_is_user_facing(self):
         # 非TTY 文言はユーザー向け（エージェント向けの括弧書きを出さない）
         os.environ.pop("WATARI_CONNECT_ALLOW_NO_TTY", None)
-        args = _build_parser().parse_args(["connect"])
+        args = _build_parser().parse_args(["connect", "--legacy"])
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             rc = args.func(args)

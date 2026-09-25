@@ -66,7 +66,7 @@ def _raise_for_status(service: str, status: int, body: bytes) -> None:
             f"{connector_http.reconnect_hint(service)}")
     if status == 403:
         raise ConnectorError(
-            f"{service}: アクセスが拒否されました(403)。watari connect {service} を実行して、"
+            f"{service}: アクセスが拒否されました(403)。watari connect {service} --legacy を実行して、"
             f"ブラウザでの承認をやり直してください。それでも失敗する場合は、お使いの Google "
             f"アカウントがこのアプリを利用できない設定になっている可能性があります"
             f"（詳細: {connector_http.body_text(body)}）")

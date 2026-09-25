@@ -199,12 +199,12 @@ def _search(token: str, query: str) -> list[dict]:
             code = data.get("error") or "不明なエラー"
             if code == "not_allowed_token_type":
                 raise ConnectorError(
-                    "slack: bot 用トークンでは読めません。watari connect slack で"
+                    "slack: bot 用トークンでは読めません。watari connect slack --legacy で"
                     " User OAuth Token（xoxp- で始まる方）を貼り直してください")
             if code == "missing_scope":
                 raise ConnectorError(
                     "slack: トークンに検索権限（search:read）がありません。"
-                    "watari connect slack でアプリを作り直してください")
+                    "watari connect slack --legacy でアプリを作り直してください")
             raise ConnectorError(
                 f"slack: 読み取りに失敗しました（{code}）。"
                 f"{connector_http.reconnect_hint('slack')}")

@@ -44,7 +44,7 @@ def body_text(body: bytes | str, limit: int = 200) -> str:
 
 def reconnect_hint(service: str) -> str:
     """失敗時に必ず添える「次の一歩」の定型文（全サービス共通の言い回し）。"""
-    return f"もう一度接続するには: watari connect {service}"
+    return f"もう一度接続するには: watari connect {service} --legacy"
 
 
 def paged_items(fetch_page, items_key, *, next_key="nextPageToken", max_pages=100):

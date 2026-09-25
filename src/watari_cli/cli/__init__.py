@@ -25,7 +25,8 @@ _TOP_HELP = """\
   install   初回セットアップ（記憶フォルダの用意と設定の保存）
   chat      ワタリと話す（Pi を起動します）
   performance  返信速度と記憶の詳しさを選ぶ
-  connect   外部サービスと接続（Gmail・カレンダー・Slack など）
+  connect   MCPでサービスと接続
+  dashboard 機能・記憶・出典・接続・設定をブラウザで確認
   brief     期限・予定・未返信・未読をまとめて確認
   status    記憶の様子を確認
   auth      Google にログイン（複数のパソコンで会話を同期する場合）
@@ -955,11 +956,12 @@ def cmd_chat(args) -> int:
     file_links_extension = _find_pi_runtime_file("file-links.ts")
     slack_send_extension = _find_pi_runtime_file("slack-send.ts")
     memory_tools_extension = _find_pi_runtime_file("memory-tools.ts")
+    dashboard_extension = _find_pi_runtime_file("dashboard.ts")
     herdr_plugin = _find_herdr_plugin_dir()
     if not all((politeness_guard, performance_extension, thinking_progress,
                 compact_tools, memory_context, verification_guard,
                 briefing_extension, file_links_extension, slack_send_extension,
-                memory_tools_extension)):
+                memory_tools_extension, dashboard_extension)):
         sys.stderr.write(
             "ワタリの本体データ（同梱 Pi runtime file）が見つかりません"
             "（インストールが壊れている可能性があります）。\n"
@@ -980,7 +982,13 @@ def cmd_chat(args) -> int:
         "--extension", file_links_extension,
         "--extension", slack_send_extension,
         "--extension", memory_tools_extension,
-    ] + args.extra
+        "--extension", dashboard_extension,
+    ]
+    from watari_cli.mcp_connections import adapter_root
+    mcp_adapter = adapter_root()
+    if mcp_adapter:
+        cmd += ["--extension", str(mcp_adapter / "index.ts")]
+    cmd += args.extra
 
     env = dict(os.environ)
     # 旧版が設定した内部表示patchを親のPiから継承しても、同梱版Piには効かないため除去する。
@@ -1331,7 +1339,7 @@ def _connect_wizard(name: str) -> int:
         ok, message = service.verify()
         if not ok:
             sys.stderr.write(f"! 接続に失敗しました: {message}\n"
-                             f"  もう一度やり直すには: watari connect {name}\n")
+                             f"  もう一度やり直すには: watari connect {name} --legacy\n")
             return 1
         return _declare_builtin_connector(name, message, scope=service.scope,
                                           auth_kind=service.auth_kind)
@@ -1343,7 +1351,7 @@ def _connect_wizard(name: str) -> int:
                 value = prompts.text(prompt)
                 if not value:
                     sys.stderr.write("トークンが空のため中止しました。"
-                                     f"もう一度やり直すには: watari connect {name}\n")
+                                     f"もう一度やり直すには: watari connect {name} --legacy\n")
                     return 1
                 credentials[key] = value
         except prompts.Cancelled:
@@ -1352,7 +1360,7 @@ def _connect_wizard(name: str) -> int:
         ok, message = service.verify(credentials)
         if not ok:
             sys.stderr.write(f"! 接続に失敗しました: {message}\n"
-                             f"  もう一度やり直すには: watari connect {name}\n")
+                             f"  もう一度やり直すには: watari connect {name} --legacy\n")
             return 1
         connectors_mod.save_auth_values(name, credentials)
         return _declare_builtin_connector(name, message)
@@ -1364,12 +1372,12 @@ def _connect_wizard(name: str) -> int:
         return 130
     if not api_key:
         sys.stderr.write("トークンが空のため中止しました。"
-                         f"もう一度やり直すには: watari connect {name}\n")
+                         f"もう一度やり直すには: watari connect {name} --legacy\n")
         return 1
     ok, message = service.verify(api_key)
     if not ok:
         sys.stderr.write(f"! 接続に失敗しました: {message}\n"
-                         f"  もう一度やり直すには: watari connect {name}\n")
+                         f"  もう一度やり直すには: watari connect {name} --legacy\n")
         return 1
     connectors_mod.save_auth(name, api_key)
     return _declare_builtin_connector(name, message)
@@ -1398,16 +1406,27 @@ def connectors_status(name: str) -> bool:
 
 
 def cmd_connect(args) -> int:
-    """`watari connect [service]`。引数なしは選択メニュー（レジストリを列挙するだけ）。
+    """MCP管理を既定とし、明示的な従来方式とローカル資料だけ既存wizardへ渡す。
 
     対話ウィザードなので、非対話シェル（パイプ・スクリプト経由）から呼ばれたら
     黙って既定値で進まず、ターミナルで直接打つよう即座に案内して終了する。"""
     from watari_cli import connectors as connectors_mod, prompts
 
-    if not sys.stdin.isatty() and not os.environ.get("WATARI_CONNECT_ALLOW_NO_TTY"):
+    local_source = args.service in ("obsidian", "claude-code", "codex")
+    legacy = getattr(args, "legacy", False)
+    listing = getattr(args, "list", False)
+    url = getattr(args, "url", None)
+    if (legacy or local_source) and (listing or url):
+        sys.stderr.write("MCP接続・従来方式・ローカル資料の指定は同時に使えません。watari connect --help を確認してください。\n")
+        return 2
+    if not listing and not sys.stdin.isatty() and not os.environ.get("WATARI_CONNECT_ALLOW_NO_TTY"):
         sys.stderr.write(
             "watari connect は対話コマンドです。お使いのターミナルで直接実行してください。\n")
         return 2
+
+    if not legacy and not local_source:
+        from watari_cli.mcp_connections import connect
+        return connect(args)
 
     if args.service:
         return _connect_wizard(args.service)  # サービス指名は1回だけ実行して終わる
@@ -1442,7 +1461,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # サブコマンドの usage 行にそのまま連結されてしまう。
     sub = p.add_subparsers(dest="command", required=True, parser_class=_ArgumentParser,
                            prog="watari",
-                           metavar="{install,chat,performance,connect,status,auth}")
+                           metavar="{install,chat,dashboard,performance,connect,status,auth}")
 
     ps = sub.add_parser(
         "status", help="記憶の様子を確認",
@@ -1526,12 +1545,25 @@ def _build_parser() -> argparse.ArgumentParser:
     pauth.set_defaults(func=cmd_auth)
 
     pconn = sub.add_parser(
-        "connect", help="外部サービスと接続（Gmail・カレンダー・Slack など）",
-        description="外部サービス（Gmail・カレンダー・Slack など）をワタリに繋ぎます。"
-                    "画面の案内に従うだけで完了します。引数なしで実行すると一覧から選べます。")
+        "connect", help="MCPでサービスと接続",
+        description="MCP接続の登録・認証・確認画面を開きます。既存の従来方式は --legacy で利用できます。")
     pconn.add_argument("service", nargs="?",
-                       help="接続するサービス名（例 gmail）。省略時は選択メニュー")
+                       help="MCP接続名またはHTTPS URL。省略時は接続画面")
+    pconn.add_argument("--url", help="登録するHTTPSのMCP URL（認証情報を含めないでください）")
+    pconn.add_argument("--list", action="store_true", help="保存済みMCP接続を表示（通信・認証なし）")
+    pconn.add_argument("--legacy", action="store_true", help="従来方式のサービス接続を明示的に使う")
     pconn.set_defaults(func=cmd_connect)
+
+    from watari_cli.dashboard import cmd_dashboard
+    pd = sub.add_parser("dashboard", help="機能・記憶・接続・設定をブラウザで確認",
+                        description="このパソコン専用の、読み取り専用ダッシュボードを開きます。外部サービスへの通信や記憶の変更は行いません。")
+    pd.add_argument("--home", help=_HOME_HELP)
+    pd.add_argument("--json", action="store_true", help="確認済みの表示先をJSONで返す")
+    pd.add_argument("--no-browser", action="store_true", help="ブラウザを自動で開かない")
+    pd.add_argument("--snapshot", action="store_true", help="画面を起動せず、秘密を除いた現状をJSONで表示")
+    pd.add_argument("--session-context", help=argparse.SUPPRESS)
+    pd.add_argument("--serve", action="store_true", help="この端末で表示を維持（Ctrl+Cで終了）")
+    pd.set_defaults(func=cmd_dashboard)
 
     pc = sub.add_parser(
         "chat", help="ワタリと話す",

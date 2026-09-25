@@ -24,7 +24,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **リマインド**：進行中(open_threads)・締切(deadline)・休眠(dormant)を画面専用の確認事項として提示する。
   確認事項はユーザー発言としてモデルへ渡さず、ユーザー自身が触れるまで会話へ持ち込まない。
 - **決定論**：log＝正本（追記専用）→ state＝派生（log から再生成）。同じ log＋now なら必ず同じ state。
-- **モデル非依存**：判定はランタイム上のモデル、機械処理は CLI。**CLI はモデルも MCP も呼ばない**。
+- **モデル非依存**：判定はランタイム上のモデル、機械処理は CLI。**記憶エンジンはモデルも MCP も呼ばない**。MCPの接続・実行はPi MCP Adapterへ委譲する。
   既存処理をPiの専用道具からも呼び、MCP化やserver移行を前提にしない。人格・承認境界は常時、
   作業固有の判断基準と手順はその作業時だけ読み込む。モデルの安全性への期待を理由に承認境界を削らない。
 - **一般公開可能な汎用性**：特定の個人・会社・別製品・私的運用を条件分岐へ持ち込まない。
@@ -66,10 +66,37 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **カセット（user・WATARI_HOME / config.json）**：記憶(log/state)・connector 宣言・host record・秘密。
   ユーザー個人の Gmail / Obsidian 等の連携は**全部こちら**（各ユーザーが `watari connect` /
   `watari connector add` で宣言）。
-  Linear など組み込みコネクタは `watari connect` が認証（config.json の connectors_auth）と
+  Linear など組み込みコネクタは `watari connect --legacy` が認証（config.json の connectors_auth）と
   宣言を一本化し、`watari connector read <name>` が決定論で読む（読み方をエージェントに書かせない）。
 - **作らない**：`daily_report`（日報）/ `knowledge`（参照資料）は engine に移植しない。
   スケジューラも同梱しない（cron 等の外部に任せる。`docs/scheduled-organize.md`）。
+
+## MCP標準接続とダッシュボード（現行main）
+- `watari connect` はPi MCP Adapter 2.37.0以降の対話画面を開く。独自MCP transport/OAuth実装は持たない。
+  Adapterは本人が `pi install npm:pi-mcp-adapter@2.37.0` で導入する。未導入時は案内のみで、自動installしない。
+  `watari chat` は導入済みAdapterを追加読込する。接続専用Piはモデルへの入力を拒否し、MCP管理だけに使う。
+- URL登録は本人が接続名・HTTPS URL・保存先を確認してから行う。クエリ・userinfo・変数を含むURLは拒否。
+  共通設定 `~/.config/mcp/mcp.json` へ新規追加し、同名の別定義は上書きしない。新規定義はlazy・tool承認あり。
+  OAuth/APIキーを新たに取得したり別領域へ転記したりしない。既存の共通設定は保持する。MCPの設定発見・認証・実行はAdapterの責任。
+  MCP設定・認証は各パソコンのPi/共通MCP設定に置き、記憶フォルダへ同期しない。
+  MCPサーバーは信頼したものを本人が選ぶ。stdioはローカルコード実行を伴い、Security v1の隔離を提供しない。
+- 旧サービス接続は `watari connect <service> --legacy` に残す。ローカル資料（Obsidian/Claude Code/Codex）と
+  `watari auth` の会話同期は既存の専用機能を維持。自動移行・認証情報転記・既存読取の削除は行わない。
+  MCP追加だけで定期収集・記憶整理の対象にはしない。外部送信の事前承認・Slack専用送信の境界は変えない。
+- `watari dashboard` / `/dashboard` / `watari_dashboard` は同梱の読取専用画面を開く。
+  機能・記憶のまとめ・閉じた話題を含む記録と出典・MCP/旧接続・パソコンごとの読取位置・設定を表示する。
+  会話から開いた場合は、その時点のモデル・provider・思考設定・有効な道具名も表示する（秘密や道具引数は渡さない）。
+  記録は検索・ページングする。JSON出力も可能。認証設定は許可した項目だけを投影し秘密値は表示しない。
+  本文と出典は本人の記憶そのものなので機微情報を含み得る。画面の記憶データをAIや外部へ送らない。
+- 表示は外部API・Git・モデルを呼ばない。MCP設定/キャッシュはAdapter公開の読取APIを使用する。
+  「登録済み」「過去に取得したツール一覧」「接続状態未確認」を区別し、保存済み設定から疎通成功を推測しない。
+- HTTPは127.0.0.1の空きポートだけ。32byteランダムtokenをfragmentで渡し、APIは専用headerで認証する。
+  Host/Originを検証、no-store/CSP/no-referrer、外部asset・HTML埋込・書込APIなし。APIアクセスログなし。
+  固定の記憶/設定ファイルだけを読む。symlink・hardlink・特殊ファイル・未知version・破損を拒否する。
+  1ファイル32MB、記録合計10万件・1件1MBを上限とし超過時は見えるエラー。中断保存の復旧やファイル修正はdashboardから行わない。
+  起動時にhealth到達確認し、1時間未使用で終了。常駐サービス登録はしない。URLは当該PC専用で共有しない。
+- これは非Securityのmain保守機能でありSecurity v1の完成・隔離・リリースを示さない。
+  合成ファイル・模擬Pi・loopback HTTPで検証し、開発者の実サービス・秘密・記憶は使用しない。
 
 ## 現在地（status — 変わったら更新する）
 - **スキルの段階的読取・Pi専用の記憶操作**：常時渡すSKILL.mdは人格・安全境界・作業別資料の案内に絞り、
@@ -143,7 +170,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
     削除。同期を使う利用者は自分の OAuth アプリを登録する（`docs/google-oauth-setup.md`）。
   - README は日本語正本（冒頭に英語要約）・ユーザー導線に全面改稿。設計記録は `docs/design/` へ隔離。
 - **組み込みコネクタ（Linear / GitHub / Notion / Slack / Chatwork / freee / Gmail / Google カレンダー /
-  Google ドライブ）**：`watari connect <name>` が
+  Google ドライブ）**：`watari connect <name> --legacy` が
   案内→貼り付け→疎通確認→config 保存→ connector 宣言(scope既定cloud)まで一本道。`watari connector
   read <name> [--since TS] [--json]` が各サービスの決定論リーダーで統一形式 {ts,uuid,text,meta} を
   昇順で返す（HTTP は urllib のみ）。Linear は「自分が担当/作成した issue の updatedAt>since」
@@ -245,7 +272,7 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
 - **Obsidian は組み込みlocal connector**。vault内のMarkdownだけを読み、`.obsidian`・隠しフォルダ・
   `Journal/Watari`・symlinkを除外する。旧自由記述の `vault=<path>` は実在vaultに限り構造化パスへ移行し、
   自由記述をshellとして実行しない。
-- **組み込みコネクタは案内型 wizard**：`watari connect <service>` が「案内→貼り付け→その場で実 API
+- **従来方式の接続は案内型 wizard**：`watari connect <service> --legacy` が「案内→貼り付け→その場で実 API
   疎通確認→config 保存→connector 宣言」を一本化する（生コマンドをユーザーに打たせない原則の延長）。
   第一弾は Linear（Personal API key）。読み取りは `watari connector read <name>` が決定論で行い、
   夢のエージェントはツール固有の API を知らなくてよい。カスタム connector（`connector add` の自由記述
