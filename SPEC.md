@@ -72,12 +72,23 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   スケジューラも同梱しない（cron 等の外部に任せる。`docs/scheduled-organize.md`）。
 
 ## MCP標準接続とダッシュボード（現行main）
-- `watari connect` はPi MCP Adapter 2.37.0以降の対話画面を開く。独自MCP transport/OAuth実装は持たない。
+- `watari connect` はワタリ自身の端末メニューで一覧・HTTPS接続追加・認証・接続確認まで完結する。
+  Piのコマンド入力は不要。詳細設定だけ `watari connect --advanced` から従来のPi画面へ渡す。
+  独自MCP transport/OAuth実装は持たない。共通設定とPi MCP Adapterの通信・認証保管を再利用する。
+  一覧は通信しない。本人が接続先と操作を確認した1件だけを実行し、他のeager接続は起動しない。
+  認証後は実際に接続しツール一覧を取得できた場合だけ成功表示する。ツール呼出・モデル呼出はしない。
+  既存stdio接続の確認はローカルプログラム実行を伴うことを事前表示する。新規stdio設定は詳細画面へ委譲。
+  トークン入力・ブラウザ認証・手動callback貼付は本人の端末操作のみ。秘密は非表示入力でAdapterへ直接渡し、
+  Python・argv・設定・結果・診断ログへ転記しない。sampling/elicitation/traceは管理操作で有効にしない。
+  公開APIに管理接続がないため、小さなNode bridgeのみAdapter 2.37.0のdist管理APIに固定する。
+  未検証versionは管理操作を拒否し詳細画面へ案内する。protocol/authの独自実装はしない。
+  確認時の定義・解決済み環境参照・認証保管設定・cwdをhashで束縛し、操作直前の変更時は再確認を要求する。
+  中止・timeout・失敗で子プロセス、接続、OAuth待受を片付ける。通信は明示された管理操作にだけ必要である。
   Adapterは本人が `pi install npm:pi-mcp-adapter@2.37.0` で導入する。未導入時は案内のみで、自動installしない。
   `watari chat` は導入済みAdapterを追加読込する。接続専用Piはモデルへの入力を拒否し、MCP管理だけに使う。
 - URL登録は本人が接続名・HTTPS URL・保存先を確認してから行う。クエリ・userinfo・変数を含むURLは拒否。
   共通設定 `~/.config/mcp/mcp.json` へ新規追加し、同名の別定義は上書きしない。新規定義はlazy・tool承認あり。
-  OAuth/APIキーを新たに取得したり別領域へ転記したりしない。既存の共通設定は保持する。MCPの設定発見・認証・実行はAdapterの責任。
+  登録自体ではOAuth/APIキーを取得・転記しない。明示的な認証操作だけがAdapterの既存保管先を利用する。既存の共通設定は保持する。MCPの設定発見・認証・実行はAdapterの責任。
   MCP設定・認証は各パソコンのPi/共通MCP設定に置き、記憶フォルダへ同期しない。
   MCPサーバーは信頼したものを本人が選ぶ。stdioはローカルコード実行を伴い、Security v1の隔離を提供しない。
 - 旧サービス接続は `watari connect <service> --legacy` に残す。ローカル資料（Obsidian/Claude Code/Codex）と

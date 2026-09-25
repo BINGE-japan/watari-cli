@@ -1416,7 +1416,8 @@ def cmd_connect(args) -> int:
     legacy = getattr(args, "legacy", False)
     listing = getattr(args, "list", False)
     url = getattr(args, "url", None)
-    if (legacy or local_source) and (listing or url):
+    advanced = getattr(args, "advanced", False)
+    if ((legacy or local_source) and (listing or url or advanced)) or (advanced and (listing or url)) or (listing and (url or args.service)):
         sys.stderr.write("MCP接続・従来方式・ローカル資料の指定は同時に使えません。watari connect --help を確認してください。\n")
         return 2
     if not listing and not sys.stdin.isatty() and not os.environ.get("WATARI_CONNECT_ALLOW_NO_TTY"):
@@ -1551,6 +1552,7 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="MCP接続名またはHTTPS URL。省略時は接続画面")
     pconn.add_argument("--url", help="登録するHTTPSのMCP URL（認証情報を含めないでください）")
     pconn.add_argument("--list", action="store_true", help="保存済みMCP接続を表示（通信・認証なし）")
+    pconn.add_argument("--advanced", action="store_true", help="詳細設定だけPiの管理画面で開く")
     pconn.add_argument("--legacy", action="store_true", help="従来方式のサービス接続を明示的に使う")
     pconn.set_defaults(func=cmd_connect)
 
