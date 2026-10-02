@@ -1,0 +1,254 @@
+{
+  "version": 1,
+  "id": "memory-ja-v1",
+  "now": "2026-01-03T00:00:00.000Z",
+  "turns": [
+    {
+      "uuid": "u01",
+      "role": "user",
+      "ts": "2026-01-02T00:00:00.000Z",
+      "text": "試作冊子の納品先は架空の青葉工房です。",
+      "rows": [
+        {
+          "kind": "fact",
+          "summary": "試作冊子の納品先は架空の青葉工房です。",
+          "note": "試作冊子の納品先は架空の青葉工房です。",
+          "profile": {
+            "key": "delivery_destination",
+            "value": "試作冊子の納品先は架空の青葉工房です。",
+            "mode": "relevant"
+          }
+        }
+      ]
+    },
+    {
+      "uuid": "u02",
+      "role": "user",
+      "ts": "2026-01-02T00:01:00.000Z",
+      "text": "訂正します。試作冊子の納品先は架空の霧町工房です。",
+      "rows": [
+        {
+          "kind": "fact",
+          "summary": "試作冊子の納品先は架空の霧町工房です。",
+          "note": "試作冊子の納品先は架空の霧町工房です。",
+          "profile": {
+            "key": "delivery_destination",
+            "value": "試作冊子の納品先は架空の霧町工房です。",
+            "mode": "relevant"
+          }
+        }
+      ]
+    },
+    {
+      "uuid": "u03",
+      "role": "user",
+      "ts": "2026-01-02T00:02:00.000Z",
+      "text": "試作冊子の校正が残っています。",
+      "rows": [
+        {
+          "kind": "thread",
+          "topic": "試作冊子の校正",
+          "status": "open",
+          "summary": "試作冊子の校正が残っています。",
+          "note": "試作冊子の校正が残っています。"
+        }
+      ]
+    },
+    {
+      "uuid": "u04",
+      "role": "user",
+      "ts": "2026-01-02T00:03:00.000Z",
+      "text": "試作冊子の校正は終わりました。",
+      "rows": [
+        {
+          "kind": "thread",
+          "topic": "試作冊子の校正",
+          "status": "closed",
+          "summary": "本人報告で試作冊子の校正が完了しました。",
+          "note": "本人報告で試作冊子の校正が完了しました。"
+        }
+      ]
+    },
+    {
+      "uuid": "a01",
+      "role": "assistant",
+      "ts": "2026-01-02T00:04:00.000Z",
+      "text": "次は展示室を予約しましょう。",
+      "rows": []
+    },
+    {
+      "uuid": "u06",
+      "role": "user",
+      "ts": "2026-01-02T00:05:00.000Z",
+      "text": "今は決めません。",
+      "rows": []
+    },
+    {
+      "uuid": "u07",
+      "role": "user",
+      "ts": "2026-01-02T00:06:00.000Z",
+      "text": "説明は短い箇条書きが好みです。",
+      "rows": [
+        {
+          "kind": "fact",
+          "summary": "説明は短い箇条書きにします。",
+          "note": "説明は短い箇条書きにします。",
+          "profile": {
+            "key": "response_style",
+            "value": "説明は短い箇条書きにします。",
+            "mode": "always"
+          }
+        }
+      ]
+    },
+    {
+      "uuid": "u08",
+      "role": "user",
+      "ts": "2026-01-02T00:07:00.000Z",
+      "text": "外部へ送信する前に、宛先・送信元・全文を私に見せて、毎回承認を得てください。",
+      "rows": [
+        {
+          "kind": "fact",
+          "summary": "外部送信は宛先・送信元・全文の提示後に本人の個別承認を得ます。",
+          "note": "外部送信は宛先・送信元・全文の提示後に本人の個別承認を得ます。",
+          "profile": {
+            "key": "approval_rule",
+            "value": "外部送信は宛先・送信元・全文の提示後に本人の個別承認を得ます。",
+            "mode": "always"
+          }
+        }
+      ]
+    },
+    {
+      "uuid": "u09",
+      "role": "user",
+      "ts": "2026-01-02T00:08:00.000Z",
+      "text": "借りた道具は展示のあとに返します。",
+      "rows": [
+        {
+          "kind": "fact",
+          "summary": "借りた道具は展示のあとに返します。",
+          "note": "借りた道具は展示のあとに返します。",
+          "profile": {
+            "key": "tool_return",
+            "value": "借りた道具は展示のあとに返します。",
+            "mode": "relevant"
+          }
+        }
+      ]
+    },
+    {
+      "uuid": "u10",
+      "role": "user",
+      "ts": "2026-01-02T00:09:00.000Z",
+      "text": "打ち合わせはオンラインで行います。",
+      "rows": [
+        {
+          "kind": "fact",
+          "summary": "打ち合わせはオンラインで行います。",
+          "note": "打ち合わせはオンラインで行います。",
+          "profile": {
+            "key": "meeting_format",
+            "value": "打ち合わせはオンラインで行います。",
+            "mode": "relevant"
+          }
+        }
+      ]
+    },
+    {
+      "uuid": "u11",
+      "role": "user",
+      "ts": "2026-01-02T00:10:00.000Z",
+      "text": "試作模型の組立はこれからです。",
+      "rows": [
+        {
+          "kind": "thread",
+          "topic": "試作模型の組立",
+          "status": "open",
+          "summary": "試作模型の組立は未着手です。",
+          "note": "試作模型の組立は未着手です。"
+        }
+      ]
+    },
+    {
+      "uuid": "u12",
+      "role": "user",
+      "ts": "2026-01-02T00:11:00.000Z",
+      "text": "展示ポスターの地色は紺色です。",
+      "rows": [
+        {
+          "kind": "fact",
+          "summary": "展示ポスターの地色は紺色です。",
+          "note": "展示ポスターの地色は紺色です。",
+          "profile": {
+            "key": "poster_color",
+            "value": "展示ポスターの地色は紺色です。",
+            "mode": "relevant"
+          }
+        }
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "id": "corrected-destination",
+      "group": "literal",
+      "text": "試作冊子の納品先は？",
+      "expected": [
+        "fact:delivery_destination"
+      ]
+    },
+    {
+      "id": "tool-return-literal",
+      "group": "literal",
+      "text": "借りた道具はいつ返しますか？",
+      "expected": [
+        "fact:tool_return"
+      ]
+    },
+    {
+      "id": "meeting-literal",
+      "group": "literal",
+      "text": "打ち合わせはオンラインですか？",
+      "expected": [
+        "fact:meeting_format"
+      ]
+    },
+    {
+      "id": "open-task",
+      "group": "literal",
+      "text": "試作模型の組立は？",
+      "expected": [
+        "thread:試作模型の組立"
+      ]
+    },
+    {
+      "id": "tool-return-paraphrase",
+      "group": "paraphrase",
+      "text": "レンタル品の返却タイミングは？",
+      "expected": [
+        "fact:tool_return"
+      ]
+    },
+    {
+      "id": "meeting-paraphrase",
+      "group": "paraphrase",
+      "text": "顔を合わせず遠隔で相談する方法は？",
+      "expected": [
+        "fact:meeting_format"
+      ]
+    },
+    {
+      "id": "unknown-information",
+      "group": "negative",
+      "text": "カピバラの体重",
+      "expected": []
+    },
+    {
+      "id": "closed-task",
+      "group": "negative",
+      "text": "試作冊子の校正",
+      "expected": []
+    }
+  ]
+}

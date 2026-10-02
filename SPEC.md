@@ -116,6 +116,14 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   合成ファイル・模擬Pi・loopback HTTPで検証し、開発者の実サービス・秘密・記憶は使用しない。
 
 ## 現在地（status — 変わったら更新する）
+- **日本語記憶の合成baseline**：`tests/memory_benchmark.py` は固定した日本語会話・gold decisionsを
+  一時WATARI_HOMEへ保存し、実装のsave_batch／regen／audit／loadMemorySearch／loadMemoryContextを通して測定する。
+  fixtureはv1、時計は固定、同期のみstubにする。継承した記憶パス・設定・認証を使わず、fresh process以外は拒否する。
+  訂正、完了履歴、本人発話へのrefs束縛、assistant根拠の拒否、見送り、再送dedup、再生成、承認方針の保持、
+  fast/balancedの容量を回帰検査する。検索Recall@6/MRR、言い換え群、負例への候補表示と、3モードの内容供給率を分離する。
+  JSONには発話→保存行→検索結果の根拠・期待した根拠→生成したcontextを含め、検索missを成功に置換しない。
+  これは開発用の比較基盤であり、本番trace/dashboard表示、LLMの選別・回答精度、同期、実記憶の検証ではない。
+  新モデル・検索方式・常駐処理は導入せず、製品の記憶形式と挙動は変更しない。実行・指標の説明はREADMEの開発時検証を参照。
 - **スキルの段階的読取・Pi専用の記憶操作**：常時渡すSKILL.mdは人格・安全境界・作業別資料の案内に絞り、
   選別基準と保存・整理手順は同梱MEMORY.mdへ集約する。/remember・/organizeは手順を複製せず同資料を参照する。
   `pi/memory-tools.ts`は追加検索・話題別根拠取得・取得済み会話の選別準備・保存をPiの道具として公開する。
