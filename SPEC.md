@@ -86,6 +86,9 @@ watari-cli が **何を目指し・何を満たし・今どこまで来ている
   ブラウザ認証可能とは扱わず、基本追加UIはPAT方式を提示する。既存の登録済みOAuthアプリ設定は維持する。
   既存接続には本人確認付きの「アクセストークン方式に切り替える」を提供する。共通設定の単純な定義のみを対象に、
   確認時のbindingと有効な定義のfingerprintをロック内で照合する。別設定の上書き・headers・oauth・秘密の削除は拒否。
+  LinearはAdapter側に候補がない場合も公式Streamable HTTP URL（`https://mcp.linear.app/mcp`）を補完し、
+  `watari connect`の追加メニューと`watari connect linear`からOAuthを既定として選べる（公式: https://linear.app/docs/mcp）。
+  既存のAdapter候補・接続設定は上書きせず、選択と本人確認前には登録・認証・通信を行わない。
   新規追加後は認証を先に選択する。DCR非対応・401/403・通信・timeout・一時障害は安全な分類で次の操作を案内し、
   生の例外・応答本文・秘密は表示しない。修正検証も合成データ・模擬HTTP・Adapterのテスト用保管先だけを使う。
   確認時の定義・解決済み環境参照・認証保管設定・cwdをhashで束縛し、操作直前の変更時は再確認を要求する。

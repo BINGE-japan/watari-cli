@@ -113,6 +113,46 @@ class ConnectManagementTest(unittest.TestCase):
         for name,content in modules.items(): (root/'dist'/name).write_text(content)
         return root
 
+    def test_linear_preset_is_available_when_adapter_does_not_include_it(self):
+        root = self.fake_adapter()
+        with patch.object(mcp, 'adapter_root', return_value=root):
+            current = mcp.inventory()
+        linear = [p for p in current['presets'] if p['id'] == 'linear']
+        self.assertEqual(linear, [{'id': 'linear', 'name': 'Linear',
+                                  'url': 'https://mcp.linear.app/mcp', 'auth': 'oauth'}])
+        self.assertEqual([s['name'] for s in current['servers']], ['example'])
+
+    def test_adapter_linear_preset_is_preserved_without_duplicates(self):
+        root = self.fake_adapter()
+        preset = {'id': 'linear', 'name': 'Linear',
+                  'entry': {'url': 'https://mcp.example.com/linear', 'auth': 'bearer'}}
+        with (root/'dist/config.js').open('a') as stream:
+            stream.write(f'export const KNOWN_SERVER_PRESETS = {json.dumps([preset])};')
+        with patch.object(mcp, 'adapter_root', return_value=root):
+            current = mcp.inventory()
+        linear = [p for p in current['presets'] if p['id'] == 'linear']
+        self.assertEqual(len(linear), 1)
+        self.assertEqual(linear[0]['url'], preset['entry']['url'])
+        self.assertEqual(linear[0]['auth'], 'bearer')
+
+    def test_linear_menu_and_named_add_use_oauth_and_require_confirmation(self):
+        root = self.fake_adapter()
+        with patch.object(mcp, 'adapter_root', return_value=root):
+            current = mcp.inventory()
+        for name in (None, 'linear'):
+            with self.subTest(name=name):
+                def choose(title, options, **kwargs):
+                    if title == '追加するサービス':
+                        return next(value for label, value in options if label == 'Linear')
+                    self.assertEqual(options[kwargs['default']][1], 'oauth')
+                    return 'oauth'
+                with patch.object(mcp, 'inventory', return_value=current), patch.object(prompts, 'select', side_effect=choose), patch.object(prompts, 'text') as text, patch.object(prompts, 'confirm', return_value=False), patch.object(mcp, 'register_remote') as save, patch.object(mcp, 'run_operation') as operation, contextlib.redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(mcp._add_remote(current, name, None), 0)
+                text.assert_not_called()
+                save.assert_not_called()
+                operation.assert_not_called()
+                self.assertIn('https://mcp.linear.app/mcp', out.getvalue())
+
     def test_bridge_checks_selected_server_and_refuses_unknown_adapter_versions(self):
         root=self.fake_adapter()
         with patch.object(mcp,'adapter_root',return_value=root):

@@ -33,6 +33,11 @@ try {
     };
   });
   const presets = (api.KNOWN_SERVER_PRESETS || []).filter(p => p.entry?.url).map(p => ({id:p.id,name:p.name,url:p.entry.url,...authHints(p.entry),auth:authHints(p.entry).oauth_setup_required ? 'bearer' : p.entry.auth || 'none'}));
+  // Official Streamable HTTP endpoint + OAuth DCR: https://linear.app/docs/mcp
+  // Supplement older adapters without replacing their existing presets or registering a connection.
+  if (!presets.some(p => p.id === 'linear')) {
+    presets.push({ id: 'linear', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth' });
+  }
   process.stdout.write(JSON.stringify({ version: 1, servers, presets, config_files: discovery.sources.filter(s => s.exists).map(s => s.path) }));
 } catch {
   process.stderr.write('MCP configuration inspection failed.');
